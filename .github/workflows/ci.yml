@@ -79,6 +79,24 @@ jobs:
       - name: Test
         run: ctest --preset core
 
+  control-center:
+    name: Control center (Python 3.11)
+    runs-on: ubuntu-24.04
+    if: hashFiles('apps/control-center/pyproject.toml') != ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Qt runtime libraries and the app
+        run: |
+          sudo apt-get update && sudo apt-get install -y libegl1 libxkbcommon0 libfontconfig1
+          python -m pip install -e "apps/control-center[gui,test]"
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest apps/control-center
+
   plugin:
     name: Plugin (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
