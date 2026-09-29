@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
+
+jobs:
+  format:
+    name: clang-format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check formatting (clang-format 18)
+        run: bash scripts/format.sh --check
+
+  core:
+    name: Core libraries (Linux, ${{ matrix.preset }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [core, asan]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .cpm-cache
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'src/**/CMakeLists.txt') }}
+          restore-keys: cpm-${{ runner.os }}-
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }} -DALFA_WARNINGS_AS_ERRORS=ON -DCPM_SOURCE_CACHE=$CPM_SOURCE_CACHE
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+
+  plugin:
+    name: Plugin (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS universal
+            os: macos-14
+            generator: Ninja
+            extra: '"-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"'
+            artefacts: build/src/plugin/Alfamedomega_artefacts/Release
+            pluginval_zip: pluginval_macOS.zip
+            pluginval_bin: ./pluginval.app/Contents/MacOS/pluginval
+          - name: Windows x64
+            os: windows-2022
+            generator: Visual Studio 17 2022
+            extra: -A x64
+            artefacts: build/src/plugin/Alfamedomega_artefacts/Release
+            pluginval_zip: pluginval_Windows.zip
+            pluginval_bin: ./pluginval.exe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .cpm-cache
+          key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'src/**/CMakeLists.txt') }}
+          restore-keys: cpm-${{ runner.os }}-
+      - name: Install Ninja
+        if: runner.os == 'macOS'
+        run: brew install ninja
+      - name: Configure
+        shell: bash
+        run: >
+          cmake -S . -B build -G "${{ matrix.generator }}" ${{ matrix.extra }}
+          -DCMAKE_BUILD_TYPE=Release
+          -DALFA_BUILD_PLUGIN=ON -DALFA_BUILD_TESTS=ON
+          -DALFA_WARNINGS_AS_ERRORS=ON
+          -DCPM_SOURCE_CACHE="$CPM_SOURCE_CACHE"
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Validate VST3 with pluginval
+        shell: bash
+        run: |
+          curl -sSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/latest/download/${{ matrix.pluginval_zip }}"
+          unzip -q pluginval.zip
+          ${{ matrix.pluginval_bin }} --strictness-level 5 --validate-in-process --skip-gui-tests \
+            --validate "${{ matrix.artefacts }}/VST3/Alfamedomega.vst3"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Alfamedomega-${{ runner.os }}-unsigned
+          path: |
+            ${{ matrix.artefacts }}/VST3
+            ${{ matrix.artefacts }}/AU
+          if-no-files-found: warn
+          retention-days: 14
