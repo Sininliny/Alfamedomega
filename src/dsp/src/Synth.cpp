@@ -117,10 +117,10 @@ void Synth::process(float* left, float* right, int n) noexcept
 {
     detail::ScopedNoDenormals noDenormals;
     std::fill_n(left, n, 0.0f);
-    for (auto& v : voices_)
-        v->process(left, n);
     if (right != nullptr)
-        std::memcpy(right, left, static_cast<std::size_t>(n) * sizeof(float));
+        std::fill_n(right, n, 0.0f);
+    for (auto& v : voices_)
+        v->process(left, right, n);
 }
 
 VoiceInfo Synth::voiceInfo(int voice) const noexcept
