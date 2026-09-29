@@ -43,14 +43,14 @@ public:
 private:
     struct Grain
     {
-        const float* src0 = nullptr;  ///< nullptr when the source is silent
+        const float* src0 = nullptr; ///< nullptr when the source is silent
         const float* src1 = nullptr;
-        float amp0 = 0.0f;            ///< gain * w0
-        float amp1 = 0.0f;            ///< gain * w1
-        double pos = 0.0;             ///< read position in bank samples, [0, length)
+        float amp0 = 0.0f; ///< gain * w0
+        float amp1 = 0.0f; ///< gain * w1
+        double pos = 0.0;  ///< read position in bank samples, [0, length)
         double rate = 0.0;
         double length = 0.0;
-        int age = 0;                  ///< samples since the grain started
+        int age = 0; ///< samples since the grain started
         bool live = false;
     };
 
@@ -58,11 +58,11 @@ private:
 
     int hop_ = 192;
     int numLayers_ = kMaxGrainLayers;
-    std::vector<float> window_;  ///< periodic Hann, 2 * hop
+    std::vector<float> window_; ///< periodic Hann, 2 * hop
     const GrainBank* pendingBank_ = nullptr;
     const GrainBank* bank_ = nullptr;
     std::array<std::array<Grain, 2>, kMaxGrainLayers> grains_{};
-    std::array<int, kMaxGrainLayers> next_{};  ///< slot the next grain of each layer goes to
+    std::array<int, kMaxGrainLayers> next_{}; ///< slot the next grain of each layer goes to
 };
 
 } // namespace alfa::dsp

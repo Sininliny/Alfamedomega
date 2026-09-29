@@ -79,7 +79,7 @@ private:
     std::array<float, kPrimitiveCount> mixStep_{};
     std::vector<float> scratch_;
 
-    float attackEnv_ = 1.0f;   // exp(-t / tau), counts down to 0
+    float attackEnv_ = 1.0f; // exp(-t / tau), counts down to 0
     float attackDecay_ = 0.0f;
 
     float f0Target_ = 440.0f;

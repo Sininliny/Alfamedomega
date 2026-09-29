@@ -1,6 +1,5 @@
-#include "alfa/dsp/Osc.h"
-
 #include "TestHelpers.h"
+#include "alfa/dsp/Osc.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -61,7 +60,8 @@ TEST_CASE("osc: harmonic 1 cosine part renders a unit cosine at f0", "[dsp][osc]
     // Sample-exact against the ideal cosine (linear table interpolation error is ~1e-6).
     double worst = 0.0;
     for (std::size_t n = 0; n < y.size(); ++n)
-        worst = std::max(worst, std::abs(static_cast<double>(y[n]) - std::cos(kTwoPiD * 440.0 * static_cast<double>(n) / kSr)));
+        worst = std::max(worst, std::abs(static_cast<double>(y[n]) -
+                                         std::cos(kTwoPiD * 440.0 * static_cast<double>(n) / kSr)));
     REQUIRE(worst < 1e-4);
 }
 
@@ -82,7 +82,8 @@ TEST_CASE("osc: a saw spectrum renders its harmonic amplitudes", "[dsp][osc]")
 {
     auto frame = std::make_unique<VoiceFrame>();
     for (int k = 0; k < kOscHarmonics; ++k)
-        frame->osc.im[static_cast<std::size_t>(k)] = -1.0f / static_cast<float>(k + 1);  // sum sin(2 pi h phi) / h
+        frame->osc.im[static_cast<std::size_t>(k)] =
+            -1.0f / static_cast<float>(k + 1); // sum sin(2 pi h phi) / h
     OscPrimitive osc;
     osc.prepare(spec());
     const float f0 = 220.0f;
@@ -101,7 +102,7 @@ TEST_CASE("osc: harmonics at or above Nyquist are removed", "[dsp][osc]")
     OscPrimitive osc;
     osc.prepare(spec());
     auto frame = std::make_unique<VoiceFrame>();
-    frame->osc.re[4] = 1.0f;  // harmonic 5 at 25 kHz
+    frame->osc.re[4] = 1.0f; // harmonic 5 at 25 kHz
     auto y = renderSteady(osc, *frame, 5000.0f, 50);
     REQUIRE(rms(y) < 1e-6);
 
@@ -123,7 +124,8 @@ TEST_CASE("osc: harmonics at or above Nyquist are removed", "[dsp][osc]")
     y = renderSteady(osc, *top, static_cast<float>(kSr / 4096.0), 10);
     double worst = 0.0;
     for (std::size_t n = 0; n < y.size(); ++n)
-        worst = std::max(worst, std::abs(static_cast<double>(y[n]) - std::cos(0.5 * 3.141592653589793 * static_cast<double>(n))));
+        worst = std::max(worst, std::abs(static_cast<double>(y[n]) -
+                                         std::cos(0.5 * 3.141592653589793 * static_cast<double>(n))));
     REQUIRE(worst < 1e-4);
 }
 
@@ -265,7 +267,7 @@ TEST_CASE("osc: benchmark 16 voices", "[dsp][osc][.bench]")
     {
         for (int v = 0; v < kVoices; ++v)
         {
-            const float f0 = 20.0f + 7.0f * static_cast<float>(v);  // low f0: nearly all 1024 harmonics
+            const float f0 = 20.0f + 7.0f * static_cast<float>(v); // low f0: nearly all 1024 harmonics
             int done = 0;
             while (done < kBlock)
             {
@@ -286,11 +288,12 @@ TEST_CASE("osc: benchmark 16 voices", "[dsp][osc][.bench]")
             sink += buf[5];
         }
     }
-    const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
+    const double us =
+        std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
     const int hops = total / kHop;
     std::printf("OSC: %d voices x %d s: %.1f us total, %.2f us per %d-sample block (all voices), "
                 "%.2f us per voice per hop, %.2f%% of one core per voice (sink %g)\n",
-        kVoices, kSeconds, us, us / blocks, kBlock, us / (kVoices * hops),
-        100.0 * us / (1e6 * kSeconds) / kVoices, static_cast<double>(sink));
+                kVoices, kSeconds, us, us / blocks, kBlock, us / (kVoices * hops),
+                100.0 * us / (1e6 * kSeconds) / kVoices, static_cast<double>(sink));
     SUCCEED();
 }

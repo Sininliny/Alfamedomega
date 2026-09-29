@@ -13,10 +13,10 @@ inline constexpr float kTwoPi = 6.28318530717958647692f;
 /// Max abs error about 1e-6 over a full cycle (checked in the unit tests).
 [[nodiscard]] inline float sin2pi(float x) noexcept
 {
-    const float r = x - std::floor(x + 0.5f);  // [-0.5, 0.5)
+    const float r = x - std::floor(x + 0.5f); // [-0.5, 0.5)
     const float a = std::fabs(r);
-    const float m = (a > 0.25f) ? 0.5f - a : a;  // fold into [0, 0.25]
-    const float t = kTwoPi * m;                  // [0, pi/2]
+    const float m = (a > 0.25f) ? 0.5f - a : a; // fold into [0, 0.25]
+    const float t = kTwoPi * m;                 // [0, pi/2]
     const float t2 = t * t;
     // Taylor to t^11, accurate to ~6e-8 on [0, pi/2].
     float p = -2.5052108e-8f;

@@ -1,7 +1,6 @@
+#include "TestHelpers.h"
 #include "alfa/dsp/Noise.h"
 #include "alfa/dsp/Sampler.h"
-
-#include "TestHelpers.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -50,7 +49,8 @@ std::vector<float> sine(double hz, double sr, long long n, float amp = 0.5f)
     std::vector<float> x(static_cast<std::size_t>(n));
     for (long long i = 0; i < n; ++i)
         x[static_cast<std::size_t>(i)] =
-            amp * static_cast<float>(std::sin(2.0 * 3.14159265358979323846 * hz * static_cast<double>(i) / sr));
+            amp *
+            static_cast<float>(std::sin(2.0 * 3.14159265358979323846 * hz * static_cast<double>(i) / sr));
     return x;
 }
 } // namespace
@@ -104,8 +104,8 @@ TEST_CASE("NOISE render is allocation-free", "[dsp][noise][realtime]")
     auto frame = std::make_unique<VoiceFrame>();
     frame->noise.band.fill(0.5f);
     AllocationGuard guard;
-    (void) renderHops(noise, *frame, *frame, 10);
-    REQUIRE(guard.count() <= 1);  // the output vector in renderHops
+    (void)renderHops(noise, *frame, *frame, 10);
+    REQUIRE(guard.count() <= 1); // the output vector in renderHops
 }
 
 TEST_CASE("SAMPLER with a flat EQ reproduces the sample from the first sample", "[dsp][sampler]")
@@ -139,14 +139,15 @@ TEST_CASE("SAMPLER STFT path is transparent at unity gain and keeps the onset", 
     frame->sampler.rate = 1.0f;
     frame->sampler.gain = 1.0f;
     frame->sampler.eq.fill(1.0f);
-    frame->sampler.eq[0] = 0.9999f;  // forces the FFT path
+    frame->sampler.eq[0] = 0.9999f; // forces the FFT path
     const auto out = renderHops(sampler, *frame, *frame, 50, 1000.0f);
     double worst = 0.0;
     for (std::size_t i = 0; i < out.size(); ++i)
         worst = std::max(worst, static_cast<double>(std::abs(out[i] - data[i])));
     std::size_t at = 0;
     for (std::size_t i = 0; i < out.size(); ++i)
-        if (std::abs(out[i] - data[i]) >= worst) at = i;
+        if (std::abs(out[i] - data[i]) >= worst)
+            at = i;
     INFO("worst at " << at);
     REQUIRE(worst < 2e-3);
 }
@@ -186,7 +187,7 @@ TEST_CASE("SAMPLER transposes by f0 / root and rate", "[dsp][sampler]")
 
 TEST_CASE("SAMPLER loops and stops at the end without a loop", "[dsp][sampler]")
 {
-    const auto data = sine(480.0, kSr, 4800);  // 100 ms, whole cycles
+    const auto data = sine(480.0, kSr, 4800); // 100 ms, whole cycles
     SampleData looped{data.data(), 4800, kSr, 480.0, 0, 4800};
     SampleData oneShot{data.data(), 4800, kSr, 480.0, -1, -1};
     auto frame = std::make_unique<VoiceFrame>();
@@ -239,6 +240,6 @@ TEST_CASE("SAMPLER without a sample is silent and render is allocation-free", "[
     frame->sampler.eq.fill(0.5f);
     AllocationGuard guard;
     const auto out = renderHops(sampler, *frame, *frame, 10);
-    REQUIRE(guard.count() <= 1);  // the output vector in renderHops
+    REQUIRE(guard.count() <= 1); // the output vector in renderHops
     REQUIRE(rms(out) == 0.0);
 }

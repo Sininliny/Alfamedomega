@@ -30,7 +30,7 @@ inline constexpr int kControlBlock = 32;
 struct ProcessSpec
 {
     double sampleRate = 48000.0;
-    int channels = 1;  ///< 1 in voice slots, 2 in instance slots
+    int channels = 1; ///< 1 in voice slots, 2 in instance slots
     TierLimits limits = limitsFor(Tier::Studio);
 };
 
@@ -44,21 +44,21 @@ struct ControlContext
 
 enum class Curve : unsigned char
 {
-    Linear,  ///< min + x (max - min)
-    Log,     ///< min (max / min)^x, min > 0
-    Choice,  ///< round(x (count - 1)) with count = max + 1 choices, min = 0
-    Toggle,  ///< x >= 0.5
+    Linear, ///< min + x (max - min)
+    Log,    ///< min (max / min)^x, min > 0
+    Choice, ///< round(x (count - 1)) with count = max + 1 choices, min = 0
+    Toggle, ///< x >= 0.5
 };
 
 /// Maps a normalised 0..1 slot parameter to its physical value. Exported to layout.json so the
 /// training side sees the same ranges.
 struct ParamInfo
 {
-    std::string_view name;  ///< empty for unused params
+    std::string_view name; ///< empty for unused params
     float min = 0.0f;
     float max = 1.0f;
     Curve curve = Curve::Linear;
-    float defaultNorm = 0.0f;  ///< the normalised value a neutral patch would use
+    float defaultNorm = 0.0f; ///< the normalised value a neutral patch would use
     std::string_view unit;
 };
 

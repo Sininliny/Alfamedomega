@@ -37,11 +37,11 @@ private:
 
     float* prev_ = nullptr;
     float* cur_ = nullptr;
-    bool prevValid_ = false;  // prev_ holds frame j-1's table
-    bool curValid_ = false;   // cur_ holds frame j's table
-    float prevF0_ = 440.0f;   // f0 at frame j-1's hop boundary (for its Nyquist cut)
+    bool prevValid_ = false; // prev_ holds frame j-1's table
+    bool curValid_ = false;  // cur_ holds frame j's table
+    float prevF0_ = 440.0f;  // f0 at frame j-1's hop boundary (for its Nyquist cut)
     float curF0_ = 440.0f;
-    bool started_ = false;    // a hop has begun since reset()
+    bool started_ = false; // a hop has begun since reset()
 
     double sampleRate_ = 48000.0;
     double invSampleRate_ = 1.0 / 48000.0;
@@ -49,15 +49,15 @@ private:
     float invHop_ = 1.0f / 192.0f;
 
     double phase_ = 0.0;  // cycles, [0, 1)
-    double phase2_ = 0.0;  // detuned read (VoiceFrame::oscDetuneRatio), cycles
-    bool detune_ = false;  // detune level non-zero in frame j-1 or j
+    double phase2_ = 0.0; // detuned read (VoiceFrame::oscDetuneRatio), cycles
+    bool detune_ = false; // detune level non-zero in frame j-1 or j
     float ratioStart_ = 1.0f;
     float ratioDelta_ = 0.0f;
     float levelStart_ = 0.0f;
     float levelDelta_ = 0.0f;
-    int pos_ = 0;         // sample index within the hop
+    int pos_ = 0; // sample index within the hop
     float f0Start_ = 440.0f;
-    float f0Delta_ = 0.0f;  // f0End - f0Start
+    float f0Delta_ = 0.0f; // f0End - f0Start
 };
 
 } // namespace alfa::dsp

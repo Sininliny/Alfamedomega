@@ -10,7 +10,7 @@ namespace alfa::dsp
 
 namespace
 {
-constexpr int kGuard = 16;  // table[kOscTableSize] repeats table[0]; the rest keeps the size aligned
+constexpr int kGuard = 16; // table[kOscTableSize] repeats table[0]; the rest keeps the size aligned
 constexpr std::size_t kTableAlloc = static_cast<std::size_t>(kOscTableSize + kGuard);
 
 inline double wrap01(double x) noexcept
@@ -64,7 +64,8 @@ void OscPrimitive::buildTable(const VoiceFrame* frame, float f0, float* table) n
     {
         const double q = 0.5 * sampleRate_ / static_cast<double>(f0);
         const double c = std::ceil(q) - 1.0;
-        count = c <= 0.0 ? 0 : (c >= static_cast<double>(kOscHarmonics) ? kOscHarmonics : static_cast<int>(c));
+        count =
+            c <= 0.0 ? 0 : (c >= static_cast<double>(kOscHarmonics) ? kOscHarmonics : static_cast<int>(c));
     }
 
     float* s = spectrum_.data();
@@ -73,7 +74,7 @@ void OscPrimitive::buildTable(const VoiceFrame* frame, float f0, float* table) n
     // re cos - im sin.
     s[0] = 0.0f;
     s[1] = count >= kOscHarmonics ? controls.re[static_cast<std::size_t>(kOscHarmonics - 1)] : 0.0f;
-    const int below = std::min(count, kOscHarmonics - 1);  // harmonics that land on bins 1..1023
+    const int below = std::min(count, kOscHarmonics - 1); // harmonics that land on bins 1..1023
     const float* re = controls.re.data();
     const float* im = controls.im.data();
     for (int k = 0; k < below; ++k)
@@ -82,7 +83,8 @@ void OscPrimitive::buildTable(const VoiceFrame* frame, float f0, float* table) n
         s[2 * k + 3] = 0.5f * im[k];
     }
     if (below < kOscHarmonics - 1)
-        std::memset(s + 2 * below + 2, 0, static_cast<std::size_t>(2 * (kOscHarmonics - 1 - below)) * sizeof(float));
+        std::memset(s + 2 * below + 2, 0,
+                    static_cast<std::size_t>(2 * (kOscHarmonics - 1 - below)) * sizeof(float));
 
     fft_.inverse(s, table);
     table[kOscTableSize] = table[0];
@@ -174,7 +176,7 @@ void OscPrimitive::render(float* out, int n) noexcept
         phase += static_cast<double>(f0) * invSr;
         if (phase >= 1.0)
             phase -= 1.0;
-        if (phase >= 1.0 || phase < 0.0)  // f0 above the sample rate or negative
+        if (phase >= 1.0 || phase < 0.0) // f0 above the sample rate or negative
             phase = wrap01(phase);
     }
     phase_ = phase;
@@ -226,9 +228,9 @@ void OscPrimitive::skipHop(const HopContext& ctx) noexcept
     curValid_ = false;
     // Sum over n = 0..H-1 of f0(n) / sr with f0(n) = f0Start + (f0End - f0Start) n / H.
     const double h = static_cast<double>(hop_);
-    const double cycles = (h * static_cast<double>(ctx.f0Start)
-                              + static_cast<double>(ctx.f0End - ctx.f0Start) * (h - 1.0) * 0.5)
-        * invSampleRate_;
+    const double cycles = (h * static_cast<double>(ctx.f0Start) +
+                           static_cast<double>(ctx.f0End - ctx.f0Start) * (h - 1.0) * 0.5) *
+                          invSampleRate_;
     phase_ = wrap01(phase_ + cycles);
     pos_ = 0;
     advanceDetuned(hop_);

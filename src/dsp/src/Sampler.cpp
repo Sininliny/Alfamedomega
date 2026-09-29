@@ -39,8 +39,8 @@ double SamplerPrimitive::incrementFor(const HopContext& ctx) const noexcept
     if (finished_)
         return 0.0;
     const double root = sample_->rootHz > 0.0 ? sample_->rootHz : 261.6255653;
-    return static_cast<double>(ctx.f0End) / root * static_cast<double>(ctx.cur->sampler.rate)
-        * sample_->sampleRate / sampleRate_;
+    return static_cast<double>(ctx.f0End) / root * static_cast<double>(ctx.cur->sampler.rate) *
+           sample_->sampleRate / sampleRate_;
 }
 
 void SamplerPrimitive::readRaw(float* dst, int n, double increment) noexcept

@@ -1,6 +1,5 @@
-#include "alfa/dsp/Synth.h"
-
 #include "TestHelpers.h"
+#include "alfa/dsp/Synth.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -18,7 +17,7 @@ constexpr double kSr = 48000.0;
 std::unique_ptr<VoiceFrame> sineFrame(float tau = 1.0e-4f)
 {
     auto f = std::make_unique<VoiceFrame>();
-    f->osc.re[0] = 1.0f;  // harmonic 1, cosine
+    f->osc.re[0] = 1.0f; // harmonic 1, cosine
     f->setMix(Primitive::Osc, 1.0f);
     f->attackTau = tau;
     return f;
@@ -101,7 +100,8 @@ TEST_CASE("the attack envelope is 1 - exp(-t / tau) from the note-on sample", "[
     synth.noteOn(69, 1.0f, frame.get());
     const auto out = run(synth, 4800);
     // Peak within one period around t = tau (480 samples) and t = 3 tau.
-    const auto peakAround = [&](int centre) {
+    const auto peakAround = [&](int centre)
+    {
         float p = 0.0f;
         for (int i = centre - 55; i < centre + 55; ++i)
             p = std::max(p, std::abs(out[static_cast<std::size_t>(i)]));
@@ -109,7 +109,7 @@ TEST_CASE("the attack envelope is 1 - exp(-t / tau) from the note-on sample", "[
     };
     REQUIRE(std::abs(peakAround(480) - (1.0 - std::exp(-1.0))) < 0.05);
     REQUIRE(std::abs(peakAround(1440) - (1.0 - std::exp(-3.0))) < 0.05);
-    REQUIRE(std::abs(out[0]) < 1e-3f);  // starts from silence
+    REQUIRE(std::abs(out[0]) < 1e-3f); // starts from silence
 }
 
 TEST_CASE("a voice waits for its first frame", "[dsp][synth]")
@@ -129,11 +129,11 @@ TEST_CASE("a released voice ends once the network's mix gains reach zero", "[dsp
     synth.prepare(kSr, 128, Tier::Standard);
     auto frame = sineFrame();
     const int v = synth.noteOn(60, 1.0f, frame.get());
-    (void) run(synth, 4800);
+    (void)run(synth, 4800);
     synth.noteOff(60);
     REQUIRE(synth.voiceInfo(v).releasing);
-    (void) run(synth, 4800);
-    REQUIRE(synth.voiceInfo(v).active);  // the network is still sounding it
+    (void)run(synth, 4800);
+    REQUIRE(synth.voiceInfo(v).active); // the network is still sounding it
     frame->setMix(Primitive::Osc, 0.0f);
     synth.setFrame(v, *frame);
     const auto tail = run(synth, 4800);
@@ -160,7 +160,7 @@ TEST_CASE("pitch bend moves every voice", "[dsp][synth]")
 TEST_CASE("voice stealing takes the oldest voice when the pool is full", "[dsp][synth]")
 {
     Synth synth;
-    synth.prepare(kSr, 128, Tier::Studio);  // 8 voices
+    synth.prepare(kSr, 128, Tier::Studio); // 8 voices
     auto frame = sineFrame();
     for (int n = 0; n < 8; ++n)
         synth.noteOn(60 + n, 1.0f, frame.get());
@@ -170,7 +170,7 @@ TEST_CASE("voice stealing takes the oldest voice when the pool is full", "[dsp][
     synth.noteOff(61);
     const int w = synth.noteOn(81, 1.0f, frame.get());
     REQUIRE(synth.voiceInfo(w).note == 81);
-    REQUIRE(w == 1);  // released voices go first
+    REQUIRE(w == 1); // released voices go first
 }
 
 TEST_CASE("the full audio path is allocation-free with every primitive active", "[dsp][synth][realtime]")
@@ -199,7 +199,7 @@ TEST_CASE("the full audio path is allocation-free with every primitive active", 
                 synth.noteOn(48 + 3 * v, 0.8f, frame.get());
             for (int block = 0; block < 400; ++block)
             {
-                const int n = 1 + (block * 37) % 512;  // odd sizes cross hop boundaries anywhere
+                const int n = 1 + (block * 37) % 512; // odd sizes cross hop boundaries anywhere
                 for (int v = 0; v < synth.voiceCount(); ++v)
                     synth.setFrame(v, *frame);
                 synth.process(left.data(), right.data(), n);

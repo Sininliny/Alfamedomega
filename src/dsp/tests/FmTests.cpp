@@ -1,6 +1,5 @@
-#include "alfa/dsp/Fm.h"
-
 #include "TestHelpers.h"
+#include "alfa/dsp/Fm.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -29,7 +28,7 @@ double besselJ(int n, double x)
     const double half = 0.5 * x;
     double term = std::pow(half, n);
     for (int i = 1; i <= n; ++i)
-        term /= i;  // (x/2)^n / n!
+        term /= i; // (x/2)^n / n!
     double sum = term;
     for (int m = 1; m < 40; ++m)
     {
@@ -38,7 +37,6 @@ double besselJ(int n, double x)
     }
     return sum;
 }
-
 
 constexpr double kSr = 48000.0;
 constexpr int kHop = 192;
@@ -119,8 +117,8 @@ TEST_CASE("FM 1:1 carrier:modulator matches the Bessel sideband amplitudes", "[d
         REQUIRE(fm.activeOperators() == 2);
         for (int k = 1; k <= 5; ++k)
         {
-            const double expected = std::abs(besselJ(k - 1, index)
-                                             + ((k % 2 == 0) ? 1.0 : -1.0) * besselJ(k + 1, index));
+            const double expected =
+                std::abs(besselJ(k - 1, index) + ((k % 2 == 0) ? 1.0 : -1.0) * besselJ(k + 1, index));
             INFO("I = " << index << ", harmonic " << k);
             REQUIRE_THAT(toneAmplitude(out, static_cast<double>(f0) * k, kSr), WithinAbs(expected, 0.01));
         }
@@ -132,13 +130,13 @@ TEST_CASE("FM ignores index entries on and below the diagonal", "[dsp][fm]")
     FmPrimitive fm;
     fm.prepare(spec());
     auto plain = carrier();
-    plain->fm.ratio[1] = 2.0f;  // present but silent and not routed
+    plain->fm.ratio[1] = 2.0f; // present but silent and not routed
     const auto ref = renderConstant(fm, *plain, 440.0f, 20);
 
     auto f = carrier();
     f->fm.ratio[1] = 2.0f;
-    f->fm.index[0 * 8 + 0] = 3.0f;  // self
-    f->fm.index[1 * 8 + 0] = 5.0f;  // op1 modulated by op0: lower triangle
+    f->fm.index[0 * 8 + 0] = 3.0f; // self
+    f->fm.index[1 * 8 + 0] = 5.0f; // op1 modulated by op0: lower triangle
     f->fm.index[1 * 8 + 1] = 2.0f;
     const auto out = renderConstant(fm, *f, 440.0f, 20);
     REQUIRE(fm.activeOperators() == 1);
@@ -150,8 +148,8 @@ TEST_CASE("FM honours the tier operator limit", "[dsp][fm]")
     auto f = carrier();
     f->fm.ratio[2] = 3.0f;
     f->fm.ratio[3] = 2.0f;
-    f->fm.level[3] = 1.0f;          // an audible operator beyond Lite's two
-    f->fm.index[0 * 8 + 2] = 2.0f;  // and a modulator beyond it
+    f->fm.level[3] = 1.0f;         // an audible operator beyond Lite's two
+    f->fm.index[0 * 8 + 2] = 2.0f; // and a modulator beyond it
 
     FmPrimitive lite;
     lite.prepare(spec(Tier::Lite));
@@ -182,7 +180,10 @@ struct FmReference
         for (int k = 0; k < kHop; ++k)
         {
             const double t = static_cast<double>(k) / kHop;
-            auto lerp = [t](float a, float b) { return a + (b - a) * t; };
+            auto lerp = [t](float a, float b)
+            {
+                return a + (b - a) * t;
+            };
             double y[8] = {};
             double acc = 0.0;
             for (int i = ops - 1; i >= 0; --i)
@@ -345,11 +346,13 @@ TEST_CASE("FM cost, 16 voices x 1 s, all Studio operators", "[.bench][dsp][fm]")
     for (int h = 0; h < hops; ++h)
         for (int v = 0; v < kVoices; ++v)
         {
-            voices[u(v)].beginHop({frame.get(), frame.get(), 110.0f + static_cast<float>(v), 110.0f + static_cast<float>(v), h == 0});
+            voices[u(v)].beginHop({frame.get(), frame.get(), 110.0f + static_cast<float>(v),
+                                   110.0f + static_cast<float>(v), h == 0});
             voices[u(v)].render(out.data(), kHop);
             sink += out[0];
         }
-    const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
+    const double us =
+        std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
     const double samples = static_cast<double>(hops) * kHop;
     const double perBlockAll = us / (samples / 128.0);
     std::printf("FM (8 ops): %.2f us per 128-sample block for %d voices, %.3f us per voice (sink %g)\n",

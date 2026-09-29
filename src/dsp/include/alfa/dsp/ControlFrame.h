@@ -50,14 +50,14 @@ inline constexpr double kFrameRateHz = 250.0;
 
 // Sizes -------------------------------------------------------------------------------------
 
-inline constexpr int kOscHarmonics = 1024;   ///< OSC harmonics 1..1024 (index 0 is harmonic 1)
-inline constexpr int kOscTableSize = 2048;   ///< single-cycle wave length built from them
+inline constexpr int kOscHarmonics = 1024; ///< OSC harmonics 1..1024 (index 0 is harmonic 1)
+inline constexpr int kOscTableSize = 2048; ///< single-cycle wave length built from them
 inline constexpr int kMaxPartials = 64;
 inline constexpr int kMaxFmOperators = 8;
-inline constexpr int kBands = 64;            ///< NOISE bands and SAMPLER EQ bands (same axis)
+inline constexpr int kBands = 64; ///< NOISE bands and SAMPLER EQ bands (same axis)
 inline constexpr int kMaxGrainLayers = 8;
-inline constexpr int kGrainSourcesPerLayer = 2;  ///< top-2 sparse selection over the bank
-inline constexpr int kGrainSourceLength = 8192;  ///< samples per grain-source buffer
+inline constexpr int kGrainSourcesPerLayer = 2; ///< top-2 sparse selection over the bank
+inline constexpr int kGrainSourceLength = 8192; ///< samples per grain-source buffer
 
 /// Lowest band centre. Band b (0..63) is centred at 20 * (nyquist / 20)^(b / 63) Hz, so the top
 /// band sits at Nyquist. Per-bin gains are linear in log-frequency between centres and flat
@@ -131,9 +131,9 @@ struct NoiseControls
 /// loaded bank reads silence. All values are held for the grain.
 struct GrainControls
 {
-    std::array<float, kMaxGrainLayers * kGrainSourcesPerLayer> source{};  ///< [layer * 2 + s]
-    std::array<float, kMaxGrainLayers * kGrainSourcesPerLayer> weight{};  ///< [layer * 2 + s]
-    std::array<float, kMaxGrainLayers> position{};  ///< 0..1 of the source buffer
+    std::array<float, kMaxGrainLayers * kGrainSourcesPerLayer> source{}; ///< [layer * 2 + s]
+    std::array<float, kMaxGrainLayers * kGrainSourcesPerLayer> weight{}; ///< [layer * 2 + s]
+    std::array<float, kMaxGrainLayers> position{};                       ///< 0..1 of the source buffer
     std::array<float, kMaxGrainLayers> rate{};
     std::array<float, kMaxGrainLayers> gain{};
 };
@@ -175,16 +175,16 @@ struct SamplerControls
 inline constexpr int kSlotParams = 16;
 inline constexpr int kMaxVoiceSlots = 4;
 inline constexpr int kMaxInstanceSlots = 4;
-inline constexpr int kSlotInputs = kPrimitiveCount + kMaxVoiceSlots;  ///< 10
+inline constexpr int kSlotInputs = kPrimitiveCount + kMaxVoiceSlots; ///< 10
 inline constexpr int kMaxModRoutes = 8;
 inline constexpr int kModSourceParams = 24;
 
 struct SlotControls
 {
-    float family = 0.0f;   ///< Family, rounded; 0 is Off
-    float outGain = 0.0f;  ///< linear
-    std::array<float, kSlotParams> params{};  ///< normalised 0..1, meaning per family
-    std::array<float, kSlotInputs> input{};   ///< linear weights, see above
+    float family = 0.0f;                     ///< Family, rounded; 0 is Off
+    float outGain = 0.0f;                    ///< linear
+    std::array<float, kSlotParams> params{}; ///< normalised 0..1, meaning per family
+    std::array<float, kSlotInputs> input{};  ///< linear weights, see above
 };
 
 /// Modulation that runs between frames, at the control sub-block rate (32 samples).
@@ -220,14 +220,23 @@ struct ModControls
 inline constexpr int kModDestinations = 77;
 enum class ModSource : std::uint8_t
 {
-    None = 0, Env1, Env2, Lfo1, Lfo2, SampleHold, SmoothRandom, Follower, Velocity, Key,
+    None = 0,
+    Env1,
+    Env2,
+    Lfo1,
+    Lfo2,
+    SampleHold,
+    SmoothRandom,
+    Follower,
+    Velocity,
+    Key,
 };
 inline constexpr int kModSourceCount = 10;
 namespace moddest
 {
-inline constexpr int slotParam = 0;   // + slot * kSlotParams + param
-inline constexpr int slotOutGain = 64;  // + slot
-inline constexpr int mix = 68;          // + primitive
+inline constexpr int slotParam = 0;    // + slot * kSlotParams + param
+inline constexpr int slotOutGain = 64; // + slot
+inline constexpr int mix = 68;         // + primitive
 inline constexpr int pitch = 74;
 inline constexpr int pan = 75;
 inline constexpr int dryGain = 76;
@@ -242,9 +251,9 @@ inline constexpr int dryGain = 76;
 /// per sample. A primitive whose mix is 0 in both frames of a hop is not rendered.
 struct VoiceFrame
 {
-    std::array<float, kPrimitiveCount> mix{};  ///< indexed by Primitive
-    float attackTau = 0.001f;                  ///< seconds
-    float reserved = 0.0f;                     ///< keeps the primitive blocks 8-byte aligned
+    std::array<float, kPrimitiveCount> mix{}; ///< indexed by Primitive
+    float attackTau = 0.001f;                 ///< seconds
+    float reserved = 0.0f;                    ///< keeps the primitive blocks 8-byte aligned
 
     OscControls osc{};
     PartialsControls partials{};
@@ -254,8 +263,8 @@ struct VoiceFrame
     SamplerControls sampler{};
 
     // Layout v2: processing slots and modulation.
-    float pan = 0.0f;      ///< -1 (left) .. 1 (right), equal-power
-    float dryGain = 1.0f;  ///< primitive sum straight to the output
+    float pan = 0.0f;     ///< -1 (left) .. 1 (right), equal-power
+    float dryGain = 1.0f; ///< primitive sum straight to the output
     /// Second read of the OSC tables for unison / supersaw: a phase accumulator at
     /// f0 * oscDetuneRatio, same crossfade, scaled by oscDetuneLevel (both linear per sample,
     /// starting at phase 0 on note-on). While the level is non-zero in frame j-1 or j, the OSC
@@ -275,9 +284,9 @@ inline constexpr std::size_t kFrameFloats = sizeof(VoiceFrame) / sizeof(float);
 /// Everything the instance (post-voice, stereo) receives per frame, from instance_step.
 struct InstanceFrame
 {
-    float dryGain = 1.0f;     ///< summed voices straight to the output
-    float masterGain = 1.0f;  ///< linear
-    float width = 1.0f;       ///< 0 mono .. 1 unchanged .. 2 extra-wide (mid/side)
+    float dryGain = 1.0f;    ///< summed voices straight to the output
+    float masterGain = 1.0f; ///< linear
+    float width = 1.0f;      ///< 0 mono .. 1 unchanged .. 2 extra-wide (mid/side)
     float reserved = 0.0f;
     std::array<SlotControls, kMaxInstanceSlots> slots{};
     ModControls mod{};
@@ -291,9 +300,9 @@ inline constexpr std::size_t kInstanceFrameFloats = sizeof(InstanceFrame) / size
 
 struct FieldInfo
 {
-    std::string_view name;   ///< dotted path, e.g. "osc.re"
-    std::size_t offset;      ///< in floats from the start of VoiceFrame
-    std::size_t count;       ///< floats in the field
+    std::string_view name; ///< dotted path, e.g. "osc.re"
+    std::size_t offset;    ///< in floats from the start of VoiceFrame
+    std::size_t count;     ///< floats in the field
     std::string_view unit;
 };
 
@@ -322,7 +331,7 @@ inline constexpr std::size_t pan = samplerEq + kBands;
 inline constexpr std::size_t dryGain = pan + 1;
 inline constexpr std::size_t oscDetuneRatio = dryGain + 1;
 inline constexpr std::size_t oscDetuneLevel = oscDetuneRatio + 1;
-inline constexpr std::size_t slots = oscDetuneLevel + 1;  // kMaxVoiceSlots x SlotControls
+inline constexpr std::size_t slots = oscDetuneLevel + 1; // kMaxVoiceSlots x SlotControls
 inline constexpr std::size_t slotFloats = 2 + kSlotParams + kSlotInputs;
 inline constexpr std::size_t mod = slots + kMaxVoiceSlots * slotFloats;
 inline constexpr std::size_t modFloats = kModSourceParams + 3 * kMaxModRoutes;
@@ -351,10 +360,11 @@ inline constexpr std::array<FieldInfo, 25> kFields{{
     {"partials.amp", offsets::partialsAmp, kMaxPartials, "linear"},
     {"fm.ratio", offsets::fmRatio, kMaxFmOperators, "multiple of f0"},
     {"fm.level", offsets::fmLevel, kMaxFmOperators, "linear"},
-    {"fm.index", offsets::fmIndex, kMaxFmOperators * kMaxFmOperators, "radians, row-major [i*8+j], j>i only"},
+    {"fm.index", offsets::fmIndex, kMaxFmOperators* kMaxFmOperators, "radians, row-major [i*8+j], j>i only"},
     {"noise.band", offsets::noiseBand, kBands, "linear gain"},
-    {"grain.source", offsets::grainSource, kMaxGrainLayers * kGrainSourcesPerLayer, "bank index (rounded), [layer*2+s]"},
-    {"grain.weight", offsets::grainWeight, kMaxGrainLayers * kGrainSourcesPerLayer, "linear, [layer*2+s]"},
+    {"grain.source", offsets::grainSource, kMaxGrainLayers* kGrainSourcesPerLayer,
+     "bank index (rounded), [layer*2+s]"},
+    {"grain.weight", offsets::grainWeight, kMaxGrainLayers* kGrainSourcesPerLayer, "linear, [layer*2+s]"},
     {"grain.position", offsets::grainPosition, kMaxGrainLayers, "0..1 of source buffer"},
     {"grain.rate", offsets::grainRate, kMaxGrainLayers, "bank samples per bank sample"},
     {"grain.gain", offsets::grainGain, kMaxGrainLayers, "linear"},
@@ -366,8 +376,10 @@ inline constexpr std::array<FieldInfo, 25> kFields{{
     {"dry_gain", offsets::dryGain, 1, "linear"},
     {"osc.detune_ratio", offsets::oscDetuneRatio, 1, "multiple of f0, second OSC table read"},
     {"osc.detune_level", offsets::oscDetuneLevel, 1, "linear"},
-    {"slots", offsets::slots, kMaxVoiceSlots * offsets::slotFloats, "4 x [family, out_gain, params[16] 0..1, input[10]]"},
-    {"mod", offsets::mod, offsets::modFloats, "sources[24] 0..1, route_source[8], route_destination[8], route_depth[8] -1..1"},
+    {"slots", offsets::slots, kMaxVoiceSlots* offsets::slotFloats,
+     "4 x [family, out_gain, params[16] 0..1, input[10]]"},
+    {"mod", offsets::mod, offsets::modFloats,
+     "sources[24] 0..1, route_source[8], route_destination[8], route_depth[8] -1..1"},
 }};
 
 /// Every field of InstanceFrame in layout order.
@@ -375,7 +387,8 @@ inline constexpr std::array<FieldInfo, 5> kInstanceFields{{
     {"dry_gain", offsets::instance::dryGain, 1, "linear"},
     {"master_gain", offsets::instance::masterGain, 1, "linear"},
     {"width", offsets::instance::width, 1, "0 mono .. 1 unchanged .. 2"},
-    {"slots", offsets::instance::slots, kMaxInstanceSlots * offsets::slotFloats, "4 x [family, out_gain, params[16] 0..1, input[10]: dry, slot0..3]"},
+    {"slots", offsets::instance::slots, kMaxInstanceSlots* offsets::slotFloats,
+     "4 x [family, out_gain, params[16] 0..1, input[10]: dry, slot0..3]"},
     {"mod", offsets::instance::mod, offsets::modFloats, "as VoiceFrame.mod; LFO and random sources only"},
 }};
 
@@ -409,10 +422,14 @@ struct TierLimits
 {
     switch (tier)
     {
-    case Tier::Lite: return {16, 2, 2, 16, 2, 2, 4, 8};
-    case Tier::Standard: return {32, 4, 4, 16, 3, 3, 6, 16};
-    case Tier::Pro: return {48, 6, 6, 16, 4, 4, 8, 24};
-    case Tier::Studio: return {64, 8, 8, 8, 4, 4, 8, 32};
+    case Tier::Lite:
+        return {16, 2, 2, 16, 2, 2, 4, 8};
+    case Tier::Standard:
+        return {32, 4, 4, 16, 3, 3, 6, 16};
+    case Tier::Pro:
+        return {48, 6, 6, 16, 4, 4, 8, 24};
+    case Tier::Studio:
+        return {64, 8, 8, 8, 4, 4, 8, 32};
     }
     return {64, 8, 8, 16, 4, 4, 8, 32};
 }

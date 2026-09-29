@@ -42,9 +42,9 @@ private:
     detail::BandMap bands_;
     std::vector<float> window_;
     detail::AlignedBuffer frame_;
-    std::vector<float> raw_;   // 2 hops: raw read for [jH, (j+2)H)
-    std::vector<float> acc_;   // overlap-add accumulator starting at the current hop
-    std::vector<float> scratch_;  // 2 hops, stages the note-on frame
+    std::vector<float> raw_;     // 2 hops: raw read for [jH, (j+2)H)
+    std::vector<float> acc_;     // overlap-add accumulator starting at the current hop
+    std::vector<float> scratch_; // 2 hops, stages the note-on frame
 
     const SampleData* pending_ = nullptr;
     const SampleData* sample_ = nullptr;

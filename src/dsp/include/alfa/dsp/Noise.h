@@ -35,9 +35,9 @@ private:
     detail::RealFft fft_;
     detail::BandMap bands_;
     detail::Random random_;
-    std::vector<float> window_;   // periodic Hann, 2 hops
+    std::vector<float> window_; // periodic Hann, 2 hops
     detail::AlignedBuffer spectrum_;
-    detail::AlignedBuffer grain_;  // fftSize_, first 2 hops used
+    detail::AlignedBuffer grain_; // fftSize_, first 2 hops used
     std::vector<float> tail_;     // second half of the previous grain
     std::vector<float> hopOut_;   // this hop's output
     int pos_ = 0;

@@ -1,6 +1,5 @@
-#include "alfa/dsp/Osc.h"
-
 #include "TestHelpers.h"
+#include "alfa/dsp/Osc.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -56,7 +55,7 @@ TEST_CASE("OSC detune at level 0 changes nothing", "[dsp][osc]")
     plain->osc.re[0] = 1.0f;
     plain->osc.re[3] = 0.25f;
     auto detuned = std::make_unique<VoiceFrame>(*plain);
-    detuned->oscDetuneRatio = 3.0f;  // must not tighten the Nyquist cut while silent
+    detuned->oscDetuneRatio = 3.0f; // must not tighten the Nyquist cut while silent
     const auto x = renderOsc(a, *plain, 20, 5500.0f);
     const auto y = renderOsc(b, *detuned, 20, 5500.0f);
     REQUIRE(x == y);
@@ -68,7 +67,7 @@ TEST_CASE("OSC detune tightens the Nyquist cut to the higher read", "[dsp][osc]"
     osc.prepare(PrepareSpec{});
     osc.reset();
     auto frame = std::make_unique<VoiceFrame>();
-    frame->osc.re[2] = 1.0f;  // harmonic 3 at 5 kHz: 15 kHz, detuned x2 would be 30 kHz
+    frame->osc.re[2] = 1.0f; // harmonic 3 at 5 kHz: 15 kHz, detuned x2 would be 30 kHz
     frame->oscDetuneRatio = 2.0f;
     frame->oscDetuneLevel = 1.0f;
     const auto out = renderOsc(osc, *frame, 50, 5000.0f);

@@ -26,7 +26,7 @@ public:
         for (int k = 1; k < bins; ++k)
         {
             const double f = static_cast<double>(k) * sampleRate / fftSize;
-            double pos = (kBands - 1) * std::log(f / kBandLowHz) / span;  // fractional band index
+            double pos = (kBands - 1) * std::log(f / kBandLowHz) / span; // fractional band index
             if (pos < 0.0)
                 pos = 0.0;
             if (pos > kBands - 1)

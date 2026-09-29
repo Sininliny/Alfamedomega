@@ -35,7 +35,7 @@ public:
 
 private:
     static constexpr int kOps = kMaxFmOperators;
-    static constexpr int kBlock = 64;  ///< samples evaluated per operator pass in render()
+    static constexpr int kBlock = 64; ///< samples evaluated per operator pass in render()
 
     /// Loads the f0 and ratio ramps of ctx (all operators) into gStart_/gStep_/ratio*_.
     void loadRamps(const HopContext& ctx) noexcept;
@@ -47,11 +47,11 @@ private:
     int numOps_ = kOps;
 
     // Persistent state.
-    std::array<double, kOps> phase_{};  ///< cycles, [0, 1), indexed by operator
+    std::array<double, kOps> phase_{}; ///< cycles, [0, 1), indexed by operator
 
     // Hop description (all operators), for closed-form advancing.
-    double gStart_ = 0.0;  ///< f0 / sampleRate at sample 0 of the hop
-    double gStep_ = 0.0;   ///< per-sample increment of g
+    double gStart_ = 0.0; ///< f0 / sampleRate at sample 0 of the hop
+    double gStep_ = 0.0;  ///< per-sample increment of g
     std::array<double, kOps> ratioStart_{};
     std::array<double, kOps> ratioStep_{};
 
@@ -60,14 +60,14 @@ private:
     int numActive_ = 0;
     unsigned activeMask_ = 0;
     std::array<int, kOps> active_{};
-    double g_ = 0.0;  ///< running f0 / sampleRate; the phase path is double so notes do not drift
+    double g_ = 0.0; ///< running f0 / sampleRate; the phase path is double so notes do not drift
     double gInc_ = 0.0;
     std::array<double, kOps> ratio_{};
     std::array<double, kOps> ratioInc_{};
-    int pos_ = 0;  ///< samples of the hop rendered so far
-    std::array<float, kOps> level_{};  ///< at the hop start
+    int pos_ = 0;                     ///< samples of the hop rendered so far
+    std::array<float, kOps> level_{}; ///< at the hop start
     std::array<float, kOps> levelInc_{};
-    std::array<float, kOps * kOps> mod_{};     ///< [a * 8 + b], b > a, in cycles, at the hop start
+    std::array<float, kOps * kOps> mod_{}; ///< [a * 8 + b], b > a, in cycles, at the hop start
     std::array<float, kOps * kOps> modInc_{};
 };
 

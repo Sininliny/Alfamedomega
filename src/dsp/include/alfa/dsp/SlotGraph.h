@@ -50,7 +50,8 @@ public:
 
     /// Processes n samples. sources[s * channels + c] points at n samples of source s, channel c.
     /// blocks[k] holds slot k's resolved values. Returns true if any slot ran.
-    bool process(const float* const* sources, const SlotBlock* blocks, const ControlContext& ctx, int n) noexcept;
+    bool process(const float* const* sources, const SlotBlock* blocks, const ControlContext& ctx,
+                 int n) noexcept;
 
     /// Output of slot k, channel c, from the last process() call (n samples, zeros if it was off).
     [[nodiscard]] const float* output(int slot, int channel) const noexcept;
@@ -68,13 +69,14 @@ private:
         Family family = Family::Off;
         Family fadingOut = Family::Off;
         int fadePos = 0;
-        std::vector<float> out;   // channels * kControlBlock
-        std::vector<float> in;    // channels * kControlBlock
-        std::vector<float> old;   // channels * kControlBlock, crossfade scratch
+        std::vector<float> out; // channels * kControlBlock
+        std::vector<float> in;  // channels * kControlBlock
+        std::vector<float> old; // channels * kControlBlock, crossfade scratch
         bool ran = false;
     };
 
-    void runFamily(Slot& slot, Family f, const float* params, const ControlContext& ctx, float* buffer, int n) noexcept;
+    void runFamily(Slot& slot, Family f, const float* params, const ControlContext& ctx, float* buffer,
+                   int n) noexcept;
 
     std::vector<Slot> slots_;
     int channels_ = 1;

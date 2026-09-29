@@ -21,7 +21,8 @@ int main()
     for (int t = 0; t < 4; ++t)
     {
         const auto l = limitsFor(static_cast<Tier>(t));
-        std::printf("    \"%s\": {\"partials\": %d, \"fm_operators\": %d, \"grain_layers\": %d, \"polyphony\": %d}%s\n",
+        std::printf("    \"%s\": {\"partials\": %d, \"fm_operators\": %d, \"grain_layers\": %d, "
+                    "\"polyphony\": %d}%s\n",
                     names[t], l.partials, l.fmOperators, l.grainLayers, l.polyphony, t < 3 ? "," : "");
     }
     std::printf("  },\n");

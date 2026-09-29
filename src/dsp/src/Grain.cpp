@@ -32,8 +32,8 @@ inline double wrapPos(double x, double len) noexcept
 /// Buffer for a source index stored as a float, or nullptr when it reads silence.
 inline const float* sourceBuffer(const GrainBank* bank, float source, float weight) noexcept
 {
-    if (bank == nullptr || bank->data == nullptr || bank->length <= 0 || weight == 0.0f
-        || !std::isfinite(weight) || !std::isfinite(source))
+    if (bank == nullptr || bank->data == nullptr || bank->length <= 0 || weight == 0.0f ||
+        !std::isfinite(weight) || !std::isfinite(source))
         return nullptr;
     const double idx = std::floor(static_cast<double>(source) + 0.5);
     if (idx < 0.0 || idx >= static_cast<double>(bank->count))
@@ -42,8 +42,8 @@ inline const float* sourceBuffer(const GrainBank* bank, float source, float weig
 }
 
 template <bool Use0, bool Use1>
-void readGrain(const float* s0, const float* s1, float a0, float a1, double& posRef, double rate,
-               double len, int lenInt, const float* win, float* out, int n) noexcept
+void readGrain(const float* s0, const float* s1, float a0, float a1, double& posRef, double rate, double len,
+               int lenInt, const float* win, float* out, int n) noexcept
 {
     double pos = posRef;
     for (int k = 0; k < n; ++k)
@@ -143,11 +143,14 @@ void GrainPrimitive::renderGrain(Grain& g, float* out, int n) noexcept
     const float* win = window_.data() + g.age;
     const int lenInt = static_cast<int>(g.length);
     if (g.src0 != nullptr && g.src1 != nullptr)
-        readGrain<true, true>(g.src0, g.src1, g.amp0, g.amp1, g.pos, g.rate, g.length, lenInt, win, out, count);
+        readGrain<true, true>(g.src0, g.src1, g.amp0, g.amp1, g.pos, g.rate, g.length, lenInt, win, out,
+                              count);
     else if (g.src0 != nullptr)
-        readGrain<true, false>(g.src0, g.src1, g.amp0, g.amp1, g.pos, g.rate, g.length, lenInt, win, out, count);
+        readGrain<true, false>(g.src0, g.src1, g.amp0, g.amp1, g.pos, g.rate, g.length, lenInt, win, out,
+                               count);
     else
-        readGrain<false, true>(g.src0, g.src1, g.amp0, g.amp1, g.pos, g.rate, g.length, lenInt, win, out, count);
+        readGrain<false, true>(g.src0, g.src1, g.amp0, g.amp1, g.pos, g.rate, g.length, lenInt, win, out,
+                               count);
     g.age += count;
     if (g.age >= life)
         g.live = false;

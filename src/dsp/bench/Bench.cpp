@@ -20,7 +20,7 @@ struct Scenario
     void (*fill)(VoiceFrame&);
 };
 
-void oscNoise(VoiceFrame& f)  // subtractive, wavetable, additive, spectral
+void oscNoise(VoiceFrame& f) // subtractive, wavetable, additive, spectral
 {
     for (int k = 0; k < kOscHarmonics; ++k)
         f.osc.re[static_cast<std::size_t>(k)] = 1.0f / static_cast<float>(k + 1);
@@ -41,7 +41,7 @@ void fm(VoiceFrame& f)
     f.setMix(Primitive::Fm, 0.5f);
 }
 
-void modal(VoiceFrame& f)  // physical modelling
+void modal(VoiceFrame& f) // physical modelling
 {
     for (int m = 0; m < kMaxPartials; ++m)
     {
@@ -69,7 +69,7 @@ void grain(VoiceFrame& f)
     f.setMix(Primitive::Grain, 0.5f);
 }
 
-void sampler(VoiceFrame& f)  // sampling: sampler with EQ plus a small OSC residual
+void sampler(VoiceFrame& f) // sampling: sampler with EQ plus a small OSC residual
 {
     f.sampler.rate = 1.0f;
     f.sampler.gain = 1.0f;
@@ -80,7 +80,7 @@ void sampler(VoiceFrame& f)  // sampling: sampler with EQ plus a small OSC resid
     f.setMix(Primitive::Osc, 0.1f);
 }
 
-void everything(VoiceFrame& f)  // hybrid worst case
+void everything(VoiceFrame& f) // hybrid worst case
 {
     oscNoise(f);
     fm(f);
@@ -101,7 +101,11 @@ double measure(Tier tier, const Scenario& s, double sampleRate, int block)
     std::vector<float> sampleData(static_cast<std::size_t>(sampleRate * 4));
     for (std::size_t i = 0; i < sampleData.size(); ++i)
         sampleData[i] = std::sin(0.05f * static_cast<float>(i));
-    SampleData sample{sampleData.data(), static_cast<long long>(sampleData.size()), sampleRate, 261.63, 1000,
+    SampleData sample{sampleData.data(),
+                      static_cast<long long>(sampleData.size()),
+                      sampleRate,
+                      261.63,
+                      1000,
                       static_cast<long long>(sampleData.size()) - 1000};
     synth.setGrainBank(&bank);
     synth.setSample(&sample);
@@ -113,11 +117,11 @@ double measure(Tier tier, const Scenario& s, double sampleRate, int block)
         synth.noteOn(40 + 2 * v, 0.8f, frame.get());
 
     std::vector<float> left(static_cast<std::size_t>(block)), right(static_cast<std::size_t>(block));
-    const int blocks = static_cast<int>(3.0 * sampleRate / block);  // 3 s of audio
+    const int blocks = static_cast<int>(3.0 * sampleRate / block); // 3 s of audio
     const int hop = synth.hop();
     int sinceFrame = 0;
     for (int i = 0; i < 50; ++i)
-        synth.process(left.data(), right.data(), block);  // warm up
+        synth.process(left.data(), right.data(), block); // warm up
 
     const auto t0 = std::chrono::steady_clock::now();
     for (int b = 0; b < blocks; ++b)
@@ -140,14 +144,16 @@ double measure(Tier tier, const Scenario& s, double sampleRate, int block)
 int main()
 {
     const Scenario scenarios[] = {
-        {"osc+noise", oscNoise}, {"fm", fm}, {"modal", modal}, {"grain", grain}, {"sampler", sampler}, {"everything", everything},
+        {"osc+noise", oscNoise}, {"fm", fm},           {"modal", modal},
+        {"grain", grain},        {"sampler", sampler}, {"everything", everything},
     };
     const char* tierNames[] = {"Lite", "Standard", "Pro", "Studio"};
     const int block = 128;
     for (const double sr : {48000.0, 96000.0})
     {
         const double blockUs = block / sr * 1e6;
-        std::printf("\n%.0f Hz, %d-sample blocks (%.0f us), all voices of the tier playing: us per block (%% of block)\n",
+        std::printf("\n%.0f Hz, %d-sample blocks (%.0f us), all voices of the tier playing: us per block (%% "
+                    "of block)\n",
                     sr, block, blockUs);
         std::printf("%-12s", "scenario");
         for (const char* t : tierNames)

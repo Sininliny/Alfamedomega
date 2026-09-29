@@ -6,8 +6,8 @@
 #include <cstdint>
 
 #if defined(__SSE__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 1)
-    #include <xmmintrin.h>
-    #define ALFA_DSP_HAS_SSE 1
+#include <xmmintrin.h>
+#define ALFA_DSP_HAS_SSE 1
 #endif
 
 namespace alfa::dsp::detail
@@ -21,12 +21,12 @@ public:
 #if defined(ALFA_DSP_HAS_SSE)
         const unsigned int csr = _mm_getcsr();
         saved_ = csr;
-        _mm_setcsr(csr | 0x8040u);  // FTZ | DAZ
+        _mm_setcsr(csr | 0x8040u); // FTZ | DAZ
 #elif defined(__aarch64__)
         std::uint64_t fpcr;
         asm volatile("mrs %0, fpcr" : "=r"(fpcr));
         saved_ = fpcr;
-        asm volatile("msr fpcr, %0" : : "r"(fpcr | (1ull << 24)));  // FZ
+        asm volatile("msr fpcr, %0" : : "r"(fpcr | (1ull << 24))); // FZ
 #endif
     }
 

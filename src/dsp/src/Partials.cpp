@@ -16,9 +16,9 @@ namespace
 /// not vectorise detail::sin2pi (floor becomes a branch); this form vectorises.
 inline float sin2piVec(float x) noexcept
 {
-    constexpr float kRound = 12582912.0f;  // 1.5 * 2^23: (x + kRound) - kRound rounds to nearest
-    const float r = x - ((x + kRound) - kRound);                       // [-0.5, 0.5]
-    const float m = std::copysign(0.25f - std::fabs(std::fabs(r) - 0.25f), r);  // [-0.25, 0.25]
+    constexpr float kRound = 12582912.0f;        // 1.5 * 2^23: (x + kRound) - kRound rounds to nearest
+    const float r = x - ((x + kRound) - kRound); // [-0.5, 0.5]
+    const float m = std::copysign(0.25f - std::fabs(std::fabs(r) - 0.25f), r); // [-0.25, 0.25]
     const float t = detail::kTwoPi * m;
     const float t2 = t * t;
     float p = -2.5052108e-8f;
@@ -92,9 +92,9 @@ void PartialsPrimitive::startHop(const HopContext& ctx, bool collect) noexcept
         startPhase_[i] = start;
 
         const double dr = static_cast<double>(r1 - r0) / h;
-        const double cycles = (h * f0s * static_cast<double>(r0) + (f0s * dr + df * static_cast<double>(r0)) * s1
-                                  + df * dr * s2)
-            * invSampleRate_;
+        const double cycles = (h * f0s * static_cast<double>(r0) +
+                               (f0s * dr + df * static_cast<double>(r0)) * s1 + df * dr * s2) *
+                              invSampleRate_;
         const double end = start + cycles;
         phase_[i] = end - std::floor(end);
 
@@ -103,7 +103,10 @@ void PartialsPrimitive::startHop(const HopContext& ctx, bool collect) noexcept
 
         // |frequency| over the hop's samples n = 0..H-1: f(n) = (f0s + df n)(r0 + dr n) is a
         // quadratic, so its extremes are at the ends or at the vertex.
-        const auto freqAt = [&](double n) { return (f0s + df * n) * (static_cast<double>(r0) + dr * n); };
+        const auto freqAt = [&](double n)
+        {
+            return (f0s + df * n) * (static_cast<double>(r0) + dr * n);
+        };
         const double fa = freqAt(0.0);
         const double fb = freqAt(h - 1.0);
         double lo = std::min(fa, fb);
@@ -122,7 +125,7 @@ void PartialsPrimitive::startHop(const HopContext& ctx, bool collect) noexcept
         const double minAbs = (lo <= 0.0 && hi >= 0.0) ? 0.0 : std::min(std::fabs(lo), std::fabs(hi));
         const double nyq = static_cast<double>(nyquist_);
         if (minAbs >= nyq * (1.0 + 1e-5))
-            continue;  // at or above Nyquist for the whole hop: silent
+            continue; // at or above Nyquist for the whole hop: silent
         const bool crossing = maxAbs >= nyq * (1.0 - 1e-5);
         const int slot = crossing ? kMaxPartials - 1 - crossingCount++ : safeCount++;
         entries[static_cast<std::size_t>(slot)] = m;
@@ -191,7 +194,7 @@ void PartialsPrimitive::render(float* out, int n) noexcept
             acc += amp * sin2piVec(ph[k]);
             ph[k] = wrapPhase(ph[k] + f * invSr);
         }
-        for (int k = safe; k < count; ++k)  // rare: partials that reach Nyquist during the hop
+        for (int k = safe; k < count; ++k) // rare: partials that reach Nyquist during the hop
         {
             const float f = f0 * (r0[k] + rd[k] * t);
             if (std::fabs(f) < nyq)

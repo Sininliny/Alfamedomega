@@ -1,6 +1,5 @@
-#include "alfa/dsp/Partials.h"
-
 #include "TestHelpers.h"
+#include "alfa/dsp/Partials.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -58,7 +57,7 @@ TEST_CASE("partials: ratios and amplitudes render as tones", "[dsp][partials]")
     p.prepare(spec());
     const auto y = renderSteady(p, *f, 440.0f, 250);
     REQUIRE(p.activeCount() == 2);
-    REQUIRE(std::abs(y[0]) < 1e-6f);  // phases start at 0, sin(0) = 0
+    REQUIRE(std::abs(y[0]) < 1e-6f); // phases start at 0, sin(0) = 0
     REQUIRE(std::abs(toneAmplitude(y, 440.0, kSr) - 0.5) < 2e-3);
     REQUIRE(std::abs(toneAmplitude(y, 1100.0, kSr) - 0.25) < 2e-3);
     REQUIRE(toneAmplitude(y, 880.0, kSr) < 1e-3);
@@ -67,7 +66,8 @@ TEST_CASE("partials: ratios and amplitudes render as tones", "[dsp][partials]")
     for (std::size_t n = 0; n < y.size(); ++n)
     {
         const double t = static_cast<double>(n) / kSr;
-        const double ideal = 0.5 * std::sin(6.283185307179586 * 440.0 * t) + 0.25 * std::sin(6.283185307179586 * 1100.0 * t);
+        const double ideal =
+            0.5 * std::sin(6.283185307179586 * 440.0 * t) + 0.25 * std::sin(6.283185307179586 * 1100.0 * t);
         worst = std::max(worst, std::abs(static_cast<double>(y[n]) - ideal));
     }
     REQUIRE(worst < 1e-4);
@@ -76,14 +76,14 @@ TEST_CASE("partials: ratios and amplitudes render as tones", "[dsp][partials]")
 TEST_CASE("partials: the tier limit silences partials beyond it", "[dsp][partials]")
 {
     auto f = std::make_unique<VoiceFrame>();
-    setPartial(*f, 20, 1.0f, 1.0f);  // beyond Lite's 16
+    setPartial(*f, 20, 1.0f, 1.0f); // beyond Lite's 16
     PartialsPrimitive p;
     p.prepare(spec(Tier::Lite));
     auto y = renderSteady(p, *f, 440.0f, 20);
     REQUIRE(p.activeCount() == 0);
     REQUIRE(rms(y) == 0.0);
 
-    p.prepare(spec(Tier::Standard));  // 32
+    p.prepare(spec(Tier::Standard)); // 32
     y = renderSteady(p, *f, 440.0f, 20);
     REQUIRE(p.activeCount() == 1);
     REQUIRE(rms(y) > 0.5);
@@ -94,12 +94,12 @@ TEST_CASE("partials: a partial at or above Nyquist is silent", "[dsp][partials]"
     PartialsPrimitive p;
     p.prepare(spec());
     auto f = std::make_unique<VoiceFrame>();
-    setPartial(*f, 0, 3.0f, 1.0f);  // 30 kHz
-    setPartial(*f, 1, 2.4f, 1.0f);  // exactly 24 kHz
+    setPartial(*f, 0, 3.0f, 1.0f); // 30 kHz
+    setPartial(*f, 1, 2.4f, 1.0f); // exactly 24 kHz
     auto y = renderSteady(p, *f, 10000.0f, 20);
     REQUIRE(rms(y) == 0.0);
 
-    setPartial(*f, 2, 2.0f, 1.0f);  // 20 kHz stays
+    setPartial(*f, 2, 2.0f, 1.0f); // 20 kHz stays
     y = renderSteady(p, *f, 10000.0f, 50);
     REQUIRE(std::abs(toneAmplitude(y, 20000.0, kSr) - 1.0) < 5e-3);
 }
@@ -108,7 +108,7 @@ TEST_CASE("partials: a partial gliding through Nyquist goes silent from that sam
 {
     auto f = std::make_unique<VoiceFrame>();
     setPartial(*f, 0, 1.0f, 1.0f);
-    setPartial(*f, 1, 0.1f, 0.0f);  // silent, only checks that other partials don't interfere
+    setPartial(*f, 1, 0.1f, 0.0f); // silent, only checks that other partials don't interfere
     PartialsPrimitive p;
     p.prepare(spec());
     p.reset();
@@ -165,8 +165,8 @@ TEST_CASE("partials: skipHop advances phases like a rendered hop", "[dsp][partia
     skipping.reset();
     std::vector<float> y1(kHop), y2(kHop);
     const HopContext hops[] = {{a.get(), a.get(), 200.0f, 260.0f, true},
-        {a.get(), b.get(), 260.0f, 240.0f, false},
-        {b.get(), a.get(), 240.0f, 300.0f, false}};
+                               {a.get(), b.get(), 260.0f, 240.0f, false},
+                               {b.get(), a.get(), 240.0f, 300.0f, false}};
     for (const auto& h : hops)
     {
         full.beginHop(h);
@@ -247,7 +247,8 @@ TEST_CASE("partials: benchmark 16 voices", "[dsp][partials][.bench]")
                 if (pos[v] == 0)
                 {
                     const int j = hopIndex[v]++;
-                    voices[v].beginHop({j % 2 ? fa.get() : fb.get(), j % 2 ? fb.get() : fa.get(), f0, f0 * 1.001f, j == 0});
+                    voices[v].beginHop(
+                        {j % 2 ? fa.get() : fb.get(), j % 2 ? fb.get() : fa.get(), f0, f0 * 1.001f, j == 0});
                 }
                 const int n = std::min(kBlock - done, kHop - pos[v]);
                 voices[v].render(buf.data() + done, n);
@@ -257,10 +258,13 @@ TEST_CASE("partials: benchmark 16 voices", "[dsp][partials][.bench]")
             sink += buf[7];
         }
     }
-    const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
+    const double us =
+        std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
     const int hops = total / kHop;
-    std::printf("PARTIALS: %d voices x 64 partials x 1 s: %.1f us total, %.2f us per %d-sample block (all voices), "
-                "%.2f us per voice per hop, %.2f%% of one core per voice (sink %g)\n",
-        kVoices, us, us / blocks, kBlock, us / (kVoices * hops), 100.0 * us / 1e6 / kVoices, static_cast<double>(sink));
+    std::printf(
+        "PARTIALS: %d voices x 64 partials x 1 s: %.1f us total, %.2f us per %d-sample block (all voices), "
+        "%.2f us per voice per hop, %.2f%% of one core per voice (sink %g)\n",
+        kVoices, us, us / blocks, kBlock, us / (kVoices * hops), 100.0 * us / 1e6 / kVoices,
+        static_cast<double>(sink));
     SUCCEED();
 }

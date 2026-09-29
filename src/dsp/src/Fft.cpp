@@ -1,9 +1,8 @@
 #include "alfa/dsp/detail/Fft.h"
 
-#include <pffft.h>
-
 #include <cstring>
 #include <new>
+#include <pffft.h>
 #include <stdexcept>
 #include <utility>
 
@@ -53,7 +52,9 @@ RealFft::~RealFft()
 }
 
 RealFft::RealFft(RealFft&& other) noexcept
-    : setup_(std::exchange(other.setup_, nullptr)), work_(std::move(other.work_)), n_(std::exchange(other.n_, 0))
+    : setup_(std::exchange(other.setup_, nullptr))
+    , work_(std::move(other.work_))
+    , n_(std::exchange(other.n_, 0))
 {
 }
 

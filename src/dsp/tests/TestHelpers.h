@@ -45,7 +45,8 @@ inline double toneAmplitude(const std::vector<float>& x, double hz, double sampl
     for (std::size_t n = 0; n < x.size(); ++n)
     {
         // Hann window to keep leakage from neighbouring partials down.
-        const double win = 0.5 - 0.5 * std::cos(2.0 * 3.14159265358979323846 * static_cast<double>(n) / static_cast<double>(x.size()));
+        const double win = 0.5 - 0.5 * std::cos(2.0 * 3.14159265358979323846 * static_cast<double>(n) /
+                                                static_cast<double>(x.size()));
         acc += static_cast<double>(x[n]) * win * std::polar(1.0, -w * static_cast<double>(n));
     }
     return 4.0 * std::abs(acc) / static_cast<double>(x.size());

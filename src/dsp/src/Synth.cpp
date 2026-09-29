@@ -46,7 +46,8 @@ void Synth::setSample(const SampleData* sample) noexcept
 
 float Synth::f0For(int note) const noexcept
 {
-    return static_cast<float>(440.0 * std::pow(2.0, (note - 69 + static_cast<double>(bendSemitones_)) / 12.0));
+    return static_cast<float>(440.0 *
+                              std::pow(2.0, (note - 69 + static_cast<double>(bendSemitones_)) / 12.0));
 }
 
 int Synth::noteOn(int note, float velocity, const VoiceFrame* firstFrame) noexcept

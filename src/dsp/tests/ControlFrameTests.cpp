@@ -14,7 +14,7 @@ TEST_CASE("control-frame fields tile the frame without gaps", "[dsp][layout]")
     for (const auto& f : kFields)
     {
         if (f.name == "osc.re")
-            expected += 1;  // the reserved float after attack_tau
+            expected += 1; // the reserved float after attack_tau
         REQUIRE(f.offset == expected);
         expected += f.count;
     }

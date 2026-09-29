@@ -17,7 +17,7 @@ public:
     explicit AlignedBuffer(std::size_t size) { resize(size); }
 
     void resize(std::size_t size);
-    void clear() noexcept;  ///< zero every element
+    void clear() noexcept; ///< zero every element
 
     [[nodiscard]] float* data() noexcept { return data_.get(); }
     [[nodiscard]] const float* data() const noexcept { return data_.get(); }

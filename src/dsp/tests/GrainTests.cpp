@@ -1,6 +1,5 @@
-#include "alfa/dsp/Grain.h"
-
 #include "TestHelpers.h"
+#include "alfa/dsp/Grain.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -115,7 +114,7 @@ TEST_CASE("GRAIN on a DC source overlap-adds to exactly 1", "[dsp][grain]")
     REQUIRE(out[0] == 0.0f);
     for (int n = kHop; n < 20 * kHop; ++n)
         REQUIRE_THAT(out[u(n)], WithinAbs(1.0, 1e-5));
-    REQUIRE(gr.liveGrains() == 1);  // the older grain ended with the hop
+    REQUIRE(gr.liveGrains() == 1); // the older grain ended with the hop
 }
 
 TEST_CASE("GRAIN rate 2 doubles the source frequency", "[dsp][grain]")
@@ -164,10 +163,11 @@ TEST_CASE("GRAIN mixes two sources linearly by weight", "[dsp][grain]")
     gr.prepare(spec());
     gr.setBank(&tb.bank);
 
-    auto mixFrame = [](float w0, float w1) {
+    auto mixFrame = [](float w0, float w1)
+    {
         auto f = std::make_unique<VoiceFrame>();
-        f->grain.source[2] = 1.0f;  // layer 1
-        f->grain.source[3] = 2.6f;  // rounds to 3
+        f->grain.source[2] = 1.0f; // layer 1
+        f->grain.source[3] = 2.6f; // rounds to 3
         f->grain.weight[2] = w0;
         f->grain.weight[3] = w1;
         f->grain.rate[1] = 1.3f;
@@ -221,7 +221,7 @@ TEST_CASE("GRAIN is silent for out-of-range sources and a null bank", "[dsp][gra
 TEST_CASE("GRAIN honours the tier layer limit", "[dsp][grain]")
 {
     TestBank tb;
-    auto f = layerFrame(2, 0.0f, 1.0f);  // only layer 2 is active
+    auto f = layerFrame(2, 0.0f, 1.0f); // only layer 2 is active
 
     GrainPrimitive lite;
     lite.prepare(spec(Tier::Lite));
@@ -291,7 +291,7 @@ TEST_CASE("GRAIN skipHop drops grains and does not allocate", "[dsp][grain]")
         gr.render(out.data() + 100, kHop - 100);
     }
     REQUIRE(guard.count() == 0);
-    REQUIRE(gr.liveGrains() == kMaxGrainLayers);  // older grains ended with the hop
+    REQUIRE(gr.liveGrains() == kMaxGrainLayers); // older grains ended with the hop
 }
 
 TEST_CASE("GRAIN cost, 16 voices x 1 s, all Studio layers", "[.bench][dsp][grain]")
@@ -327,9 +327,11 @@ TEST_CASE("GRAIN cost, 16 voices x 1 s, all Studio layers", "[.bench][dsp][grain
             v.render(out.data(), kHop);
             sink += out[0];
         }
-    const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
+    const double us =
+        std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
     const double perBlockAll = us / (static_cast<double>(hops) * kHop / 128.0);
-    std::printf("GRAIN (8 layers x 2 sources): %.2f us per 128-sample block for %d voices, %.3f us per voice (sink %g)\n",
+    std::printf("GRAIN (8 layers x 2 sources): %.2f us per 128-sample block for %d voices, %.3f us per voice "
+                "(sink %g)\n",
                 perBlockAll, kVoices, perBlockAll / kVoices, static_cast<double>(sink));
     REQUIRE(voices[0].liveGrains() == kMaxGrainLayers);
 }

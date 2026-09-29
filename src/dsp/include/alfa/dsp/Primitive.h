@@ -26,17 +26,17 @@ namespace alfa::dsp
 struct PrepareSpec
 {
     double sampleRate = 48000.0;
-    int hop = 192;  ///< hopSamples(sampleRate)
+    int hop = 192; ///< hopSamples(sampleRate)
     TierLimits limits = limitsFor(Tier::Studio);
 };
 
 struct HopContext
 {
-    const VoiceFrame* prev = nullptr;  ///< frame j-1 (equal to cur on the first hop)
-    const VoiceFrame* cur = nullptr;   ///< frame j
-    float f0Start = 440.0f;            ///< fundamental at the start of the hop, Hz
-    float f0End = 440.0f;              ///< fundamental at the end of the hop, Hz (linear across)
-    bool firstHop = false;             ///< true on the note-on hop
+    const VoiceFrame* prev = nullptr; ///< frame j-1 (equal to cur on the first hop)
+    const VoiceFrame* cur = nullptr;  ///< frame j
+    float f0Start = 440.0f;           ///< fundamental at the start of the hop, Hz
+    float f0End = 440.0f;             ///< fundamental at the end of the hop, Hz (linear across)
+    bool firstHop = false;            ///< true on the note-on hop
 };
 
 /// Grain-source bank, owned by the caller (normally loaded from the model folder). Buffers are
@@ -54,8 +54,8 @@ struct SampleData
     const float* data = nullptr;
     long long length = 0;
     double sampleRate = 48000.0;
-    double rootHz = 261.6255653f;  ///< pitch the sample was recorded at (C4 by default)
-    long long loopStart = -1;      ///< loop [loopStart, loopEnd) when both are valid
+    double rootHz = 261.6255653f; ///< pitch the sample was recorded at (C4 by default)
+    long long loopStart = -1;     ///< loop [loopStart, loopEnd) when both are valid
     long long loopEnd = -1;
 };
 

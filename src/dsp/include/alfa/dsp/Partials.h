@@ -40,8 +40,8 @@ private:
     float invHop_ = 1.0f / 192.0f;
     int limit_ = kMaxPartials;
 
-    std::array<double, kN> phase_{};       // per partial, cycles; end of the current hop
-    std::array<double, kN> startPhase_{};  // per partial, cycles; start of the current hop
+    std::array<double, kN> phase_{};      // per partial, cycles; end of the current hop
+    std::array<double, kN> startPhase_{}; // per partial, cycles; start of the current hop
 
     // Per-hop, compacted to the audible partials (structure of arrays).
     alignas(64) std::array<float, kN> ph_{};
@@ -49,8 +49,8 @@ private:
     alignas(64) std::array<float, kN> ratioD_{};
     alignas(64) std::array<float, kN> amp0_{};
     alignas(64) std::array<float, kN> ampD_{};
-    int count_ = 0;      // partials rendered this hop
-    int safeCount_ = 0;  // the first safeCount_ of them stay below Nyquist for the whole hop
+    int count_ = 0;     // partials rendered this hop
+    int safeCount_ = 0; // the first safeCount_ of them stay below Nyquist for the whole hop
     int pos_ = 0;
     float f0Start_ = 440.0f;
     float f0Delta_ = 0.0f;

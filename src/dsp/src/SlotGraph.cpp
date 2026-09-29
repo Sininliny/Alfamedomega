@@ -62,7 +62,7 @@ void SlotGraph::beginHop(const SlotControls* current) noexcept
         auto& slot = slots_[k];
         Family next = familyFromFloat(current[k].family);
         if (slot.processors[static_cast<std::size_t>(next)] == nullptr)
-            next = Family::Off;  // not allowed here (or Off)
+            next = Family::Off; // not allowed here (or Off)
         if (next == slot.family)
             continue;
         // Start the new family clean and fade the old one out across this hop. A change during
@@ -87,7 +87,7 @@ void SlotGraph::runFamily(Slot& slot, Family f, const float* params, const Contr
     float sum = 0.0f;
     for (int c = 0; c < channels_; ++c)
         for (int i = 0; i < n; ++i)
-            sum += ch[c][i] * 0.0f;  // NaN or Inf anywhere makes this NaN
+            sum += ch[c][i] * 0.0f; // NaN or Inf anywhere makes this NaN
     if (!(sum == 0.0f))
     {
         p->reset();
@@ -96,7 +96,8 @@ void SlotGraph::runFamily(Slot& slot, Family f, const float* params, const Contr
     }
 }
 
-bool SlotGraph::process(const float* const* sources, const SlotBlock* blocks, const ControlContext& ctx, int n) noexcept
+bool SlotGraph::process(const float* const* sources, const SlotBlock* blocks, const ControlContext& ctx,
+                        int n) noexcept
 {
     bool any = false;
     for (std::size_t k = 0; k < slots_.size(); ++k)
@@ -132,7 +133,8 @@ bool SlotGraph::process(const float* const* sources, const SlotBlock* blocks, co
             }
         }
 
-        const auto copyIn = [&](float* dst) {
+        const auto copyIn = [&](float* dst)
+        {
             for (int c = 0; c < channels_; ++c)
                 std::copy_n(slot.in.data() + c * kControlBlock, n, dst + c * kControlBlock);
         };

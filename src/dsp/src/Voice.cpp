@@ -9,15 +9,15 @@ namespace alfa::dsp
 namespace
 {
 constexpr float kMinAttackTau = 1.0e-4f;
-constexpr float kSilenceThreshold = 1.0e-5f;  // -100 dBFS peak
-constexpr int kSilentHopsToEnd = 25;           // 100 ms after release
+constexpr float kSilenceThreshold = 1.0e-5f; // -100 dBFS peak
+constexpr int kSilentHopsToEnd = 25;         // 100 ms after release
 constexpr double kMaxReleaseSeconds = 30.0;
 } // namespace
 
 Voice::Voice()
-    : latest_(std::make_unique<VoiceFrame>()),
-      frameA_(std::make_unique<VoiceFrame>()),
-      frameB_(std::make_unique<VoiceFrame>())
+    : latest_(std::make_unique<VoiceFrame>())
+    , frameA_(std::make_unique<VoiceFrame>())
+    , frameB_(std::make_unique<VoiceFrame>())
 {
     prev_ = frameA_.get();
     cur_ = frameB_.get();
@@ -63,7 +63,7 @@ void Voice::start(int note, float velocity, float f0Hz, const VoiceFrame* firstF
     silentHops_ = 0;
     hopPeak_ = 0.0f;
     firstHop_ = true;
-    hopPos_ = hop_;  // the first process call starts hop 0 immediately
+    hopPos_ = hop_; // the first process call starts hop 0 immediately
     haveFrame_ = firstFrame != nullptr;
     if (firstFrame != nullptr)
         *latest_ = *firstFrame;
@@ -116,7 +116,8 @@ void Voice::beginHop() noexcept
         mixStep_[i] = (b - a) * invHop;
     }
 
-    const auto dispatch = [&](auto& prim, Primitive p) {
+    const auto dispatch = [&](auto& prim, Primitive p)
+    {
         if (rendering_[static_cast<std::size_t>(p)])
             prim.beginHop(ctx);
         else
@@ -140,7 +141,8 @@ void Voice::renderChunk(float* out, int n) noexcept
     float* acc = scratch_.data() + hop_;
     std::fill_n(acc, n, 0.0f);
 
-    const auto mixIn = [&](auto& prim, Primitive p) {
+    const auto mixIn = [&](auto& prim, Primitive p)
+    {
         const auto i = static_cast<std::size_t>(p);
         if (!rendering_[i])
             return;
@@ -191,11 +193,12 @@ void Voice::process(float* out, int n) noexcept
         if (hopPos_ >= hop_)
         {
             if (!haveFrame_)
-                return;  // waiting for the note-on frame
+                return; // waiting for the note-on frame
             if (!firstHop_ && releasing_)
             {
-                const bool allSilent = std::all_of(cur_->mix.begin(), cur_->mix.end(), [](float g) { return g == 0.0f; })
-                    && std::all_of(latest_->mix.begin(), latest_->mix.end(), [](float g) { return g == 0.0f; });
+                const bool allSilent =
+                    std::all_of(cur_->mix.begin(), cur_->mix.end(), [](float g) { return g == 0.0f; }) &&
+                    std::all_of(latest_->mix.begin(), latest_->mix.end(), [](float g) { return g == 0.0f; });
                 silentHops_ = hopPeak_ < kSilenceThreshold ? silentHops_ + 1 : 0;
                 const bool tooLong = static_cast<double>(releaseAge_) > kMaxReleaseSeconds * spec_.sampleRate;
                 if (allSilent || silentHops_ >= kSilentHopsToEnd || tooLong)
