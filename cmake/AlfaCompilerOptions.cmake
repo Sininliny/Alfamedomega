@@ -12,6 +12,8 @@ function(alfa_set_compile_options target)
         # C4324: "structure was padded due to alignment specifier" is expected wherever
         # alignas() is used for SIMD or cache-line alignment.
         target_compile_options(${target} ${scope} /W4 /permissive- /utf-8 /Zc:__cplusplus /wd4324)
+        # Portable C/C++ library calls (std::getenv, fopen) are fine; don't push MSVC-only *_s variants.
+        target_compile_definitions(${target} ${scope} _CRT_SECURE_NO_WARNINGS)
         if(ALFA_WARNINGS_AS_ERRORS)
             target_compile_options(${target} ${scope} /WX)
         endif()
