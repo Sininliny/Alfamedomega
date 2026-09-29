@@ -32,18 +32,54 @@ void* allocateAligned(std::size_t size, std::align_val_t align)
 }
 } // namespace
 
-void* operator new(std::size_t size) { return allocate(size); }
-void* operator new[](std::size_t size) { return allocate(size); }
-void* operator new(std::size_t size, std::align_val_t a) { return allocateAligned(size, a); }
-void* operator new[](std::size_t size, std::align_val_t a) { return allocateAligned(size, a); }
-void operator delete(void* p) noexcept { std::free(p); }
-void operator delete[](void* p) noexcept { std::free(p); }
-void operator delete(void* p, std::size_t) noexcept { std::free(p); }
-void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
-void operator delete(void* p, std::align_val_t) noexcept { std::free(p); }
-void operator delete[](void* p, std::align_val_t) noexcept { std::free(p); }
-void operator delete(void* p, std::size_t, std::align_val_t) noexcept { std::free(p); }
-void operator delete[](void* p, std::size_t, std::align_val_t) noexcept { std::free(p); }
+void* operator new(std::size_t size)
+{
+    return allocate(size);
+}
+void* operator new[](std::size_t size)
+{
+    return allocate(size);
+}
+void* operator new(std::size_t size, std::align_val_t a)
+{
+    return allocateAligned(size, a);
+}
+void* operator new[](std::size_t size, std::align_val_t a)
+{
+    return allocateAligned(size, a);
+}
+void operator delete(void* p) noexcept
+{
+    std::free(p);
+}
+void operator delete[](void* p) noexcept
+{
+    std::free(p);
+}
+void operator delete(void* p, std::size_t) noexcept
+{
+    std::free(p);
+}
+void operator delete[](void* p, std::size_t) noexcept
+{
+    std::free(p);
+}
+void operator delete(void* p, std::align_val_t) noexcept
+{
+    std::free(p);
+}
+void operator delete[](void* p, std::align_val_t) noexcept
+{
+    std::free(p);
+}
+void operator delete(void* p, std::size_t, std::align_val_t) noexcept
+{
+    std::free(p);
+}
+void operator delete[](void* p, std::size_t, std::align_val_t) noexcept
+{
+    std::free(p);
+}
 
 namespace alfa::dsp::test
 {
@@ -52,6 +88,12 @@ AllocationGuard::AllocationGuard() noexcept
     if (tGuardDepth++ == 0)
         tAllocations = 0;
 }
-AllocationGuard::~AllocationGuard() { --tGuardDepth; }
-long AllocationGuard::count() const noexcept { return tAllocations; }
+AllocationGuard::~AllocationGuard()
+{
+    --tGuardDepth;
+}
+long AllocationGuard::count() const noexcept
+{
+    return tAllocations;
+}
 } // namespace alfa::dsp::test
