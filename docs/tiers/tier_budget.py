@@ -171,4 +171,13 @@ if __name__ == "__main__":
     for k in families():
         print(f"  {k:20}" + "".join(f"{out[n]['family_share_pct'][k]:>10.2f}" for n in TIER_NAMES)
               + "   " + " ".join(f"{out[n]['family_params'][k]/1e6:.2f}M" for n in TIER_NAMES))
+    # Rule (Sinin, 2026-09-29): a family's share may shrink in larger tiers, but its absolute
+    # parameter count must never decrease from one tier to the next. Checked for every family;
+    # a violation fails the run before allocation_by_tier.json is written.
+    shrinking = [f"{k}: {a} {out[a]['family_params'][k]:,} > {b} {out[b]['family_params'][k]:,}"
+                 for k in families() for a, b in zip(TIER_NAMES, TIER_NAMES[1:])
+                 if out[b]["family_params"][k] < out[a]["family_params"][k]]
+    if shrinking:
+        raise SystemExit("family capacity decreases from one tier to the next:\n  " + "\n  ".join(shrinking))
+    print("\nMonotonic capacity check: every family's params grow from tier to tier. OK")
     json.dump(out, open(os.path.join(HERE, "allocation_by_tier.json"), "w"), indent=2)

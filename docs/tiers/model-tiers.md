@@ -1,4 +1,4 @@
-# Alfamedomega model size tiers (draft v5.3, 2026-09-29)
+# Alfamedomega model size tiers (draft v5.4, 2026-09-29)
 
 Four tiers. Every number is a planning estimate from `tier_budget.py` (same folder); change an
 assumption there and re-run. Nothing here is measured yet. v2 rebases the budgets on the stack in
@@ -130,7 +130,11 @@ carve-out (`carve_outs` in `allocation.json`), not a base weight: after per-tier
 3% in Lite and Standard, 5% in Pro and 6.5% in Studio, 60% of that from spectral and 40% from
 wavetable, and no other family changes (capacity plan, 2026-09-29). At Standard that leaves
 spectral at 3.2% and wavetable at 8.8%. In the larger tiers spectral falls below its Standard share
-(2.6% in Pro, 2.3% in Studio); whether it should hold its Standard share is still open with Sinin. The base weights are Sinin's initial design target, which the
+(2.6% in Pro, 2.3% in Studio); a share may shrink like this, but no family's absolute
+parameter count may decrease from one tier to the next (Sinin, 2026-09-29). `tier_budget.py`
+checks that rule for every family and exits with an error, without writing
+`allocation_by_tier.json`, if any family would shrink. Spectral currently grows 0.06 M, 0.36 M,
+1.2 M, 4.2 M. The base weights are Sinin's initial design target, which the
 capacity-plan thread may revise; they sit in `allocation.json` under `base_weights_pct` and
 nothing else needs to change when they do. Standard reproduces them exactly. Other tiers reshape
 them with `share ∝ weight^gamma`:
