@@ -154,7 +154,8 @@ void Voice::beginHop() noexcept
         {
             const auto& a = prev_->slots[static_cast<std::size_t>(k)];
             const auto& b = cur_->slots[static_cast<std::size_t>(k)];
-            const bool running = familyFromFloat(a.family) != Family::Off || familyFromFloat(b.family) != Family::Off;
+            const bool running =
+                familyFromFloat(a.family) != Family::Off || familyFromFloat(b.family) != Family::Off;
             heard = running && (a.input[i] != 0.0f || b.input[i] != 0.0f);
         }
         for (int r = 0; r < routes && !heard; ++r)
@@ -208,13 +209,15 @@ void Voice::renderBlock(float* left, float* right, int n) noexcept
     {
         const auto u = static_cast<std::size_t>(k);
         interpolateSlot(prev_->slots[u], cur_->slots[u], t, blocks_[u]);
-        std::copy(blocks_[u].params.begin(), blocks_[u].params.end(), dest_.begin() + moddest::slotParam + k * kSlotParams);
+        std::copy(blocks_[u].params.begin(), blocks_[u].params.end(),
+                  dest_.begin() + moddest::slotParam + k * kSlotParams);
         dest_[static_cast<std::size_t>(moddest::slotOutGain + k)] = blocks_[u].outGain;
     }
     for (int p = 0; p < kPrimitiveCount; ++p)
     {
         const auto u = static_cast<std::size_t>(p);
-        dest_[static_cast<std::size_t>(moddest::mix + p)] = prev_->mix[u] + t * (cur_->mix[u] - prev_->mix[u]);
+        dest_[static_cast<std::size_t>(moddest::mix + p)] =
+            prev_->mix[u] + t * (cur_->mix[u] - prev_->mix[u]);
     }
     dest_[moddest::pan] = prev_->pan + t * (cur_->pan - prev_->pan);
     dest_[moddest::dryGain] = prev_->dryGain + t * (cur_->dryGain - prev_->dryGain);
@@ -224,7 +227,8 @@ void Voice::renderBlock(float* left, float* right, int n) noexcept
     for (int k = 0; k < slotCount; ++k)
     {
         const auto u = static_cast<std::size_t>(k);
-        std::copy_n(dest_.begin() + moddest::slotParam + k * kSlotParams, kSlotParams, blocks_[u].params.begin());
+        std::copy_n(dest_.begin() + moddest::slotParam + k * kSlotParams, kSlotParams,
+                    blocks_[u].params.begin());
         blocks_[u].outGain = dest_[static_cast<std::size_t>(moddest::slotOutGain + k)];
     }
 
@@ -287,7 +291,8 @@ void Voice::renderBlock(float* left, float* right, int n) noexcept
         const float g1 = dest_[moddest::dryGain];
         const float dg = (g1 - lastDry_) * invN;
         for (int s = 0; s < n; ++s)
-            mono_[static_cast<std::size_t>(s)] = dry_[static_cast<std::size_t>(s)] * (lastDry_ + dg * static_cast<float>(s + 1));
+            mono_[static_cast<std::size_t>(s)] =
+                dry_[static_cast<std::size_t>(s)] * (lastDry_ + dg * static_cast<float>(s + 1));
         lastDry_ = g1;
     }
     for (int k = 0; k < slotCount; ++k)
@@ -328,12 +333,16 @@ void Voice::renderBlock(float* left, float* right, int n) noexcept
 
 bool Voice::finished() const noexcept
 {
-    const auto zero = [](float g) { return g == 0.0f; };
+    const auto zero = [](float g)
+    {
+        return g == 0.0f;
+    };
     const bool noSources = std::all_of(cur_->mix.begin(), cur_->mix.end(), zero) &&
                            std::all_of(latest_->mix.begin(), latest_->mix.end(), zero);
     bool noSlots = true;
     for (int k = 0; k < slots_.slotCount(); ++k)
-        noSlots = noSlots && familyFromFloat(cur_->slots[static_cast<std::size_t>(k)].family) == Family::Off &&
+        noSlots = noSlots &&
+                  familyFromFloat(cur_->slots[static_cast<std::size_t>(k)].family) == Family::Off &&
                   familyFromFloat(latest_->slots[static_cast<std::size_t>(k)].family) == Family::Off;
     const bool tooLong = static_cast<double>(releaseAge_) > kMaxReleaseSeconds * spec_.sampleRate;
     // Slots can ring after their input stops (resonators, waveguides), so without them the

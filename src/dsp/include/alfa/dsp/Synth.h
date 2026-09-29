@@ -11,10 +11,17 @@
 //   for each active voice: setFrame(v, latest frame from the network)
 //   process(left, right, n)
 //
-// Voices are mono; process() writes the same signal to both channels.
+// Signal path: voices (mono inside, equal-power panned) sum to a stereo bus. The instance chain
+// then runs on its own hop grid (starting at prepare): up to limits.instanceSlots stereo slots
+// read the bus and each other, and the output is
+//   masterGain * width( dryGain * bus + sum_k outGain_k * slot_k )
+// with width applied as mid/side (side *= width), then a safety stage that is linear to +6 dBFS
+// and never exceeds +12 dBFS. setInstanceFrame() feeds that chain.
 
 #include "alfa/dsp/ControlFrame.h"
+#include "alfa/dsp/Modulation.h"
 #include "alfa/dsp/Primitive.h"
+#include "alfa/dsp/SlotGraph.h"
 
 #include <cstdint>
 #include <memory>
@@ -64,7 +71,11 @@ public:
     /// Latest frame for a voice; consumed at that voice's next hop boundary.
     void setFrame(int voice, const VoiceFrame& frame) noexcept;
 
-    /// Renders n <= maxBlock samples, replacing the contents of left and right (right may be null).
+    /// Latest instance-chain frame; consumed at the next instance hop boundary.
+    void setInstanceFrame(const InstanceFrame& frame) noexcept;
+
+    /// Renders n samples, replacing the contents of left and right. With right null, left gets
+    /// the mono sum (L + R) / 2.
     void process(float* left, float* right, int n) noexcept;
 
     [[nodiscard]] int voiceCount() const noexcept { return static_cast<int>(voices_.size()); }
@@ -74,6 +85,9 @@ public:
 
 private:
     [[nodiscard]] float f0For(int note) const noexcept;
+    void renderChunk(float* left, float* right, int n) noexcept;
+    void beginInstanceHop() noexcept;
+    void instanceBlock(float* left, float* right, int offset, int n) noexcept;
 
     PrepareSpec spec_;
     int maxBlock_ = 0;
@@ -81,6 +95,24 @@ private:
     std::vector<std::uint64_t> startOrder_;
     std::uint64_t counter_ = 0;
     float bendSemitones_ = 0.0f;
+
+    // Voice bus, maxBlock samples per channel.
+    std::vector<float> busL_, busR_;
+
+    // Instance chain.
+    std::unique_ptr<InstanceFrame> latestI_, frameIA_, frameIB_;
+    InstanceFrame* prevI_ = nullptr;
+    InstanceFrame* curI_ = nullptr;
+    int instHopPos_ = 0;
+    bool instFirstHop_ = true;
+    SlotGraph instSlots_;
+    ModBank instMod_{ModScope::Instance};
+    std::array<float, kModDestinations> instDest_{};
+    std::array<SlotBlock, kMaxInstanceSlots> instBlocks_{};
+    std::array<float, kMaxInstanceSlots> lastInstOut_{};
+    float lastDry_ = 1.0f;
+    float lastMaster_ = 1.0f;
+    float lastWidth_ = 1.0f;
 };
 
 } // namespace alfa::dsp
