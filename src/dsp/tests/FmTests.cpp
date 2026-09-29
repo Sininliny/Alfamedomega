@@ -20,6 +20,25 @@ using Catch::Matchers::WithinAbs;
 
 namespace
 {
+// Bessel function of the first kind, J_n(x), by its power series. Apple's libc++ has no
+// std::cyl_bessel_j; 40 terms are accurate far beyond the FM indices tested here.
+double besselJ(int n, double x)
+{
+    if (n < 0)
+        return (n % 2 == 0 ? 1.0 : -1.0) * besselJ(-n, x);
+    const double half = 0.5 * x;
+    double term = std::pow(half, n);
+    for (int i = 1; i <= n; ++i)
+        term /= i;  // (x/2)^n / n!
+    double sum = term;
+    for (int m = 1; m < 40; ++m)
+    {
+        term *= -half * half / (static_cast<double>(m) * static_cast<double>(m + n));
+        sum += term;
+    }
+    return sum;
+}
+
 
 constexpr double kSr = 48000.0;
 constexpr int kHop = 192;
@@ -100,8 +119,8 @@ TEST_CASE("FM 1:1 carrier:modulator matches the Bessel sideband amplitudes", "[d
         REQUIRE(fm.activeOperators() == 2);
         for (int k = 1; k <= 5; ++k)
         {
-            const double expected = std::abs(std::cyl_bessel_j(k - 1, index)
-                                             + ((k % 2 == 0) ? 1.0 : -1.0) * std::cyl_bessel_j(k + 1, index));
+            const double expected = std::abs(besselJ(k - 1, index)
+                                             + ((k % 2 == 0) ? 1.0 : -1.0) * besselJ(k + 1, index));
             INFO("I = " << index << ", harmonic " << k);
             REQUIRE_THAT(toneAmplitude(out, static_cast<double>(f0) * k, kSr), WithinAbs(expected, 0.01));
         }

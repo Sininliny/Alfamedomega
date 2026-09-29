@@ -61,7 +61,8 @@ inline constexpr int kGrainSourceLength = 8192;  ///< samples per grain-source b
 
 /// Lowest band centre. Band b (0..63) is centred at 20 * (nyquist / 20)^(b / 63) Hz, so the top
 /// band sits at Nyquist. Per-bin gains are linear in log-frequency between centres and flat
-/// below band 0 (DC included).
+/// below band 0. The DC bin takes band 0's gain in the SAMPLER EQ (so unity bands are
+/// transparent) and is 0 in NOISE.
 inline constexpr double kBandLowHz = 20.0;
 
 enum class Primitive : std::uint8_t
@@ -255,6 +256,12 @@ struct VoiceFrame
     // Layout v2: processing slots and modulation.
     float pan = 0.0f;      ///< -1 (left) .. 1 (right), equal-power
     float dryGain = 1.0f;  ///< primitive sum straight to the output
+    /// Second read of the OSC tables for unison / supersaw: a phase accumulator at
+    /// f0 * oscDetuneRatio, same crossfade, scaled by oscDetuneLevel (both linear per sample,
+    /// starting at phase 0 on note-on). While the level is non-zero in frame j-1 or j, the OSC
+    /// Nyquist cut uses f0 * max(1, ratio in either frame).
+    float oscDetuneRatio = 1.0f;
+    float oscDetuneLevel = 0.0f;
     std::array<SlotControls, kMaxVoiceSlots> slots{};
     ModControls mod{};
 
@@ -313,7 +320,9 @@ inline constexpr std::size_t samplerGain = samplerStart + 1;
 inline constexpr std::size_t samplerEq = samplerGain + 1;
 inline constexpr std::size_t pan = samplerEq + kBands;
 inline constexpr std::size_t dryGain = pan + 1;
-inline constexpr std::size_t slots = dryGain + 1;  // kMaxVoiceSlots x SlotControls
+inline constexpr std::size_t oscDetuneRatio = dryGain + 1;
+inline constexpr std::size_t oscDetuneLevel = oscDetuneRatio + 1;
+inline constexpr std::size_t slots = oscDetuneLevel + 1;  // kMaxVoiceSlots x SlotControls
 inline constexpr std::size_t slotFloats = 2 + kSlotParams + kSlotInputs;
 inline constexpr std::size_t mod = slots + kMaxVoiceSlots * slotFloats;
 inline constexpr std::size_t modFloats = kModSourceParams + 3 * kMaxModRoutes;
@@ -333,7 +342,7 @@ inline constexpr std::size_t end = mod + modFloats;
 } // namespace offsets
 
 /// Every field of VoiceFrame in layout order.
-inline constexpr std::array<FieldInfo, 23> kFields{{
+inline constexpr std::array<FieldInfo, 25> kFields{{
     {"mix", offsets::mix, kPrimitiveCount, "linear gain, [osc, partials, fm, noise, grain, sampler]"},
     {"attack_tau", offsets::attackTau, 1, "seconds, note-on frame only"},
     {"osc.re", offsets::oscRe, kOscHarmonics, "linear, harmonic k+1 cosine part"},
@@ -355,6 +364,8 @@ inline constexpr std::array<FieldInfo, 23> kFields{{
     {"sampler.eq", offsets::samplerEq, kBands, "linear gain"},
     {"pan", offsets::pan, 1, "-1..1 equal-power"},
     {"dry_gain", offsets::dryGain, 1, "linear"},
+    {"osc.detune_ratio", offsets::oscDetuneRatio, 1, "multiple of f0, second OSC table read"},
+    {"osc.detune_level", offsets::oscDetuneLevel, 1, "linear"},
     {"slots", offsets::slots, kMaxVoiceSlots * offsets::slotFloats, "4 x [family, out_gain, params[16] 0..1, input[10]]"},
     {"mod", offsets::mod, offsets::modFloats, "sources[24] 0..1, route_source[8], route_destination[8], route_depth[8] -1..1"},
 }};
