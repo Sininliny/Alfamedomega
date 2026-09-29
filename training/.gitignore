@@ -1,0 +1,8 @@
+runs/
+export/
+*.pt
+*.onnx
+*.npz
+*.npy
+*.wav
+__pycache__/

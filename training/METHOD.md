@@ -1,24 +1,32 @@
-# Alfamedomega training method (draft v1, 2026-09-29)
+# Alfamedomega training method (draft v3, 2026-09-29)
 
 This is the method `alfamedomega_train.py` implements. It builds on the tier spec
-(`docs/tiers/model-tiers.md`, v3), the capacity plan (Claude Doc "Alfamedomega synthesis capacity
-plan") and ADR 0001 (JUCE 8 + ONNX Runtime through anira). Nothing here has been trained yet, so
-every loss weight, size and schedule is a starting point to be tuned.
+(`docs/tiers/model-tiers.md`, v5 per-voice budgets), the capacity plan (Claude Doc "Alfamedomega synthesis capacity
+plan"), ADR 0001 (JUCE 8 + ONNX Runtime through anira), and the control-frame contract in
+`src/dsp/include/alfa/dsp/ControlFrame.h` (layout version 1), which is the source of truth for
+section 2. Nothing has been trained at scale yet, so every loss weight, size and schedule is a
+starting point to be tuned.
+
+v2 aligned the DSP primitives with ControlFrame.h: one OSC layer, amplitude-only PARTIALS with
+the modal integrator moved into the graph, per-primitive mix gains, the hop-ramp convention, no
+grain spray, and hybrids merged into one frame. v3 renders additive on PARTIALS as its own family
+(Sinin's ruling), adopts the tier spec v5 per-voice budgets (Pro 0.65 M, Studio 2.8 M), and renames
+the export tensors to the inference host's contract.
 
 ## 1. What the network learns
 
-The network never produces audio samples. Every 4 ms (250 Hz) it produces **control frames** for a
-small, fixed set of DSP primitives that the plugin renders on the audio thread. Training renders
-the same primitives in PyTorch, so the loss is computed on audio while the network stays at
-frame rate.
+The network never produces audio samples. Every 4 ms (250 Hz) it produces a **VoiceFrame** of
+controls for six DSP primitives that the plugin renders on the audio thread. Training renders the
+same primitives in PyTorch, so the loss is computed on audio while the network stays at frame
+rate.
 
 ```
 knobs (32) + method ──► PatchEncoder ──► patch embedding e          (once per patch change)
 e + global mod (4) ──► InstanceNet (GRU) ──► context c_t              (once per instance, per frame)
 note features (8) + c_t ──► VoiceCore (GRU) ──► h_t                   (per voice, per frame)
 h_t ──► method expert (routed MLP + lookup tables) ──► method params
-method params ──► builder (fixed math, inside the graph) ──► primitive controls
-primitive controls ──► DSP primitives ──► audio                        (per voice, per sample)
+method params ──► builder (fixed math, inside the graph) ──► VoiceFrame fields
+VoiceFrame ──► DSP primitives ──► audio                                (per voice, per sample)
 ```
 
 This is where the tier constraint from the tier spec is met. Only VoiceCore, one routed sub-expert
@@ -32,71 +40,97 @@ unused sub-experts and lookup tables that are gathered rather than multiplied.
 f0 comes from pitch and bend (±2 semitones) and goes straight to the DSP; the network does not
 have to predict it.
 
-## 2. DSP primitives (the plugin contract)
+## 2. DSP primitives (ControlFrame.h, layout version 1)
 
-The PyTorch render functions in the script are the reference implementation. The plugin's C++
-DSP must match them, which the export step checks with golden vectors (section 7). Method-specific
-logic (a subtractive filter curve, a wavetable morph, FM routing) lives in the network graph as
-fixed math, so C++ implements only these six primitives once.
+The PyTorch render functions in the script are the reference implementation of the header. The
+export writes golden vectors (section 7) that the C++ engine's tests reproduce. Method-specific
+logic lives in the network graph as fixed math, so C++ implements only these six primitives.
+
+**Timing.** The hop is round(sr/250), which is 192 at 48 kHz. A voice consumes frame j at the
+start of hop j. Across hop j, "linear" controls ramp per sample from frame j−1 to frame j
+(a = i/hop), and "held" controls use frame j. For hop 0, frame −1 is frame 0. Phases start at 0 on
+note-on, and f0 ramps the same way.
 
 | Primitive | Controls per frame | Render |
 |---|---|---|
-| **OSC** harmonic oscillator | complex spectrum of harmonics 1..1024 (real and imaginary parts) | each frame's spectrum is turned into a 2048-sample single-cycle wave by inverse FFT, harmonics above Nyquist are zeroed for that frame's f0, and the wave is read with a phase accumulator and crossfaded to the next frame's wave. This is full-band at any pitch, and its cost does not depend on harmonic count. |
-| **PARTIALS** inharmonic sinusoids | M frequency ratios, M amplitudes | sinusoid bank, frame values linearly interpolated per sample |
-| **FM** operators | N ratios, N output levels, N×N modulation indices (strictly upper-triangular, so there is no feedback) | phase modulation, evaluated from the last operator to the first |
-| **NOISE** filtered noise | 64 band gains on a log axis from 20 Hz to Nyquist | windowed white-noise frames (Hann, 50% overlap), multiplied by the interpolated band curve, then overlap-added |
-| **GRAIN** grain layers | per layer: source index weights, read position, playback rate, gain | 2-hop Hann grains read from a source table, overlap-added at the hop |
-| **SAMPLER** sample player | rate multiplier, start offset, gain, 64 EQ band gains | reads the loaded sample at `f0/root × rate`, then applies a short-time EQ using the NOISE band layout |
+| **OSC** | `osc.re`, `osc.im`: 1024 harmonics | frame j's wave is Σ re cos(2π(k+1)φ) − im sin(2π(k+1)φ). Harmonics at or above Nyquist for frame j's f0 are zeroed, the wave is stored as a 2048-point table read with linear interpolation, and hop j crossfades from table j−1 to table j |
+| **PARTIALS** | `partials.ratio`, `partials.amp` (M used) | sinusoids at f0·ratio with amplitude amp, both linear. A partial at or above Nyquist is silent |
+| **FM** | `fm.ratio`, `fm.level` (N used), `fm.index` (8×8 row-major, j>i) | y_i = sin(θ_i + Σ_{j>i} index[i][j]·y_j), evaluated from the last operator to the first, with output Σ level_i·y_i. There is no feedback |
+| **NOISE** | `noise.band`: 64 gains | each hop starts a 2-hop grain: uniform noise in [−1, 1), shaped by frame j's band curve with DC zeroed, then Hann-windowed and overlap-added |
+| **GRAIN** | per layer: `grain.source` (2 bank indices as floats), `grain.weight` (2), `grain.position`, `grain.rate`, `grain.gain` | each hop starts a 2-hop Hann grain per layer reading w0·bank[s0] + w1·bank[s1] from position·8192, advancing rate per sample and wrapping. All values are held |
+| **SAMPLER** | `sampler.rate` (held), `sampler.start` (note-on frame), `sampler.gain`, `sampler.eq` (64) | reads the sample at (f0/root)·rate from start·length, applies a short-time EQ (2-hop Hann frames, the frame starting at hop j using frame j's curve), then applies gain |
 
-Two things apply to every voice:
-- **Mix gains** per primitive, per frame.
-- **Attack envelope** `1 − exp(−t/τ)`, computed per sample from the note-on sample, with τ taken
-  from the note-on frame. This keeps attacks sharper than one 4 ms frame, as the tier spec asks.
+Voice output is `attack(t) · Σ_p mix[p] · primitive_p`, with `mix` = 6 linear gains in the order
+[osc, partials, fm, noise, grain, sampler], and `attack(t) = 1 − exp(−t/attack_tau)`, with
+attack_tau taken from the note-on frame. The per-sample attack keeps transients sharper than one
+4 ms frame, as the tier spec asks.
 
-Tier-dependent sizes: OSC explicit harmonics K_h = 32 / 64 / 128 / 256 (the builders extrapolate
-the rest up to 1024 with a slope and odd/even tail), FM operators 2 / 4 / 6 / 8, partials
-16 / 32 / 48 / 64, and grain layers 2 / 4 / 6 / 8.
+Band curve: band b is centred at 20·(nyquist/20)^(b/63) Hz, linear in log-frequency between
+centres, and flat below band 0. The DC bin takes band 0's gain in the SAMPLER EQ, so unity
+bands are transparent, and is zero in NOISE.
+
+Tier sizes: wavetable harmonics K_h = 32 / 64 / 128 / 256 (subtractive and spectral fill all 1024
+analytically), partials 16 / 32 / 48 / 64, FM operators 2 / 4 / 6 / 8, and grain
+layers 2 / 4 / 6 / 8. These match `TierLimits`.
 
 ## 3. Method experts and their builders
 
 Each expert is two residual **routed MLP layers** (top-1 switch routing over K sub-experts),
-an optional **lookup table**, a linear head and a builder. Builders are fixed differentiable math,
-exported inside the ONNX graph.
+an optional **lookup table** with product-key top-2 selection, a linear head and a builder.
+Builders are fixed differentiable math, exported inside the ONNX graph, and they emit VoiceFrame
+fields directly.
 
-| Expert | Head outputs (method params) | Builder → primitives | Lookup table |
+| Expert | Head outputs (method params) | Builder → VoiceFrame | Lookup table |
 |---|---|---|---|
-| Subtractive | saw/square/triangle mix, pulse width, osc-2 detune and level, cutoff, resonance, LP/BP/HP mix, noise level, amp | analytic oscillator spectra × 4-pole state-variable filter magnitude at each harmonic → OSC; the same filter applied to noise bands → NOISE | none |
-| Wavetable | table selection (top-2 over the table bank), position, brightness tilt, amp | interpolate table frames at the position → OSC | tables of 32 frames × K_h complex harmonics (60% of the expert) |
-| Additive | K_h harmonic amps, slope and odd/even tail, amp | → OSC | harmonic-envelope codebook (30%) |
-| Spectral | spectral-envelope codebook selection, morph, harmonic/noise balance | envelope sampled at the harmonics → OSC, the same envelope → NOISE | spectral-frame codebook (40%) |
+| Subtractive | saw/square/triangle mix, pulse width, cutoff, resonance, LP/BP/HP mix, noise level, amp | analytic oscillator spectra × 4-pole state-variable filter magnitude at each harmonic → OSC; the same filter on the band centres → NOISE | none |
+| Wavetable | table selection (top-2 over the bank), position, brightness tilt, amp | interpolate table frames at the position → OSC | tables of 32 frames × K_h complex harmonics (60% of the expert) |
+| Additive | M partial amps (codebook + correction), per-partial detune, stiffness stretch B, amp | partials at k·√(1+Bk²)·(1+detune_k) → PARTIALS. Additive is its own family and never uses OSC | partial-envelope codebook (30%) |
+| Spectral | spectral-envelope codebook + correction, harmonic/noise balance | envelope at each harmonic → OSC, the same envelope → NOISE | spectral-frame codebook (40%) |
 | FM | ratios (snapped toward integers by a learned blend), levels, modulation indices | → FM | none |
-| Physical (modal) | mode-set selection, per-mode decay, excitation energy, damping, brightness, breath noise | a leaky integrator per mode `a_t = a_{t−1}·exp(−hop/τ) + excitation_t` → PARTIALS; breath → NOISE | mode-ratio codebook (20%) |
-| Granular | per-layer source selection, position, rate, gain, spray | → GRAIN | grain-source bank of 8192-sample buffers (50%) |
-| Sampling | rate fine-tune, start offset, EQ curve (codebook plus correction), harmonic residual | → SAMPLER, plus a small OSC residual | EQ-residual codebook (30%) |
-| Hybrid | two FiLM transforms of h (one per component expert), crossfade, ring-mod amount | runs two component experts on the transformed h, then mixes them | none |
+| Physical (modal) | mode-set selection, per-mode decay τ and excitation, breath noise | per-mode integrator `a_t = a_{t−1}·exp(−1/(τ·250)) + exc_t` → `partials.amp`; breath → NOISE. The integrator state is a graph input and output (`modal_state`) | mode-ratio codebook (5%) |
+| Granular | per layer: source selection (top-2), position, rate (pitched or free), gain | → GRAIN | grain bank of 8192-sample buffers (50%), shipped as `grain_bank.npy` |
+| Sampling | rate fine-tune, start offset, EQ curve (codebook + correction), harmonic residual | → SAMPLER, plus a small OSC residual | EQ codebook (5%) |
+| Hybrid | two shifts of h (one per component expert) and a crossfade xf | runs two component experts on the shifted h, then **merges them into one VoiceFrame** | none |
+
+**Hybrid merge** (the host applies the same rule): OSC spectra add, weighted by xf and 1−xf;
+NOISE bands add by power; every other primitive belongs to exactly one component and takes that
+component's mix scaled by its weight; attack_tau is the smaller of the two. Components are drawn
+from {subtractive, wavetable, additive, FM, physical}, except the additive + physical pair (both
+use PARTIALS), so two components never share anything but OSC and NOISE. Ring modulation was dropped because one VoiceFrame cannot express it.
 
 Expert sizes follow the capacity shares: expert budget = 0.70 × tier total × share, where the
-share formula is copied from `tier_budget.py`. Of that budget, the table takes the fraction shown
-above, and the rest sets the number of sub-experts K. If K would fall below 2, which happens for
-Lite's small experts, K = 1 and the sub-expert width shrinks. That is the tier spec's "small
-control map" fallback.
+share formula is copied from `tier_budget.py`. The table takes the fraction shown above, and the
+rest sets the number of sub-experts K. If K would fall below 2, which happens for Lite's small
+experts, K = 1 and the table absorbs the rest. That is the tier spec's "small control map"
+fallback.
 
 Routing uses a switch-style top-1 router with a straight-through gate (output × router
 probability), a load-balance loss `K · Σ_k f_k · P_k`, and a router z-loss. In ONNX the chosen
 sub-expert's weights are gathered per voice (`Gather` + `MatMul`), so compute per voice is one
 sub-expert whatever K is.
 
+`python alfamedomega_train.py report` prints the resulting sizes. All four tiers land within 10% of
+the tier spec:
+
+| Tier | Total params (target) | Active per voice (target) | Instance per frame (target) |
+|---|---|---|---|
+| Lite | 3.93 M (4 M) | 0.121 M (0.12 M) | 0.09 M (0.10 M) |
+| Standard | 15.2 M (16 M) | 0.346 M (0.35 M) | 0.52 M (0.50 M) |
+| Pro | 63.6 M (64 M) | 0.674 M (0.65 M) | 1.50 M (1.50 M) |
+| Studio | 249 M (256 M) | 2.73 M (2.8 M) | 5.80 M (6.0 M) |
+
 ## 4. Data
 
 There is no public dataset of "the sound of each synthesis method", so training starts from
 **procedural teacher programs**. For each method, a classic parametric synth maps 32 knobs plus a
 performance (note, velocity, length, mod wheel, bend, aftertouch) to method params. The params go
-through the same builders and primitives, which gives paired (inputs, primitive controls, audio)
-examples on the fly with no download. Factory content for the teachers (wavetables, grain
-sources, mode sets) is generated from fixed seeds, so the "factory bank" is reproducible.
+through the same builders and primitives, which gives paired (inputs, VoiceFrames, audio) examples
+on the fly with no download. Factory content for the teachers (64 wavetables, 16 grain sources,
+plate mode sets, 8 samples rendered from other teachers) is generated from fixed seeds, so the
+"factory bank" is reproducible.
 
 Real audio comes in at stage 3 (section 5): any folder of labelled notes, with NSynth's
-`examples.json` + `audio/*.wav` layout supported directly.
+`examples.json` + `audio/*.wav` layout supported directly and resampled to 48 kHz.
 
 Method sampling per batch: each batch is one method, drawn with probability ∝ share^0.5. That
 keeps the trunk weighted toward common methods while the 4% experts still train often enough.
@@ -104,77 +138,112 @@ Gradients are accumulated over 4 batches, so each optimizer step mixes methods.
 
 ## 5. Training stages
 
-| Stage | Trains | Data | Loss |
+| Stage (`--stage`) | Trains | Data | Loss |
 |---|---|---|---|
-| 1. Pretrain (Studio, or any tier trained from scratch) | everything | teacher programs | MRSTFT(audio) + λ_ctrl · control distance + 0.01 · balance + 0.001 · z-loss; λ_ctrl decays 1 → 0.1 |
-| 2. Hybrid and polish | everything, lower LR | teachers, 30% hybrid patches | same, λ_ctrl = 0.1 |
-| 3. Real-audio fine-tune | everything; AudioEncoder added | labelled notes: the reference is another note from the same instrument, and the target is this note | MRSTFT only, masked above the source Nyquist; sampling plays the reference note |
-| 4. Distil (Pro, Standard, Lite from Studio) | the student | teacher programs + real audio | control distance to the Studio controls + MRSTFT to the Studio render + 0.25 × the stage-1 ground-truth loss |
-| 5. Quantise and export | none | none | ONNX parity checks; int8 dynamic quantisation for Lite, fp16 for the rest |
+| 1. `pretrain` (Studio, or any tier from scratch) | everything | teacher programs, 5% hybrid | MRSTFT(audio) + λ_ctrl · control distance + 0.01 · balance + 0.001 · z-loss; λ_ctrl decays 1 → 0.1 over the first half |
+| 2. `polish` | everything, 0.3 × LR | teachers, 30% hybrid | same, λ_ctrl = 0.1 |
+| 3. `finetune` | everything, 0.3 × LR; AudioEncoder comes in | labelled notes: the reference is another note from the same instrument, and the target is this note | MRSTFT only, cut above the source Nyquist; sampling plays the reference note |
+| 4. `distill` (Pro, Standard, Lite from Studio) | the student | teacher programs, plus real notes when `--data` is given | control distance to the Studio frames + MRSTFT to the Studio render + 0.25 × the stage-1 loss |
+| 5. `export` | none | none | ONNX parity checks; int8 dynamic quantisation for Lite (`--int8`), fp16 for the rest (not yet in the script) |
 
 **MRSTFT** is the multi-resolution spectral loss, over FFT sizes 2048/1024/512/256/128/64 with 75%
-overlap: `‖|S|−|Ŝ|‖₁ / ‖|S|‖₁ + ‖log(|S|+1e-5) − log(|Ŝ|+1e-5)‖₁`.
+overlap: `‖|S|−|Ŝ|‖₁ / ‖|S|‖₁ + mean |log(|S|+1e-5) − log(|Ŝ|+1e-5)|`.
 
-**Control distance** compares primitives in perceptual units: log-magnitude of the OSC spectrum
-weighted by 1/k, log NOISE band gains, log FM ratios and levels, log partial frequencies and
-amplitudes, and log mix gains. Primitives whose meaning depends on a learned table (GRAIN source,
-SAMPLER EQ codebook) are left to MRSTFT. Because the distance is on primitives, it works the same
-for ground truth and for distillation, even when student and teacher have different K_h or table
-sizes.
+**Control distance** compares VoiceFrames in perceptual units: the mix gains, log-magnitude of the
+OSC spectrum weighted by 1/k, log NOISE and EQ bands, log FM ratios and levels, log partial ratios
+and amplitudes, log grain and sampler rates and gains, and log attack_tau. Fields whose meaning
+depends on a learned table (grain source indices and positions) are left to MRSTFT. Because the
+distance is on the frame, it works the same for ground truth and for distillation, even when
+student and teacher have different K_h or table sizes.
+
+**Read positions carry no gradient.** Gradients through the read position of a buffer (grain
+position and rate, sampler start and rate) come from the local slope of the audio in that buffer,
+and they were 100 to 1000× larger than every other gradient in tests. They are stopped, so those
+controls learn from the control distance (rates) and from the gains and tables around them.
 
 Why distil method by method: each student expert is trained only on batches of its own method,
 so every tier plays the same patch with the same character (the tier spec's promise that switching
-Lite to Studio for a bounce does not change the sound). Matching controls rather than audio alone
-is also what keeps the character, since two different control paths can land at the same
+from Lite to Studio for a bounce does not change the sound). Matching frames rather than audio
+alone is also what keeps the character, since two different control paths can land at the same
 spectral loss.
 
 Optimiser: AdamW (β 0.9/0.99, weight decay 0.01 except for tables, norms and biases), 2k-step
-warmup, cosine decay, gradient clip 1.0, and bf16 autocast on GPUs that support it. The DSP render
-and the losses stay in fp32.
-
-Starting learning rates: 3e-4 for Lite and Standard, 2e-4 for Pro, 1.5e-4 for Studio.
+warmup, cosine decay, gradient clip 1.0, and bf16 autocast on GPUs that support it (A100, L4; not
+T4). The DSP render and the losses stay in fp32. Starting learning rates are 3e-4 for Lite and
+Standard, 2e-4 for Pro and 1.5e-4 for Studio.
 
 ## 6. Clip setup
 
-48 kHz, hop 192 (250 Hz), 1.0 s clips (250 frames) by default, and batch 16. Notes start at frame
-4 so the pre-roll trains silence. Note length is 30 to 85% of the clip, so every clip holds a
-release. The recurrent state is reset per clip. The streaming export (section 7) checks that
-running frame by frame gives the same result as running the whole clip.
+48 kHz, hop 192 (250 Hz), 1.0 s clips (250 frames) by default, and batch 16 × 4 accumulation.
+Notes start at frame 4, so the pre-roll trains silence. Note length is 30 to 85% of the clip, so
+every clip holds a release. The recurrent state is reset per clip. The streaming check (section 7)
+confirms that running frame by frame gives the same frames as running the whole clip.
 
 ## 7. Export (ADR 0001: ONNX Runtime through anira)
 
-The script exports one folder per tier:
+`python alfamedomega_train.py export --ckpt <ckpt> --out Models --version 0.1.0` writes
+`Models/<tier>-<version>/` and adds that folder to `Models/manifest.json` with each file's SHA-256,
+in the inference host's schema (`src/inference/MODEL_CONTRACT.md`). Tensor names follow that
+contract:
 
-| Graph | When the plugin runs it | Inputs → outputs |
+| File | When the plugin runs it | Inputs → outputs |
 |---|---|---|
-| `patch_encoder.onnx` | on a patch or knob change | knobs[1,32], method one-hot[1,9] → e[1,E] |
-| `instance_step.onnx` | once per frame | e, global mod[1,4], state → c[1,C], state' |
-| `voice_core.onnx` | once per frame, all voices batched | note features[V,8], c[1,C], state[V,H] → h[V,H], state' |
-| `expert_<method>.onnx` | once per frame per active method, for its voices | h[V,H] → the primitive controls it drives |
-| `expert_hybrid.onnx` | for hybrid voices | h → h_a, h_b, mix |
+| `patch_encoder.onnx` | on a patch or knob change | knobs[1,32], method[1,9], hybrid_parts[1,18] → embedding[1,E] |
+| `audio_encoder.onnx` | when a sample or reference sound is loaded | logmel[1,64,frames] → e_audio (added to embedding) |
+| `instance_step.onnx` | once per frame | embedding, global_mod[1,4], state[1,Hi] → context[1,Hv], state_out[1,Hi] |
+| `voice_core.onnx` | once per frame, all voices batched | features[V,8], context[1,Hv], state[V,Hv] → hidden[V,Hv], state_out |
+| `expert_<method>.onnx` | once per frame per active method, for its voices | hidden[V,Hv], f0[V] (+ modal_state for physical) → one output per VoiceFrame field it drives, named as in ControlFrame.h |
+| `expert_hybrid.onnx` | for hybrid voices | hidden → hidden_a, hidden_b, xf. The host runs both component experts and merges them (section 3) |
+| `grain_bank.npy` | loaded once | the learned grain bank [N, 8192] |
+| `export_info.json` | reference | layout version, VoiceFrame offsets, graph inputs, per-expert output widths, check results |
+| `dsp_golden.npz` | C++ unit tests | per method: VoiceFrames [T, 2451] from the note-on frame, f0, and the rendered audio |
+
+`hybrid_parts` is component A's one-hot followed by component B's, and it is all zeros unless the
+method is hybrid. Four points go beyond the host contract as first published, and are with the
+inference thread: `f0` and `modal_state` inputs on the experts, the `hybrid_parts` input,
+hybrid chaining on the host, and loading `grain_bank.npy` and `audio_encoder.onnx`.
+
+Expert outputs are tier-sized prefixes of the VoiceFrame arrays, except `fm.index`, which is
+N×N row-major and spread to the 8-wide rows by the host. All widths except V are fixed in the graphs. An input a graph does not use is pruned by the exporter (for
+example, wavetable ignores f0), and `export_info.json` lists each graph's real inputs.
 
 So a frame costs 2 + (number of active methods) `Run()` calls, with all voices of a method
-batched. That is a concrete answer to ADR 0001 open question 3 (separate files per method, not
-one graph per patch), and it keeps the tier spec's "one batched Run per frame" assumption, per
-method. The step graphs are driven from the same weights as training, and the export checks:
+batched. That answers ADR 0001 open question 3 (separate files per method, not one graph per
+patch), and it keeps the tier spec's "one batched Run per frame" assumption, per method.
 
-1. **Streaming parity:** frame-by-frame torch steps match the full-clip forward.
-2. **ORT parity:** ONNX Runtime matches torch within 1e-4, with dynamic V.
-3. **Golden DSP vectors:** `dsp_golden.npz` holds controls and rendered audio for each primitive,
-   for the C++ engine's unit tests.
-4. **Parameter report:** total vs active params per voice against the tier spec, flagged if more
-   than 10% off.
+Checks the export runs, and fails on:
+1. **Streaming parity:** the step graphs' torch code, frame by frame, matches the whole-clip
+   forward (max error about 1e-6 in the smoke test).
+2. **ORT parity:** ONNX Runtime matches torch within 1e-3 with dynamic V (about 1e-6 in the smoke
+   test).
+3. **Parameter report:** total and active params per voice against the tier spec.
 
 ## 8. Compute (estimated, not measured)
 
-The first targets are a Lite pretrain to prove the loop on a Colab T4, and a Studio pretrain on
-an A100. Studio's optimizer state is about 4 GB. Memory is dominated by audio-rate rendering at
-batch 16 × 48k samples, not by weights. The step counts to start from are 200k for stage 1, 50k for
-stage 2, 50k for stage 3 and 100k per student for stage 4. Stage 4 needs a trained Studio model,
-so Pro, Standard and Lite do not exist until Studio does.
+A Lite pretrain is the loop to prove first, on a Colab T4. Studio pretraining wants an A100:
+its optimizer state is about 4 GB, and memory is dominated by audio-rate rendering at
+batch 16 × 48k samples, not by weights. The step counts to start from are 200k for stage 1, 50k
+for stage 2, 50k for stage 3 and 100k per student for stage 4. Stage 4 needs a trained Studio
+model, so Pro, Standard and Lite do not exist in distilled form until Studio does. They can be
+pretrained directly from the teachers in the meantime.
 
 ## 9. Open questions and known gaps
 
+- **Per-voice processing slots are coming.** The DSP thread is adding eight DSP families
+  (filters, modulation, nonlinear, delay and diffusion, physical and modal, resampling,
+  convolution and spatial, spectral transforms), routed through per-voice slots. VoiceFrame will
+  grow, and the routing head will have to respect the per-tier DSP cost limits in tier spec v4.
+  That needs a new routing head, teacher programs for the slots, and a cost penalty in the
+  loss. It is not in this version.
+- **Layout v2 is coming** (append-only, so the v1 offsets used here stay valid): OSC detune
+  (a second phase accumulator at f0·ratio reading the same tables, with the Nyquist cut at
+  f0·max(1, ratio)), pan, dry gain, 4 voice slots, a mod block, and an InstanceFrame for
+  instance_step. Subtractive and wavetable will get their detune back when the v2 offsets are
+  final.
+- **Capacity split.** Expert shares still use the 9-method prevalence formula. Sinin's 14-family
+  split (allocation.json) replaces it along with the slots.
+- **Large FM gradients.** Gradient norms on FM batches reach the thousands (phase modulation), so
+  clipping is doing real work there. Watch FM loss in the first real run.
 - **Sampling scope is still open** in the capacity plan. The method assumes user audio only:
   the sampling expert learns to transpose and re-voice the user's sample, trained on
   other-pitch/velocity pairs of the same instrument. A bundled library would add a large sample
@@ -182,12 +251,8 @@ so Pro, Standard and Lite do not exist until Studio does.
 - **Teacher programs define the first sound.** Stage 1 teaches the network classic behaviour of
   each method, which is what the knobs mean. What the network adds beyond a classic synth (real
   instrument dynamics, a shared patch space for morphing) comes from stage 3 data, and how good
-  that becomes depends on the real-audio set, which isn't chosen yet.
-- **Physical modelling is modal only.** That covers struck and plucked sounds well. Bowed and
-  blown sounds get a continuous excitation, but no waveguide feedback. A waveguide primitive can
-  be added later, but it is recurrent per sample, so it is slow to train.
-- **FM has no operator feedback** in v1, because it would need per-sample recurrence in training.
+  that gets depends on the real-audio set, which isn't chosen yet.
+- **Physical modelling is modal only**, with no waveguide feedback. FM has no operator feedback.
+  Both would need per-sample recurrence in training.
 - **Frame-rate modulation:** modulation faster than 125 Hz is smoothed, apart from the attack
   envelope, which is per sample.
-- **The C++ DSP does not exist yet.** The golden vectors define it, and any deviation needs
-  either a C++ fix or a matching change here, followed by retraining.

@@ -36,14 +36,83 @@ jobs:
           path: .cpm-cache
           key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'src/**/CMakeLists.txt') }}
           restore-keys: cpm-${{ runner.os }}-
-      - name: Install Ninja
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Ninja and model-export tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build
+          python -m pip install numpy onnx
       - name: Configure
         run: cmake --preset ${{ matrix.preset }} -DALFA_WARNINGS_AS_ERRORS=ON -DCPM_SOURCE_CACHE=$CPM_SOURCE_CACHE
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
       - name: Test
         run: ctest --preset ${{ matrix.preset }}
+
+  rtsan:
+    name: Inference under RealtimeSanitizer (Linux, Clang 20)
+    runs-on: ubuntu-24.04
+    env:
+      CC: clang-20
+      CXX: clang++-20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .cpm-cache
+          key: cpm-rtsan-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'src/**/CMakeLists.txt') }}
+          restore-keys: cpm-rtsan-${{ runner.os }}-
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Clang 20, Ninja and model-export tools
+        run: |
+          wget -qO llvm.sh https://apt.llvm.org/llvm.sh
+          sudo bash llvm.sh 20
+          sudo apt-get install -y ninja-build libclang-rt-20-dev
+          python -m pip install numpy onnx
+      - name: Configure
+        run: cmake --preset core -DCPM_SOURCE_CACHE=$CPM_SOURCE_CACHE
+      - name: Build
+        run: cmake --build --preset core
+      - name: Test
+        run: ctest --preset core
+
+  control-center:
+    name: Control center (Python 3.11)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Qt runtime libraries and the app
+        if: hashFiles('apps/control-center/pyproject.toml') != ''
+        run: |
+          sudo apt-get update && sudo apt-get install -y libegl1 libxkbcommon0 libfontconfig1
+          python -m pip install -e "apps/control-center[gui,test]"
+      - name: Test
+        if: hashFiles('apps/control-center/pyproject.toml') != ''
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest apps/control-center
+
+  preference:
+    name: Preference learning (Python 3.11)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install numpy
+        if: hashFiles('preference/tests/**') != ''
+        run: python -m pip install numpy
+      - name: Test
+        if: hashFiles('preference/tests/**') != ''
+        working-directory: preference
+        run: python -m unittest discover tests
 
   plugin:
     name: Plugin (${{ matrix.name }})
@@ -73,6 +142,11 @@ jobs:
           path: .cpm-cache
           key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'src/**/CMakeLists.txt') }}
           restore-keys: cpm-${{ runner.os }}-
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install model-export tools
+        run: python -m pip install numpy onnx
       - name: Install Ninja
         if: runner.os == 'macOS'
         run: brew install ninja
