@@ -10,55 +10,79 @@ fix one of them in the same change.
 ## Folder and manifest
 
 ```
-Models/
+Models/                      the control center's model store (docs/control-center/model-store.md)
   manifest.json
-  <tier>-<version>/          e.g. standard-1.0.0
+  <dir>/                     e.g. standard-1.0.0; folders starting with "." are never models
     patch_encoder.onnx
+    audio_encoder.onnx       optional: sampler reference conditioning
     instance_step.onnx
     voice_core.onnx
     expert_subtractive.onnx  expert_wavetable.onnx  expert_additive.onnx
     expert_spectral.onnx     expert_fm.onnx         expert_physical.onnx
     expert_granular.onnx     expert_sampling.onnx   expert_hybrid.onnx
+    grain_bank.npy           optional: GRAIN's learned sources, float32 [N, 8192]
 ```
+
+The host reads the control center's schema 1 as written:
 
 ```json
 {
   "schema": 1,
+  "default_tier": "standard",
   "models": [
     {
+      "id": "standard-1.0.0",
       "tier": "standard",              // lite | standard | pro | studio
       "version": "1.0.0",
-      "folder": "standard-1.0.0",
-      "opset": 17,
-      "frame_rate_hz": 250,
-      "files": { "voice_core.onnx": "<sha-256, hex>", "...": "..." }
+      "dir": "standard-1.0.0",
+      "files": [{"path": "voice_core.onnx", "sha256": "<hex>", "bytes": 123456}],
+      "bytes": 123456, "sr": 48000, "frame_hz": 250, "hop": 192
     }
   ]
 }
 ```
 
-Every file in the folder that the host opens must be listed with its SHA-256. The newest
-`version` of a tier wins.
+- A higher `schema` is refused. Keys the host does not use (`source`, `installed_at`, ...) are
+  ignored.
+- It also reads the training export's first form: `folder` for `dir`, `frame_rate_hz` for
+  `frame_hz`, and `files` as a map of path to SHA-256. `id` defaults to `<tier>-<version>`.
+- Every file the host opens must be listed. On load it checks each file's SHA-256 (any case)
+  and, when given, its size. The newest `version` of a tier wins.
+- A `dir` or file path that is absolute or contains `..` is refused.
+- Where the host looks: `ALFA_MODELS_DIR` if set, else `/Library/Application Support`
+  (macOS), `%ProgramData%` (Windows) or `$XDG_DATA_HOME` (default `~/.local/share`) (Linux),
+  each followed by `Alfamedomega/Models`.
 
 ## Graphs
 
 All tensors are float32. `V` is a dynamic first dimension (the number of voices in the call,
-1 to 16); name it with a `dim_param`, not a fixed size. E, C and H are the tier's widths and may
-be anything; the host reads them from the graphs.
+1 to 16); name it with a `dim_param`, not a fixed size. E, S, C, H and M are the tier's widths
+and may be anything; the host reads them from the graphs.
 
 | Graph | When | Inputs | Outputs |
 |---|---|---|---|
-| `patch_encoder` | patch or knob change (message thread) | `knobs` [1, 32], `method` [1, 9] one-hot | `embedding` [1, E] |
-| `instance_step` | every frame | `embedding` [1, E], `global_mod` [1, 4], `state` [1, C] | `context` [1, C], `state_out` [1, C] |
+| `patch_encoder` | patch or knob change (message thread) | `knobs` [1, 32], `method` [1, 9] one-hot, optional `hybrid_parts` [1, 18] | `embedding` [1, E] |
+| `audio_encoder` (optional) | reference sample change (message thread) | `logmel` [1, 64, frames] | `e_audio` [1, E] |
+| `instance_step` | every frame | `embedding` [1, E], `global_mod` [1, 4], `state` [1, S] | `context` [1, C], `state_out` [1, S] |
 | `voice_core` | every frame, active voices batched | `features` [V, 8], `context` [1, C], `state` [V, H] | `hidden` [V, H], `state_out` [V, H] |
-| `expert_<method>` | every frame, the voices of that method | `hidden` [V, H] | one output per control-frame field it drives, [V, width] |
+| `expert_<method>` | every frame, the voices of that method | `hidden` [V, H], optional `f0` [V], physical only `modal_state` [V, M] | one output per control-frame field it drives, [V, width]; physical also `modal_state_out` [V, M] |
+| `expert_hybrid` | every frame, hybrid voices | `hidden` [V, H] | `hidden_a` [V, H], `hidden_b` [V, H], `xf` [V] |
 
-- `state_out` is fed back as `state` on the next frame. The host zeroes a voice's state on
-  note-on (retrigger) and when the voice goes idle, and zeroes everything on transport reset.
+- Every `state_out` is fed back as its `state` on the next frame, and `modal_state_out` as
+  `modal_state`. The host zeroes a voice's states on note-on (retrigger) and when the voice
+  goes idle, and zeroes everything on transport reset.
 - Note features, in order: pitch/127, velocity, gate, log1p(time since note-on)/log1p(4 s),
-  log1p(time since note-off)/log1p(4 s), mod wheel, aftertouch, pitch bend.
+  log1p(time since note-off)/log1p(4 s), mod wheel, aftertouch, pitch bend (±1 = ±2 semitones).
+- `f0` is in Hz: `440 * 2^((pitch * 127 + 2 * bend - 69) / 12)`. Experts that do not use it may
+  leave it out (the training export prunes it).
 - Method order (for the one-hot and for voice routing): subtractive, wavetable, additive,
   spectral, fm, physical, granular, sampling, hybrid.
+- `hybrid_parts` is two one-hots over the same order: component A in 0..8, component B in 9..17.
+  Zero for a non-hybrid patch.
+- With a reference sample the host feeds `patch embedding + e_audio` to `instance_step`.
+  `logmel` is computed as training's `logmel()`: 48 kHz mono, n_fft 2048, hop 512, periodic
+  Hann, centred frames with reflect padding, magnitude, 64 HTK-mel bands from 20 Hz to 16 kHz,
+  `log(mel + 1e-5)`.
 
 ## Expert outputs
 
@@ -77,10 +101,22 @@ Each output is named after a field of `alfa::dsp::VoiceFrame`
   should output `mix` and `attack_tau`.
 - Values are in the physical units ControlFrame.h states (linear gains, ratios, radians,
   seconds). The graph does any scaling; the host copies values as they are.
-- `expert_hybrid` is run like any other expert and must output primitive controls directly.
-  If hybrid needs to run two component experts on transformed hidden states (METHOD.md
-  section 3), put that inside `expert_hybrid.onnx`, or tell the inference owner so the host can
-  chain graphs.
+
+## Hybrid
+
+For a hybrid voice the host runs `expert_hybrid`, then component A's expert on `hidden_a` and
+component B's on `hidden_b` (with the voice's f0 and modal state), and merges the two frames
+exactly as training's `merge_hybrid()`, with `wa = xf` and `wb = 1 - xf`:
+
+- `mix = wa * mix_A + wb * mix_B`, and `attack_tau = min(A, B)`.
+- If either component drives OSC: `osc = Σ w * mix_c[osc] * osc_c`, and `mix[osc] = 1`.
+- If either drives NOISE: `noise.band = sqrt(Σ (w * mix_c[noise] * band_c)² + 1e-12)`, and
+  `mix[noise] = 1`.
+- Every other field is copied from the one component that outputs it. A pair whose experts
+  share such a field (additive and physical both drive PARTIALS) is refused in `setPatch`.
+
+The components come from the patch (`InferenceHost::setPatch(knobs, method, a, b, error)`).
+A hybrid voice without two components stays silent.
 
 ## Timing
 

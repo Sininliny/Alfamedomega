@@ -2,6 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstdlib>
 #include <fstream>
 
 using namespace alfa::inference;
@@ -83,13 +84,97 @@ TEST_CASE("verify catches a modified model file", "[inference][manifest]")
     writeFile(dir / "lite-1" / "a.onnx", "abc");
     ModelEntry entry;
     entry.folder = dir / "lite-1";
-    entry.files["a.onnx"] = "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD";
+    // Upper case, as some tools print it, is accepted.
+    entry.files["a.onnx"] = {"BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD", 3};
     std::string error;
     REQUIRE(ModelLibrary::verify(entry, error));
 
     writeFile(dir / "lite-1" / "a.onnx", "abd");
     REQUIRE_FALSE(ModelLibrary::verify(entry, error));
     REQUIRE(error.find("checksum mismatch") != std::string::npos);
+
+    writeFile(dir / "lite-1" / "a.onnx", "abcd");
+    REQUIRE_FALSE(ModelLibrary::verify(entry, error));
+    REQUIRE(error.find("size mismatch") != std::string::npos);
+}
+
+TEST_CASE("manifest reads the control center's model-store schema", "[inference][manifest]")
+{
+    const auto dir = scratchDir("store");
+    // As in docs/control-center/model-store.md.
+    writeFile(dir / "manifest.json", R"({
+      "schema": 1,
+      "default_tier": "pro",
+      "models": [
+        {"id": "pro-2026-09-29", "tier": "pro", "version": "1.0.0", "dir": "pro-1.0.0",
+         "files": [{"path": "voice_core.onnx", "sha256": "ab", "bytes": 12}],
+         "bytes": 12, "sr": 48000, "frame_hz": 250, "hop": 192, "source": "trained", "installed_at": "x"},
+        {"id": "half-installed", "tier": "lite", "version": "9.0.0", "dir": ".staging-lite", "files": []}
+      ]})");
+    ModelLibrary library;
+    std::string error;
+    REQUIRE(library.load(dir, error));
+    REQUIRE(library.defaultTier() == Tier::Pro);
+    REQUIRE(library.entries().size() == 1); // the dot folder is skipped
+    const auto* pro = library.findById("pro-2026-09-29");
+    REQUIRE(pro != nullptr);
+    REQUIRE(pro->folder == dir / "pro-1.0.0");
+    REQUIRE(pro->frameRateHz == 250.0);
+    REQUIRE(pro->files.at("voice_core.onnx").sha256 == "ab");
+    REQUIRE(pro->files.at("voice_core.onnx").size == 12u);
+    REQUIRE(library.findById("half-installed") == nullptr);
+}
+
+TEST_CASE("manifest also reads the training export's first form", "[inference][manifest]")
+{
+    const auto dir = scratchDir("training-form");
+    writeFile(dir / "manifest.json", R"({
+      "schema": 1,
+      "models": [{"tier": "studio", "version": "0.1.0", "folder": "studio-0.1.0", "frame_rate_hz": 250,
+                  "files": {"voice_core.onnx": "cd"}}]})");
+    ModelLibrary library;
+    std::string error;
+    REQUIRE(library.load(dir, error));
+    REQUIRE(library.defaultTier() == Tier::Standard);
+    const auto* studio = library.find(Tier::Studio);
+    REQUIRE(studio != nullptr);
+    REQUIRE(studio->id == "studio-0.1.0");
+    REQUIRE(studio->folder == dir / "studio-0.1.0");
+    REQUIRE(studio->files.at("voice_core.onnx").sha256 == "cd");
+    REQUIRE_FALSE(studio->files.at("voice_core.onnx").size.has_value());
+}
+
+TEST_CASE("manifest refuses a newer schema and paths that leave the models folder", "[inference][manifest]")
+{
+    const auto dir = scratchDir("refuse");
+    ModelLibrary library;
+    std::string error;
+    writeFile(dir / "manifest.json", R"({"schema": 2, "models": []})");
+    REQUIRE_FALSE(library.load(dir, error));
+    REQUIRE(error.find("schema 2") != std::string::npos);
+
+    writeFile(
+        dir / "manifest.json",
+        R"({"schema": 1, "models": [{"tier": "lite", "version": "1", "dir": "../elsewhere", "files": []}]})");
+    REQUIRE_FALSE(library.load(dir, error));
+    REQUIRE(error.find("not allowed") != std::string::npos);
+
+    writeFile(dir / "manifest.json",
+              R"({"schema": 1, "models": [{"tier": "lite", "version": "1", "dir": "lite",
+              "files": [{"path": "/etc/passwd", "sha256": "00"}]}]})");
+    REQUIRE_FALSE(library.load(dir, error));
+    REQUIRE(error.find("not allowed") != std::string::npos);
+}
+
+TEST_CASE("ALFA_MODELS_DIR overrides the default models folder", "[inference][manifest]")
+{
+#if !defined(_WIN32)
+    ::unsetenv("ALFA_MODELS_DIR");
+    REQUIRE(ModelLibrary::defaultModelsDir().filename() == "Models");
+    ::setenv("ALFA_MODELS_DIR", "/tmp/alfa-models", 1);
+    REQUIRE(ModelLibrary::defaultModelsDir() == std::filesystem::path("/tmp/alfa-models"));
+    ::unsetenv("ALFA_MODELS_DIR");
+#endif
 }
 
 TEST_CASE("the generated dummy models are listed and intact", "[inference][manifest]")
@@ -101,6 +186,8 @@ TEST_CASE("the generated dummy models are listed and intact", "[inference][manif
         std::string error;
         INFO(error);
         REQUIRE(ModelLibrary::verify(entry, error));
-        REQUIRE(entry.files.size() == 3 + kNumMethods);
+        // Encoders, instance step, voice core, one expert per method and the grain bank.
+        REQUIRE(entry.files.size() == 4 + kNumMethods + 1);
+        REQUIRE(entry.files.at("grain_bank.npy").size.has_value());
     }
 }

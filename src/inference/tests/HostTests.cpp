@@ -171,7 +171,7 @@ TEST_CASE("a model whose files were modified is refused and the old tier keeps p
     REQUIRE(host.loadTier(test::requireModel(library, Tier::Lite), error));
 
     auto tampered = test::requireModel(library, Tier::Standard);
-    tampered.files["voice_core.onnx"] = std::string(64, '0');
+    tampered.files["voice_core.onnx"].sha256 = std::string(64, '0');
     REQUIRE_FALSE(host.loadTier(tampered, error));
     REQUIRE(error.find("checksum") != std::string::npos);
     REQUIRE(host.tier() == Tier::Lite);

@@ -80,6 +80,21 @@ public:
     /// applied to any tier loaded later.
     bool setPatch(std::span<const float, kPatchKnobs> knobs, int method, std::string& error);
 
+    /// As above, for a hybrid patch (method == the index of "hybrid"): hybridA and hybridB index
+    /// the two component methods, which must be different and not hybrid themselves.
+    bool setPatch(std::span<const float, kPatchKnobs> knobs, int method, int hybridA, int hybridB,
+                  std::string& error);
+
+    /// Conditions the patch on a sampler reference (mono, 48 kHz), as training does: the model's
+    /// audio encoder embeds its log-mel spectrogram and the embedding is added to the patch's.
+    /// An empty span removes it. Remembered and applied to any tier loaded later. Returns false
+    /// if the model has no audio encoder or the audio is too short (under 1025 samples).
+    bool setReferenceAudio(std::span<const float> mono48k, std::string& error);
+
+    /// Copies the loaded tier's grain-source bank (grain_bank.npy), row-major, rows x
+    /// dsp::kGrainSourceLength, for the GRAIN primitive. Returns false if the tier has none.
+    bool copyGrainBank(std::vector<float>& bank, std::size_t& rows) const;
+
     /// Offline rendering (bounce, freeze): process() waits for every frame instead of holding the
     /// previous one when inference is late. Not real-time safe while on. Call while the audio
     /// thread is not processing, as JUCE does with AudioProcessor::setNonRealtime().
@@ -129,6 +144,8 @@ private:
 
     std::array<float, kPatchKnobs> patchKnobs_{}; // message thread only
     int patchMethod_ = -1;
+    int patchHybridA_ = -1, patchHybridB_ = -1;
+    std::vector<float> referenceAudio_; // message thread only
     bool nonRealtime_ = false;
 
     double sampleRate_ = 0.0;

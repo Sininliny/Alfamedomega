@@ -38,7 +38,9 @@ endif()
 add_library(alfa_inference STATIC
     src/FramePipeline.cpp
     src/InferenceHost.cpp
+    src/LogMel.cpp
     src/ModelLibrary.cpp
+    src/Npy.cpp
     src/Sha256.cpp)
 add_library(Alfa::inference ALIAS alfa_inference)
 

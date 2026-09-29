@@ -135,7 +135,9 @@ bool InferenceHost::loadTier(const ModelEntry& model, std::string& error)
     {
         engine = std::make_unique<Engine>(model);
         if (patchMethod_ >= 0)
-            engine->pipeline.setPatch(patchKnobs_, patchMethod_);
+            engine->pipeline.setPatch(patchKnobs_, patchMethod_, patchHybridA_, patchHybridB_);
+        if (!referenceAudio_.empty())
+            engine->pipeline.setReferenceAudio(referenceAudio_);
         if (sampleRate_ > 0.0)
             engine->prepare(clock_, maxBlockSize_, sampleRate_, nonRealtime_);
     }
@@ -193,8 +195,25 @@ void InferenceHost::setNonRealtime(bool nonRealtime)
 
 bool InferenceHost::setPatch(std::span<const float, kPatchKnobs> knobs, int method, std::string& error)
 {
+    return setPatch(knobs, method, -1, -1, error);
+}
+
+bool InferenceHost::setPatch(std::span<const float, kPatchKnobs> knobs, int method, int hybridA, int hybridB,
+                             std::string& error)
+{
+    const auto isComponent = [](int m)
+    {
+        return m >= 0 && m < kNumMethods - 1;
+    };
+    if (method == kNumMethods - 1 && !(isComponent(hybridA) && isComponent(hybridB) && hybridA != hybridB))
+    {
+        error = "a hybrid patch needs two different component methods";
+        return false;
+    }
     std::copy(knobs.begin(), knobs.end(), patchKnobs_.begin());
     patchMethod_ = method;
+    patchHybridA_ = hybridA;
+    patchHybridB_ = hybridB;
 
     auto* newest = newest_.load(std::memory_order_acquire);
     if (newest == nullptr)
@@ -204,13 +223,53 @@ bool InferenceHost::setPatch(std::span<const float, kPatchKnobs> knobs, int meth
     }
     try
     {
-        newest->pipeline.setPatch(knobs, method);
+        newest->pipeline.setPatch(knobs, method, hybridA, hybridB);
     }
     catch (const std::exception& e)
     {
         error = e.what();
         return false;
     }
+    return true;
+}
+
+bool InferenceHost::setReferenceAudio(std::span<const float> mono48k, std::string& error)
+{
+    referenceAudio_.assign(mono48k.begin(), mono48k.end());
+    auto* newest = newest_.load(std::memory_order_acquire);
+    if (newest == nullptr)
+    {
+        error = "no model loaded";
+        return false;
+    }
+    try
+    {
+        if (!newest->pipeline.hasAudioEncoder())
+        {
+            error = "this model has no audio encoder";
+            return false;
+        }
+        if (!newest->pipeline.setReferenceAudio(mono48k))
+        {
+            error = "reference audio is too short";
+            return false;
+        }
+    }
+    catch (const std::exception& e)
+    {
+        error = e.what();
+        return false;
+    }
+    return true;
+}
+
+bool InferenceHost::copyGrainBank(std::vector<float>& bank, std::size_t& rows) const
+{
+    const auto* newest = newest_.load(std::memory_order_acquire);
+    if (newest == nullptr || newest->pipeline.grainBankRows() == 0)
+        return false;
+    bank = newest->pipeline.grainBank();
+    rows = newest->pipeline.grainBankRows();
     return true;
 }
 

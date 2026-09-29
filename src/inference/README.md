@@ -25,8 +25,10 @@ The frame the DSP receives at boundary n was computed from the inputs given at b
 n - latencyFrames(). If a frame is not back in time, the previous one is held, `stats()`
 counts it, and anira keeps the stream aligned.
 
-`patch_encoder` runs on the message thread in `setPatch()`; its embedding reaches the worker
-through a lock-free triple buffer.
+`patch_encoder` (and `audio_encoder` for a reference sample) runs on the message thread in
+`setPatch()` / `setReferenceAudio()`; the embedding reaches the worker through a lock-free
+triple buffer. Hybrid voices run `expert_hybrid`, then both component experts, and merge them
+as training does (MODEL_CONTRACT.md, "Hybrid").
 
 ## Using it from the plugin
 
@@ -35,7 +37,9 @@ alfa::inference::ModelLibrary library;                       // message thread
 library.load(alfa::inference::ModelLibrary::defaultModelsDir(), error);
 const auto* model = library.findNearest(savedTier);           // tell the user if tier differs
 host.loadTier(*model, error);
-host.setPatch(knobs, method, error);
+host.setPatch(knobs, method, error);             // hybrid: setPatch(knobs, 8, a, b, error)
+host.setReferenceAudio(sampleMono48k, error);    // optional, if the model has an audio encoder
+host.copyGrainBank(bank, rows);                  // hand GRAIN its learned sources
 
 void prepareToPlay(double sr, int block)
 {
@@ -93,8 +97,9 @@ ctest --test-dir /tmp/alfa-inference -R inference
 The tests export dummy models at build time, which needs Python 3 with `numpy` and `onnx`
 (`pip install numpy onnx`); without them the model tests are skipped.
 
-- `alfa_inference_tests`: frame clock, manifest and SHA-256, graph contract checks, the
-  pipeline's routing into VoiceFrame, and latency: for every tier, sample rate and block size,
+- `alfa_inference_tests`: frame clock, the control center's manifest schema and SHA-256, graph
+  contract checks, the pipeline's routing into VoiceFrame, f0, physical modal state, the hybrid
+  merge, reference-audio conditioning, the grain bank, log-mel against a numpy reference, and latency: for every tier, sample rate and block size,
   the reported latency equals the delay frames actually arrive with, frame for frame.
 - `alfa_inference_alloc_tests`: counts heap allocations (malloc and operator new) on the audio
   thread across varying block sizes, retriggers, reset and a tier switch. Must be zero.
@@ -111,6 +116,8 @@ The tests export dummy models at build time, which needs Python 3 with `numpy` a
 - `include/alfa/inference/Tier.h`: per-tier inference budget, threads, smallest buffer.
 - `include/alfa/inference/ControlFrameLayout.h`: maps ONNX output names onto `alfa/dsp/ControlFrame.h`.
 - `include/alfa/inference/FrameClock.h`: the 250 Hz frame grid on the host's sample clock.
-- `src/FramePipeline.*`: the ONNX Runtime sessions, recurrent state and output scatter.
+- `src/FramePipeline.*`: the ONNX Runtime sessions, recurrent state, hybrid merge and output scatter.
+- `src/LogMel.*`, `src/Npy.*`: training's log-mel for the audio encoder, and the .npy reader
+  for `grain_bank.npy`.
 - `MODEL_CONTRACT.md`: what the training export must produce.
 - `tools/export_dummy_models.py`: toy models following that contract.
