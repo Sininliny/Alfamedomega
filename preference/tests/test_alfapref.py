@@ -60,6 +60,11 @@ class Tokens(unittest.TestCase):
         self.assertEqual(T.words("glassBells02"), ["glass", "bell"])
         self.assertEqual(T.words("Fm"), [])
 
+    def test_notes_with_octave_and_plural_rule(self):
+        self.assertEqual(T.words("Pad_F#1_Chorus"), ["pad", "chorus"])
+        self.assertEqual(T.words("C-1 Eb3 bass"), ["bass"])
+        self.assertEqual(T.words("Pads Bells Glass Analysis"), ["pad", "bell", "glass", "analysis"])
+
     def test_query(self):
         self.assertEqual(T.parse_query("warm airy not dark -harsh"),
                          [("warm", 1.0), ("airy", 1.0), ("dark", -1.0), ("harsh", -1.0)])

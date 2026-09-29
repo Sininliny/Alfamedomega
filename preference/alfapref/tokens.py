@@ -15,6 +15,7 @@ FILLER = {
 NEGATIONS = {"not", "no", "non", "without", "-"}
 
 _KEY = re.compile(r"^[a-g](#|b|sharp|flat)?(m|min|maj|minor|major)?$")
+_KEY_OCTAVE = re.compile(r"^[a-g](#|b|sharp|flat)?-?\d+$")   # note with octave: f#1, c-1, eb3
 _VERSION = re.compile(r"^v\d+$")
 _SPLIT_CAMEL = re.compile(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _SPLIT_DIGIT = re.compile(r"(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])")
@@ -23,7 +24,7 @@ _SEP = re.compile(r"[^\w#]+|_")
 
 def normalise(word):
     w = word.lower()
-    if len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
+    if len(w) > 3 and w.endswith("s") and not w.endswith(("ss", "us", "is")):
         w = w[:-1]
     return w
 
@@ -38,7 +39,7 @@ def words(text):
                     continue
                 lw = w.lower()
                 is_key = _KEY.match(lw) and w != "FM"            # "Fm" is a key, "FM" a method
-                if lw.isdigit() or is_key or _VERSION.match(lw) or lw.endswith("bpm"):
+                if lw.isdigit() or is_key or _KEY_OCTAVE.match(lw) or _VERSION.match(lw) or lw.endswith("bpm"):
                     continue
                 if len(lw) < 2 and lw != "#":
                     continue
