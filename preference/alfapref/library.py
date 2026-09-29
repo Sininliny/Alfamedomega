@@ -104,6 +104,37 @@ def scan(root, salt, index=None, max_files=None):
     return keep, report
 
 
+def from_records(records, salt, progress=None):
+    """Build entries from an index written by the control center (docs/control-center/
+    preference-batch.md): one dict per file with at least "path", "library" and "rel". Words are
+    recomputed from "rel" with tokens.path_words so there is one definition of them. The paths are
+    only read here; the entries keep salted keys, as scan() does.
+    Returns (entries, report)."""
+    out = []
+    report = {"added": 0, "skipped_format": 0, "failed": 0}
+    for i, r in enumerate(records):
+        if progress:
+            progress(i)
+        path, rel = r.get("path"), r.get("rel") or os.path.basename(r.get("path", ""))
+        ext = os.path.splitext(path or "")[1].lower()
+        if ext not in AUDIO_EXT:
+            report["skipped_format" if ext in OTHER_AUDIO_EXT else "failed"] += 1
+            continue
+        root_id = salted(salt, r.get("library", ""))[:16]
+        try:
+            st = os.stat(path)
+            x, sr = read_wav(path)
+            d = desc_mod.descriptor(x, sr)
+        except (ValueError, OSError, struct.error):
+            report["failed"] += 1
+            continue
+        out.append({"key": salted(salt, root_id + "/" + rel.replace(os.sep, "/")), "root": root_id,
+                    "size": st.st_size, "mtime": int(st.st_mtime), "descriptor_id": desc_mod.DESCRIPTOR_ID,
+                    "desc": [round(float(v), 5) for v in d], "words": tokens.path_words(rel), "weight": 1.0})
+        report["added"] += 1
+    return out, report
+
+
 def forget(index, salt, root):
     root_id = salted(salt, os.path.abspath(root))[:16]
     return [e for e in index if e["root"] != root_id]

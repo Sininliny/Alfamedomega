@@ -16,6 +16,7 @@ A patch is {"method": str, "pair": [str, str] | null, "knobs": [32 floats in 0..
 import hashlib
 import json
 import math
+import os
 from dataclasses import dataclass, field
 
 HALF_LIFE_DAYS = 180.0
@@ -83,8 +84,21 @@ class Exposure:
 
 
 def read_log(path):
-    with open(path) as f:
-        return [json.loads(line) for line in f if line.strip()]
+    """One JSONL file, or a folder of them (e.g. <home>/preference/events/<date>.jsonl).
+    Lines that do not parse are skipped, since the plugin may be mid-write. Sorted by time."""
+    files = sorted(os.path.join(path, f) for f in os.listdir(path) if f.endswith(".jsonl")) \
+        if os.path.isdir(path) else [path]
+    out = []
+    for fp in files:
+        with open(fp) as f:
+            for line in f:
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(ev, dict) and "type" in ev and "t" in ev:
+                    out.append(ev)
+    return sorted(out, key=lambda e: float(e["t"]))
 
 
 def exposures(events):

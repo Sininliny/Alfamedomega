@@ -253,7 +253,23 @@ the seed, and generation takes a seed, so the same profile and seed give the sam
   patch at different pitches and velocities as positives), exported as a small ONNX graph. It would
   make "similar" mean "same patch" rather than "same spectrum statistics".
 
-### 8.3 Repo and workflow
+### 8.3 Control center
+
+The control center (`docs/control-center/preference-batch.md` on its branch) runs batches with
+`<learner> batch --index <home>/preference/library_index.jsonl --events <home>/preference/events
+--out <home>/preference/profiles/<timestamp>`. The learner command is
+`python <repo>/preference/learner.py`, which prints `progress N/M`, exits 0 on `--help` and writes
+`profile.json`, `library.jsonl` and `summary.json` (counts and the learned vocabulary) to `--out`.
+Words are recomputed from each record's `rel` with `alfapref/tokens.py`, so the index's own labels
+are for display only. The events folder holds `<date>.jsonl` files in the schema of
+`alfapref/events.py`; the plugin should only write it when behaviour learning is on, so the
+learner treats a present log as consent.
+
+The index keeps absolute paths and file names, which section 7 keeps out of the profile. That is
+acceptable because the index is a local cache the control center rebuilds and "Forget everything"
+deletes, but it is the one place names live, and the profiles made from it hold none.
+
+### 8.4 Repo and workflow
 
 - Add `preference/` to the CONTRIBUTING ownership table (owner: preference learning) and a CI job
   running `python -m unittest discover preference/tests` (NumPy only).

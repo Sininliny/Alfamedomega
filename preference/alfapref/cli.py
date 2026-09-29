@@ -7,6 +7,10 @@
     words     --profile DIR [WORD]             list learned words, or one word's related words
     generate  --profile DIR [--text "warm pad"] [--context bass|mid|high[,sustained]] [-k 8]
     simulate  [--exposures 300]                simulated user, prints learning curve
+    batch     --index FILE [--events DIR|FILE] --out DIR
+              control-center batch (docs/control-center/preference-batch.md): reads its library
+              index, learns from the behaviour log if one is given, writes a fresh profile to
+              --out and prints "progress N/M" lines
 
 --renderer MODULE:CALLABLE picks the preview renderer (default: the sketch renderer). A callable
 must take (patch, pitch=60, velocity=0.8, seconds=1.0) and return 48 kHz mono audio.
@@ -14,6 +18,7 @@ must take (patch, pitch=60, velocity=0.8, seconds=1.0) and return 48 kHz mono au
 import argparse
 import importlib
 import json
+import os
 import sys
 
 from .profile import Profile, context_from_name
@@ -30,11 +35,14 @@ def _renderer(spec):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="alfapref", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["init", "scan", "forget", "fit", "words", "generate", "simulate"])
+    ap.add_argument("command", choices=["init", "scan", "forget", "fit", "words", "generate", "simulate", "batch"])
     ap.add_argument("arg", nargs="?")
     ap.add_argument("--profile")
     ap.add_argument("--renderer")
     ap.add_argument("--events")
+    ap.add_argument("--index")
+    ap.add_argument("--background", type=int, default=512, help="prior renders for the background set")
+    ap.add_argument("--out")
     ap.add_argument("--behaviour", choices=["on", "off"])
     ap.add_argument("--text")
     ap.add_argument("--context", default="")
@@ -50,6 +58,10 @@ def main(argv=None):
         from . import simulate
         simulate.run(a.exposures, seed=a.seed, renderer=_renderer(a.renderer) if a.renderer else None)
         return
+    if a.command == "batch":
+        if not a.index or not a.out:
+            ap.error("batch needs --index and --out")
+        return batch(a.index, a.events, a.out, _renderer(a.renderer), a.seed, a.background)
     if not a.profile:
         ap.error("--profile is required")
     if a.command == "init":
@@ -92,6 +104,37 @@ def main(argv=None):
             o["patch"]["knobs"] = [round(v, 4) for v in o["patch"]["knobs"]]
             o["score"] = round(o["score"], 3)
         print(json.dumps(out, indent=1))
+
+
+def batch(index_path, events_path, out, renderer, seed=0, n_background=512):
+    """Fresh profile from the control center's index and the behaviour log. The log exists only
+    if the user turned behaviour learning on, so its presence is the consent."""
+    from . import library
+    with open(index_path) as f:
+        records = [json.loads(line) for line in f if line.strip()]
+    prof = Profile.create(out)
+    prof.settings["n_background"] = n_background
+    n_bg = prof.settings["n_background"]
+    total = len(records) + n_bg + 1
+    done = [0]
+
+    def tick(_=None):
+        done[0] += 1
+        print("progress %d/%d" % (done[0], total), flush=True)
+
+    prof.index, report = library.from_records(records, prof.salt, tick)
+    prof.ensure_background(renderer, seed, tick)
+    has_events = bool(events_path) and os.path.exists(events_path)
+    prof.settings["learn_from_behaviour"] = has_events
+    stats = prof.fit(renderer, events_path if has_events else None)
+    prof.save()
+    words = {w: round(v["n"], 2) for w, v in prof.words.words.items()} if prof.words else {}
+    summary = {"descriptor_id": prof.index[0]["descriptor_id"] if prof.index else None,
+               "files": report, "fit": stats, "words": words}
+    with open(os.path.join(out, "summary.json"), "w") as f:
+        json.dump(summary, f, indent=1)
+    tick()
+    print(json.dumps({"files": report, "fit": stats}), flush=True)
 
 
 if __name__ == "__main__":

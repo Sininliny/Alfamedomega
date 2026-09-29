@@ -5,6 +5,7 @@ import struct
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 import numpy as np
 
@@ -266,6 +267,51 @@ class ProfileEndToEnd(unittest.TestCase):
             kb = np.mean([o["patch"]["knobs"][0] for o in bright if o["origin"] != "explore"])
             kd = np.mean([o["patch"]["knobs"][0] for o in dark if o["origin"] != "explore"])
             self.assertGreater(kb, kd)
+
+
+class Batch(unittest.TestCase):
+    def test_control_center_batch(self):
+        import contextlib
+        import io
+        from alfapref import cli
+        R = SketchRenderer()
+        with tempfile.TemporaryDirectory() as d:
+            home = os.path.join(d, "home", "preference")
+            lib = os.path.join(d, "Private Samples", "Pads")
+            os.makedirs(lib)
+            os.makedirs(os.path.join(home, "events"))
+            recs = []
+            for i, name in enumerate(["warm_pad_03.wav", "warm_pad_04.wav", "glass_bell.wav", "x.flac"]):
+                path = os.path.join(lib, name)
+                if name.endswith(".wav"):
+                    write_wav(path, tone(220 * (i + 1), 0.2 * i))
+                recs.append({"path": path, "library": "Private Samples", "rel": "Pads/" + name,
+                             "name_labels": [], "folder_labels": []})
+            with open(os.path.join(home, "library_index.jsonl"), "w") as f:
+                f.writelines(json.dumps(r) + "\n" for r in recs)
+            evs = Events().log()
+            for day, chunk in (("2026-09-28", evs[:5]), ("2026-09-29", evs[5:])):
+                with open(os.path.join(home, "events", day + ".jsonl"), "w") as f:
+                    f.writelines(json.dumps(e) + "\n" for e in chunk)
+                    f.write('{"t": 9, "type": "pla')              # torn last line is skipped
+            out = os.path.join(home, "profiles", "20260929T2000")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                cli.main(["batch", "--index", os.path.join(home, "library_index.jsonl"),
+                          "--events", os.path.join(home, "events"), "--out", out, "--background", "16"])
+            lines = [l for l in buf.getvalue().splitlines() if l.startswith("progress")]
+            self.assertEqual(lines[-1], "progress %d/%d" % (4 + 16 + 1, 4 + 16 + 1))
+            summ = json.loads(Path(out, "summary.json").read_text())
+            self.assertEqual(summ["files"]["added"], 3)
+            self.assertEqual(summ["files"]["skipped_format"], 1)
+            self.assertGreater(summ["fit"]["points"], 0)
+            self.assertIn("warm", summ["words"])
+            for fn in os.listdir(out):
+                text = Path(out, fn).read_text()
+                for secret in ("Private Samples", "warm_pad_03", d):
+                    self.assertNotIn(secret, text)
+            prof = Profile.load(out)
+            self.assertEqual(len(prof.generate(R, k=3, n=12)), 3)
 
 
 @unittest.skipUnless(os.environ.get("ALFA_SLOW"), "set ALFA_SLOW=1 to run the simulated user")

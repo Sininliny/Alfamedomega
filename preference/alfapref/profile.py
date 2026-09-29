@@ -108,13 +108,17 @@ class Profile:
             self._desc_cache[key] = desc_mod.descriptor(renderer(patch, pitch=pitch), desc_mod.SR)
         return self._desc_cache[key]
 
-    def ensure_background(self, renderer, seed=0):
+    def ensure_background(self, renderer, seed=0, progress=None):
         n = self.settings["n_background"]
         if len(self.background) == n:
             return
         rng = np.random.default_rng(seed)
         pats = gen.sample_prior(rng, n)
-        self.background = [self.describe_patch(p, NO_CTX, renderer) for p in pats]
+        self.background = []
+        for i, p in enumerate(pats):
+            if progress:
+                progress(i)
+            self.background.append(self.describe_patch(p, NO_CTX, renderer))
         self.background_methods = [p["method"] for p in pats]
 
     # -- fitting

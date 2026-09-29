@@ -28,7 +28,11 @@ python -m alfapref fit --profile ~/amo-profile                     # add --event
 python -m alfapref words --profile ~/amo-profile                   # the vocabulary it learned
 python -m alfapref generate --profile ~/amo-profile --text "warm not dark" --context bass -k 8
 python -m alfapref simulate                                         # learning curve, ~1 min
+python learner.py batch --index IDX.jsonl --events EVENTS_DIR --out OUT   # control-center batch
 ```
+
+`learner.py` runs the same commands from any working directory; it is the command the control
+center calls (design section 8.3).
 
 On Colab: upload or clone the repo, `%cd Alfamedomega/preference`, and run the same commands.
 Until `training/` provides `render_patch` (design section 8.2) the patches are previewed with the
