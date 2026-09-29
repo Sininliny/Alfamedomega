@@ -8,7 +8,9 @@ import pytest
 from alfacc import preference, settings
 from alfacc.settings import Settings
 
-PREF_TOKENS = Path(__file__).with_name("_pref_tokens_fixture.py.txt")
+# The real tokenizer when this checkout has preference/, else a snapshot of it.
+PREF_TOKENS = Path(settings.find_in_checkout("preference", "alfapref", "tokens.py")
+                   or Path(__file__).with_name("_pref_tokens_fixture.py.txt"))
 
 
 @pytest.fixture

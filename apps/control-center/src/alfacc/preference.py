@@ -37,7 +37,7 @@ STOPWORDS = {
     "final", "edit", "mix", "master", "version", "take", "stereo", "mono", "st", "bpm", "hz",
     "khz", "bit", "untitled", "audio", "export", "bounce", "rendered", "render",
 }
-_NOTE_RE = re.compile(r"^[a-g](?:#|b|s|sharp|flat)?-?\d$")
+_NOTE_RE = re.compile(r"^[a-g](?:#|b|s|sharp|flat)?-?\d?$")  # "F#1", "Bb", and "G#" of "G#-1"
 _VERSION_RE = re.compile(r"^v\d+$|^\d+(?:bpm|k|hz|khz|bit)?$")
 _CAMEL_RE = re.compile(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _SPLIT_RE = re.compile(r"[^0-9A-Za-z#]+")
