@@ -431,8 +431,8 @@ class TrainingPage(Page):
             self.env_label.setObjectName("ok")
         else:
             self.env_label.setText(
-                f"Local training isn't available: {e.get('error')}.\nPoint Settings at a Python "
-                "with PyTorch and ONNX Runtime, or use a Colab notebook.")
+                f"Local training isn't available: {e.get('error')}.\nIn Settings, set the repository "
+                "folder and a Python with PyTorch and ONNX Runtime, or use a Colab notebook.")
             self.env_label.setObjectName("warn")
         self.env_label.style().unpolish(self.env_label)
         self.env_label.style().polish(self.env_label)
@@ -561,10 +561,10 @@ class PreferencePage(Page):
         else:
             self.summary.setText("Nothing indexed yet. Add a folder and run a batch.")
             self.labels.setText("")
-        learner = self.ctx.settings.preference_learner
+        learner = self.ctx.settings.resolved_preference_learner()
         self.learner.setText(f"Learner: {learner}" if learner else
-                             "No preference learner is set yet, so a batch indexes your libraries "
-                             "and stops there. Set it in Settings once preference/ provides one.")
+                             "The preference learner wasn't found, so a batch indexes your libraries "
+                             "and stops there. Set the repository folder in Settings.")
 
     def toggled(self, it: QTableWidgetItem):
         if self._filling or it.column() != 0:
@@ -589,7 +589,7 @@ class PreferencePage(Page):
 
     def batch(self):
         try:
-            job = create_batch_job(self.ctx.jobs, self.ctx.home, self.ctx.settings.preference_learner)
+            job = create_batch_job(self.ctx.jobs, self.ctx.home, self.ctx.settings.resolved_preference_learner())
         except ValueError as e:
             return self.win.error(str(e))
         self.start(job)
@@ -716,15 +716,20 @@ class SettingsPage(Page):
         form.setLabelAlignment(Qt.AlignRight)
         form.setHorizontalSpacing(16)
         self.models_dir = PathField(folder=True)
+        self.repo = PathField(folder=True, placeholder="the Alfamedomega source folder")
         self.python = PathField(placeholder="Python with PyTorch and ONNX Runtime")
         self.script = PathField(filter="Python (*.py)", placeholder="training/alfamedomega_train.py")
         self.runs = PathField(folder=True)
         self.learner = QLineEdit()
         self.learner.setObjectName("mono")
-        self.learner.setPlaceholderText("for example: python -m alfa_preference")
+
         form.addRow("Models folder", self.models_dir)
         form.addRow("", label("Where the plugin looks for weights. Leave empty for the standard "
                               "system folder.", "muted", wrap=True))
+        form.addRow("Repository folder", self.repo)
+        form.addRow("", label("Training and preference learning run from the Alfamedomega source. "
+                              "Set this once; the script, learner and a .venv inside it are found "
+                              "automatically.", "muted", wrap=True))
         form.addRow("Training Python", self.python)
         form.addRow("Training script", self.script)
         form.addRow("Training runs", self.runs)
@@ -742,6 +747,7 @@ class SettingsPage(Page):
         s = self.ctx.settings
         self.models_dir.setText(s.models_dir)
         self.models_dir.edit.setPlaceholderText(str(self.ctx.models_dir))
+        self.repo.setText(s.repo_dir)
         self.python.setText(s.training_python)
         self.python.edit.setPlaceholderText(self.ctx.python)
         self.script.setText(s.training_script)
@@ -749,10 +755,12 @@ class SettingsPage(Page):
         self.runs.setText(s.runs_dir)
         self.runs.edit.setPlaceholderText(str(self.ctx.runs_dir))
         self.learner.setText(s.preference_learner)
+        self.learner.setPlaceholderText(s.resolved_preference_learner() or "python <repo>/preference/learner.py")
 
     def save(self):
         s = self.ctx.settings
         s.models_dir, s.training_python = self.models_dir.text(), self.python.text()
+        s.repo_dir = self.repo.text()
         s.training_script, s.runs_dir = self.script.text(), self.runs.text()
         s.preference_learner = self.learner.text().strip()
         self.ctx.save_settings()

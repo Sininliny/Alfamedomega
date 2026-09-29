@@ -13,6 +13,7 @@ Everything stays on this machine. The index holds paths and labels, never audio,
 forget() deletes all of it.
 """
 
+import importlib.util
 import json
 import os
 import re
@@ -25,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import jobs
-from .settings import write_json_atomic
+from .settings import find_in_checkout, write_json_atomic
 
 AUDIO_SUFFIXES = {".wav", ".wave", ".aif", ".aiff", ".flac", ".mp3", ".ogg"}
 
@@ -42,8 +43,39 @@ _CAMEL_RE = re.compile(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _SPLIT_RE = re.compile(r"[^0-9A-Za-z#]+")
 
 
+def _shared_tokenizer(repo: str = ""):
+    """preference/alfapref/tokens.py, so labels shown here match what the learner computes.
+
+    Loaded by file path: the alfapref package itself pulls in numpy, which the control center
+    doesn't need. Falls back to the copy below when the app runs outside a checkout.
+    """
+    path = find_in_checkout("preference", "alfapref", "tokens.py", repo=repo)
+    if not path:
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location("_alfapref_tokens", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.words
+    except Exception:  # noqa: BLE001 - a broken sibling checkout must not stop the app
+        return None
+
+
+def use_repo(repo: str) -> None:
+    """Switch to the tokenizer in the repository folder chosen in Settings."""
+    global _SHARED_WORDS
+    _SHARED_WORDS = _shared_tokenizer(repo) or _SHARED_WORDS
+
+
 def tokens(text: str) -> list:
     """Split a file or folder name into lower-case timbre words."""
+    if _SHARED_WORDS is not None:
+        return list(dict.fromkeys(_SHARED_WORDS(text)))
+    return fallback_tokens(text)
+
+
+def fallback_tokens(text: str) -> list:
+    """Local copy of the rules in preference/alfapref/tokens.py, for standalone installs."""
     out = []
     for part in _SPLIT_RE.split(text):
         for word in _CAMEL_RE.split(part):
@@ -56,6 +88,9 @@ def tokens(text: str) -> list:
                 w = w[:-1]  # "Pads" folder and "pad" file name are one label
             out.append(w)
     return out
+
+
+_SHARED_WORDS = _shared_tokenizer()
 
 
 def audio_info(path: Path) -> dict:
@@ -269,8 +304,9 @@ def _scan(args: dict, log) -> dict:
 
 @jobs.action("preference_no_learner")
 def _no_learner(args: dict, log) -> dict:
-    log("No preference learner is set in Settings, so this batch stopped after indexing. "
-        "The index is ready for the learner from preference/ once it is installed.")
+    log("The preference learner wasn't found, so this batch stopped after indexing. Set the "
+        "repository folder in Settings (it uses preference/learner.py there), or set the learner "
+        "command directly.")
     return {"learner": "not configured"}
 
 

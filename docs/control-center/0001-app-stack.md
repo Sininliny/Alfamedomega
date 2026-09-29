@@ -60,6 +60,15 @@ generated notebook, which matches how training is already run.
 - The control center ships as its own app, built with PyInstaller or Briefcase and signed
   with the same Apple and Windows identities as the plugin. That adds one step to the
   packaging plan but no new accounts.
+- **Finding training and the learner once packaged.** A PyInstaller build has no checkout
+  around it and its `sys.executable` is the app, not a Python. So Settings has a
+  **Repository folder**: the Alfamedomega source checkout. From it the app finds
+  `training/alfamedomega_train.py`, `preference/learner.py` and the label tokenizer, and uses a
+  `.venv` inside it (or `training/.venv`) as the training Python, else the Python on `PATH`.
+  Each of these can also be set on its own. The alternative, bundling PyTorch into the app,
+  was rejected: it adds about 2 GB, differs per GPU, and would duplicate the environment the
+  training thread already maintains. Run from source, the app finds its own checkout and
+  needs no setting.
 - The control center and the plugin share data, not code. The contract between them is
   the `Models/manifest.json` schema (`docs/control-center/model-store.md`) and, later, the
   preference event log. Both need to stay in step with the inference host.

@@ -7,6 +7,8 @@ and CI use to stay out of the real system folders.
 
 import json
 import os
+import shutil
+import subprocess
 import sys
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
@@ -37,19 +39,45 @@ def default_home() -> Path:
     return Path(base) / APP_DIR_NAME / "ControlCenter"
 
 
-def _find_training_script() -> str:
-    """The training script in a source checkout, if the app runs from one."""
-    here = Path(__file__).resolve()
-    for parent in here.parents:
-        candidate = parent / "training" / "alfamedomega_train.py"
+def is_frozen() -> bool:
+    """True inside a PyInstaller build, where sys.executable is the app, not a Python."""
+    return bool(getattr(sys, "frozen", False))
+
+
+def find_in_checkout(*rel: str, repo: str = "") -> str:
+    """A file from another component of the Alfamedomega source checkout.
+
+    Looks in the repository folder from Settings first, then, when running from source, in the
+    checkout this file lives in. A packaged app only has the first.
+    """
+    roots = [Path(repo).expanduser()] if repo else []
+    if not is_frozen():
+        roots += list(Path(__file__).resolve().parents)
+    for root in roots:
+        candidate = root.joinpath(*rel)
         if candidate.is_file():
             return str(candidate)
+    return ""
+
+
+def _venv_python(repo: str) -> str:
+    """A virtual environment inside the checkout, the usual place for PyTorch."""
+    if not repo:
+        return ""
+    for rel in ((".venv", "bin", "python"), (".venv", "Scripts", "python.exe"),
+                ("training", ".venv", "bin", "python"), ("training", ".venv", "Scripts", "python.exe")):
+        p = Path(repo).expanduser().joinpath(*rel)
+        if p.is_file():
+            return str(p)
     return ""
 
 
 @dataclass
 class Settings:
     models_dir: str = ""
+    # The Alfamedomega source checkout. Training and preference learning run from it, so a
+    # packaged control center needs this set once (docs/control-center/0001-app-stack.md).
+    repo_dir: str = ""
     # Python interpreter that has PyTorch and ONNX Runtime installed, used to run training.
     training_python: str = ""
     training_script: str = ""
@@ -62,10 +90,26 @@ class Settings:
         return Path(self.models_dir) if self.models_dir else default_models_dir()
 
     def resolved_training_python(self) -> str:
-        return self.training_python or sys.executable
+        """The setting, else a venv in the checkout, else this Python (from source) or the
+        Python on PATH (packaged app)."""
+        if self.training_python:
+            return self.training_python
+        if venv := _venv_python(self.repo_dir):
+            return venv
+        if not is_frozen():
+            return sys.executable
+        return shutil.which("python3") or shutil.which("python") or shutil.which("py") or "python3"
 
     def resolved_training_script(self) -> str:
-        return self.training_script or _find_training_script()
+        return self.training_script or find_in_checkout("training", "alfamedomega_train.py",
+                                                        repo=self.repo_dir)
+
+    def resolved_preference_learner(self) -> str:
+        """The setting, else preference/learner.py from the checkout, run with the training Python."""
+        if self.preference_learner:
+            return self.preference_learner
+        learner = find_in_checkout("preference", "learner.py", repo=self.repo_dir)
+        return subprocess.list2cmdline([self.resolved_training_python(), learner]) if learner else ""
 
     def resolved_runs_dir(self, home: Path) -> Path:
         return Path(self.runs_dir) if self.runs_dir else home / "runs"

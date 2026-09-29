@@ -16,6 +16,10 @@ alfa-cc --help              # the same actions from a terminal
 python -m pytest            # tests (no PyTorch needed)
 ```
 
+In the packaged app, set **Settings > Repository folder** to your Alfamedomega checkout once.
+Training, the preference learner and a `.venv` with PyTorch inside it are found from there
+(`alfa-cc settings --set repo_dir=~/src/Alfamedomega`). Run from source, nothing needs setting.
+
 Development without touching system folders:
 
 ```bash

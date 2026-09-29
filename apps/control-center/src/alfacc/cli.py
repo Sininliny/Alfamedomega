@@ -36,7 +36,7 @@ def cmd_info(ctx: Context, a) -> int:
     env = check_environment(ctx.python, ctx.script)
     print(json.dumps({"version": __version__, "home": str(ctx.home), "models_dir": str(ctx.models_dir),
                       "runs_dir": str(ctx.runs_dir), "training": env,
-                      "preference_learner": ctx.settings.preference_learner or None}, indent=2))
+                      "preference_learner": ctx.settings.resolved_preference_learner() or None}, indent=2))
     return 0
 
 
@@ -132,7 +132,7 @@ def cmd_pref(ctx: Context, a) -> int:
     elif a.action == "scan":
         p.scan(print)
     elif a.action == "batch":
-        job = create_batch_job(ctx.jobs, ctx.home, ctx.settings.preference_learner)
+        job = create_batch_job(ctx.jobs, ctx.home, ctx.settings.resolved_preference_learner())
         return _run_job(ctx, job, a.quiet)
     elif a.action == "forget":
         p.forget()

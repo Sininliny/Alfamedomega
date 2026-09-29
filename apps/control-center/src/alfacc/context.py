@@ -5,7 +5,7 @@ from pathlib import Path
 from . import training  # noqa: F401  (registers the install_export job action)
 from .jobs import JobManager
 from .models import ModelStore
-from .preference import PreferenceStore
+from .preference import PreferenceStore, use_repo
 from .settings import Settings, default_home, load_settings, save_settings
 
 
@@ -15,6 +15,8 @@ class Context:
         self.home.mkdir(parents=True, exist_ok=True)
         self.settings: Settings = load_settings(self.home)
         self._models_override = Path(models_dir) if models_dir else None
+        if self.settings.repo_dir:
+            use_repo(self.settings.repo_dir)
         self.jobs = JobManager(self.home)
         self.prefs = PreferenceStore(self.home)
 
@@ -40,3 +42,5 @@ class Context:
 
     def save_settings(self) -> None:
         save_settings(self.home, self.settings)
+        if self.settings.repo_dir:
+            use_repo(self.settings.repo_dir)
