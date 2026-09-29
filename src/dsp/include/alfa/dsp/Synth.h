@@ -31,6 +31,7 @@ namespace alfa::dsp
 {
 
 class Voice;
+class IrBank;
 
 struct VoiceInfo
 {
@@ -70,6 +71,12 @@ public:
 
     /// Latest frame for a voice; consumed at that voice's next hop boundary.
     void setFrame(int voice, const VoiceFrame& frame) noexcept;
+
+    /// Hands the bank's impulse responses to every instance slot's CONVOLUTION family (after
+    /// prepare, and after each change to the bank). Non-audio thread; the bank must outlive use.
+    void publishIrs(IrBank& bank);
+    /// Frees IR views no slot uses any more. Non-audio thread, any time after publishIrs().
+    void collectIrs(IrBank& bank);
 
     /// Latest instance-chain frame; consumed at the next instance hop boundary.
     void setInstanceFrame(const InstanceFrame& frame) noexcept;

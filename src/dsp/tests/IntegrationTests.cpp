@@ -1,6 +1,7 @@
 // Whole-path tests: primitives, voice slots, modulation, pan and the instance chain together.
 
 #include "TestHelpers.h"
+#include "alfa/dsp/Convolution.h"
 #include "alfa/dsp/Family.h"
 #include "alfa/dsp/Synth.h"
 
@@ -247,4 +248,41 @@ TEST_CASE("NaN primitive mix and pan do not reach the output", "[dsp][integratio
     const auto out = run(synth, 1920);
     REQUIRE(finiteAndBounded(out.left, 100.0f));
     REQUIRE(finiteAndBounded(out.right, 100.0f));
+}
+
+TEST_CASE("an IR bank published through the synth drives the CONVOLUTION instance slot", "[dsp][integration]")
+{
+    Synth synth;
+    synth.prepare(kSr, 128, Tier::Standard);
+    IrBank bank;
+    bank.setHostRate(kSr);
+    SyntheticIrSpec spec;
+    spec.rt60 = 0.5;
+    REQUIRE(bank.add(makeSyntheticIr(spec)) == 0);
+    synth.publishIrs(bank);
+
+    InstanceFrame inst;
+    inst.dryGain = 0.0f;
+    auto& slot = inst.slots[0];
+    slot.family = static_cast<float>(Family::Convolution);
+    slot.outGain = 1.0f;
+    slot.input[0] = 1.0f;
+    for (int i = 0; i < kSlotParams; ++i)
+        slot.params[static_cast<std::size_t>(i)] =
+            paramTable(Family::Convolution)[static_cast<std::size_t>(i)].defaultNorm;
+    synth.setInstanceFrame(inst);
+
+    auto frame = sawFrame();
+    const int v = synth.noteOn(60, 1.0f, frame.get());
+    const auto wet = run(synth, 9600);
+    REQUIRE(rms(wet.left) > 0.01);
+
+    // The tail keeps ringing after the voice stops.
+    frame->setMix(Primitive::Osc, 0.0f);
+    synth.setFrame(v, *frame);
+    synth.noteOff(60);
+    (void)run(synth, 960);
+    const auto tail = run(synth, 4800);
+    REQUIRE(rms(tail.left) > 1.0e-4);
+    synth.collectIrs(bank);
 }

@@ -1,5 +1,6 @@
 #include "alfa/dsp/Synth.h"
 
+#include "alfa/dsp/Convolution.h"
 #include "alfa/dsp/Voice.h"
 #include "alfa/dsp/detail/Denormals.h"
 
@@ -138,6 +139,26 @@ void Synth::setFrame(int voice, const VoiceFrame& frame) noexcept
 {
     if (voice >= 0 && voice < voiceCount())
         voices_[static_cast<std::size_t>(voice)]->setFrame(frame);
+}
+
+void Synth::publishIrs(IrBank& bank)
+{
+    for (int k = 0; k < instSlots_.slotCount(); ++k)
+        if (auto* p = static_cast<ConvolutionProcessor*>(instSlots_.processor(k, Family::Convolution));
+            p != nullptr)
+            bank.publish(*p);
+}
+
+void Synth::collectIrs(IrBank& bank)
+{
+    std::uint64_t oldest = UINT64_MAX;
+    for (int k = 0; k < instSlots_.slotCount(); ++k)
+        if (const auto* p =
+                static_cast<const ConvolutionProcessor*>(instSlots_.processor(k, Family::Convolution));
+            p != nullptr)
+            oldest = std::min(oldest, p->acknowledgedGeneration());
+    if (oldest != UINT64_MAX)
+        bank.collectBefore(oldest);
 }
 
 void Synth::setInstanceFrame(const InstanceFrame& frame) noexcept
