@@ -1,15 +1,17 @@
-# Alfamedomega training method (draft v2, 2026-09-29)
+# Alfamedomega training method (draft v3, 2026-09-29)
 
 This is the method `alfamedomega_train.py` implements. It builds on the tier spec
-(`docs/tiers/model-tiers.md`, v3), the capacity plan (Claude Doc "Alfamedomega synthesis capacity
+(`docs/tiers/model-tiers.md`, v5 per-voice budgets), the capacity plan (Claude Doc "Alfamedomega synthesis capacity
 plan"), ADR 0001 (JUCE 8 + ONNX Runtime through anira), and the control-frame contract in
 `src/dsp/include/alfa/dsp/ControlFrame.h` (layout version 1), which is the source of truth for
 section 2. Nothing has been trained at scale yet, so every loss weight, size and schedule is a
 starting point to be tuned.
 
-v2 aligns the DSP primitives with ControlFrame.h: one OSC layer, amplitude-only PARTIALS with the
-modal integrator moved into the graph, per-primitive mix gains, the hop-ramp convention, no grain
-spray, and hybrids merged into one frame.
+v2 aligned the DSP primitives with ControlFrame.h: one OSC layer, amplitude-only PARTIALS with
+the modal integrator moved into the graph, per-primitive mix gains, the hop-ramp convention, no
+grain spray, and hybrids merged into one frame. v3 renders additive on PARTIALS as its own family
+(Sinin's ruling), adopts the tier spec v5 per-voice budgets (Pro 0.65 M, Studio 2.8 M), and renames
+the export tensors to the inference host's contract.
 
 ## 1. What the network learns
 
@@ -64,10 +66,11 @@ attack_tau taken from the note-on frame. The per-sample attack keeps transients 
 4 ms frame, as the tier spec asks.
 
 Band curve: band b is centred at 20·(nyquist/20)^(b/63) Hz, linear in log-frequency between
-centres, and flat below band 0.
+centres, and flat below band 0. The DC bin takes band 0's gain in the SAMPLER EQ, so unity
+bands are transparent, and is zero in NOISE.
 
-Tier sizes: explicit harmonics K_h = 32 / 64 / 128 / 256 (the builders extrapolate the rest to 1024
-with a slope and odd/even tail), partials 16 / 32 / 48 / 64, FM operators 2 / 4 / 6 / 8, and grain
+Tier sizes: wavetable harmonics K_h = 32 / 64 / 128 / 256 (subtractive and spectral fill all 1024
+analytically), partials 16 / 32 / 48 / 64, FM operators 2 / 4 / 6 / 8, and grain
 layers 2 / 4 / 6 / 8. These match `TierLimits`.
 
 ## 3. Method experts and their builders
@@ -81,7 +84,7 @@ fields directly.
 |---|---|---|---|
 | Subtractive | saw/square/triangle mix, pulse width, cutoff, resonance, LP/BP/HP mix, noise level, amp | analytic oscillator spectra × 4-pole state-variable filter magnitude at each harmonic → OSC; the same filter on the band centres → NOISE | none |
 | Wavetable | table selection (top-2 over the bank), position, brightness tilt, amp | interpolate table frames at the position → OSC | tables of 32 frames × K_h complex harmonics (60% of the expert) |
-| Additive | K_h harmonic amps (codebook + correction), slope and odd/even tail, amp | → OSC | harmonic-envelope codebook (30%) |
+| Additive | M partial amps (codebook + correction), per-partial detune, stiffness stretch B, amp | partials at k·√(1+Bk²)·(1+detune_k) → PARTIALS. Additive is its own family and never uses OSC | partial-envelope codebook (30%) |
 | Spectral | spectral-envelope codebook + correction, harmonic/noise balance | envelope at each harmonic → OSC, the same envelope → NOISE | spectral-frame codebook (40%) |
 | FM | ratios (snapped toward integers by a learned blend), levels, modulation indices | → FM | none |
 | Physical (modal) | mode-set selection, per-mode decay τ and excitation, breath noise | per-mode integrator `a_t = a_{t−1}·exp(−1/(τ·250)) + exc_t` → `partials.amp`; breath → NOISE. The integrator state is a graph input and output (`modal_state`) | mode-ratio codebook (5%) |
@@ -92,8 +95,8 @@ fields directly.
 **Hybrid merge** (the host applies the same rule): OSC spectra add, weighted by xf and 1−xf;
 NOISE bands add by power; every other primitive belongs to exactly one component and takes that
 component's mix scaled by its weight; attack_tau is the smaller of the two. Components are drawn
-from {subtractive, wavetable, additive, FM, physical}, so two components never share anything
-but OSC and NOISE. Ring modulation was dropped because one VoiceFrame cannot express it.
+from {subtractive, wavetable, additive, FM, physical}, except the additive + physical pair (both
+use PARTIALS), so two components never share anything but OSC and NOISE. Ring modulation was dropped because one VoiceFrame cannot express it.
 
 Expert sizes follow the capacity shares: expert budget = 0.70 × tier total × share, where the
 share formula is copied from `tier_budget.py`. The table takes the fraction shown above, and the
@@ -113,8 +116,8 @@ the tier spec:
 |---|---|---|---|
 | Lite | 3.93 M (4 M) | 0.121 M (0.12 M) | 0.09 M (0.10 M) |
 | Standard | 15.2 M (16 M) | 0.346 M (0.35 M) | 0.52 M (0.50 M) |
-| Pro | 63.2 M (64 M) | 0.948 M (0.90 M) | 1.52 M (1.50 M) |
-| Studio | 249 M (256 M) | 4.22 M (4.0 M) | 5.90 M (6.0 M) |
+| Pro | 63.6 M (64 M) | 0.674 M (0.65 M) | 1.50 M (1.50 M) |
+| Studio | 249 M (256 M) | 2.73 M (2.8 M) | 5.80 M (6.0 M) |
 
 ## 4. Data
 
@@ -178,23 +181,31 @@ confirms that running frame by frame gives the same frames as running the whole 
 
 ## 7. Export (ADR 0001: ONNX Runtime through anira)
 
-`python alfamedomega_train.py export --ckpt <ckpt> --out <dir>` writes one folder per tier:
+`python alfamedomega_train.py export --ckpt <ckpt> --out Models --version 0.1.0` writes
+`Models/<tier>-<version>/` and adds that folder to `Models/manifest.json` with each file's SHA-256,
+in the inference host's schema (`src/inference/MODEL_CONTRACT.md`). Tensor names follow that
+contract:
 
 | File | When the plugin runs it | Inputs → outputs |
 |---|---|---|
-| `patch_encoder.onnx` | on a patch or knob change | knobs[1,32], method[1,27] → e[1,E] |
-| `audio_encoder.onnx` | when a sample or reference sound is loaded | logmel[1,64,frames] → e_audio (added to e) |
-| `instance_step.onnx` | once per frame | e, global_mod[1,4], state → c[1,Hv], state_out |
-| `voice_core.onnx` | once per frame, all voices batched | note_features[V,8], c[1,Hv], state[V,Hv] → h[V,Hv], state_out |
-| `expert_<method>.onnx` | once per frame per active method, for its voices | h[V,Hv], f0[V] (+ modal_state for physical) → one output per VoiceFrame field it drives, named as in ControlFrame.h |
-| `expert_hybrid.onnx` | for hybrid voices | h → h_a, h_b, xf; the host runs both component experts and merges them (section 3) |
+| `patch_encoder.onnx` | on a patch or knob change | knobs[1,32], method[1,9], hybrid_parts[1,18] → embedding[1,E] |
+| `audio_encoder.onnx` | when a sample or reference sound is loaded | logmel[1,64,frames] → e_audio (added to embedding) |
+| `instance_step.onnx` | once per frame | embedding, global_mod[1,4], state[1,Hi] → context[1,Hv], state_out[1,Hi] |
+| `voice_core.onnx` | once per frame, all voices batched | features[V,8], context[1,Hv], state[V,Hv] → hidden[V,Hv], state_out |
+| `expert_<method>.onnx` | once per frame per active method, for its voices | hidden[V,Hv], f0[V] (+ modal_state for physical) → one output per VoiceFrame field it drives, named as in ControlFrame.h |
+| `expert_hybrid.onnx` | for hybrid voices | hidden → hidden_a, hidden_b, xf. The host runs both component experts and merges them (section 3) |
 | `grain_bank.npy` | loaded once | the learned grain bank [N, 8192] |
-| `manifest.json` | loaded once | layout version, VoiceFrame offsets, graph inputs, per-expert output sizes, check results |
+| `export_info.json` | reference | layout version, VoiceFrame offsets, graph inputs, per-expert output widths, check results |
 | `dsp_golden.npz` | C++ unit tests | per method: VoiceFrames [T, 2451] from the note-on frame, f0, and the rendered audio |
 
+`hybrid_parts` is component A's one-hot followed by component B's, and it is all zeros unless the
+method is hybrid. Four points go beyond the host contract as first published, and are with the
+inference thread: `f0` and `modal_state` inputs on the experts, the `hybrid_parts` input,
+hybrid chaining on the host, and loading `grain_bank.npy` and `audio_encoder.onnx`.
+
 Expert outputs are tier-sized prefixes of the VoiceFrame arrays, except `fm.index`, which is
-already padded to the 8×8 layout. An input a graph does not use is pruned by the exporter (for
-example, wavetable ignores f0), and `manifest.json` lists each graph's real inputs.
+N×N row-major and spread to the 8-wide rows by the host. All widths except V are fixed in the graphs. An input a graph does not use is pruned by the exporter (for
+example, wavetable ignores f0), and `export_info.json` lists each graph's real inputs.
 
 So a frame costs 2 + (number of active methods) `Run()` calls, with all voices of a method
 batched. That answers ADR 0001 open question 3 (separate files per method, not one graph per
@@ -224,14 +235,15 @@ pretrained directly from the teachers in the meantime.
   grow, and the routing head will have to respect the per-tier DSP cost limits in tier spec v4.
   That needs a new routing head, teacher programs for the slots, and a cost penalty in the
   loss. It is not in this version.
-- **No unison or detune in OSC.** Layout v1 has one OSC per voice, so supersaw-style detune has
-  to come from the host running extra voices. A second read of the same table at a detune ratio
-  (two extra floats) would restore it cheaply, and needs a layout change.
-- **EQ at DC.** The header zeroes the DC bin for every band curve. At a 384-point frame, that bin
-  covers 0 to 62 Hz, so the SAMPLER EQ would not be transparent at unity. The script zeroes DC for
-  NOISE only, and the question is with the DSP thread.
-- **VoiceFrame size.** The header's offsets add up to 2451 floats, including the reserved float.
-  `manifest.json` records the offsets the script uses.
+- **Layout v2 is coming** (append-only, so the v1 offsets used here stay valid): OSC detune
+  (a second phase accumulator at f0·ratio reading the same tables, with the Nyquist cut at
+  f0·max(1, ratio)), pan, dry gain, 4 voice slots, a mod block, and an InstanceFrame for
+  instance_step. Subtractive and wavetable will get their detune back when the v2 offsets are
+  final.
+- **Capacity split.** Expert shares still use the 9-method prevalence formula. Sinin's 14-family
+  split (allocation.json) replaces it along with the slots.
+- **Large FM gradients.** Gradient norms on FM batches reach the thousands (phase modulation), so
+  clipping is doing real work there. Watch FM loss in the first real run.
 - **Sampling scope is still open** in the capacity plan. The method assumes user audio only:
   the sampling expert learns to transpose and re-voice the user's sample, trained on
   other-pitch/velocity pairs of the same instrument. A bundled library would add a large sample

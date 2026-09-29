@@ -67,6 +67,14 @@ METHOD_IN = 3 * len(METHODS)    # [method one-hot, hybrid component A one-hot, c
 # Hybrid components are chosen so the only primitives two components can share are OSC and NOISE,
 # which merge exactly (OSC) or by power (NOISE) into one VoiceFrame; see merge_hybrid.
 HYBRID_PARTS = ["subtractive", "wavetable", "additive", "fm", "physical"]
+HYBRID_EXCLUDE = {frozenset(("additive", "physical"))}           # both use PARTIALS
+
+
+def hybrid_pair():
+    while True:
+        pair = random.sample(HYBRID_PARTS, 2)
+        if frozenset(pair) not in HYBRID_EXCLUDE:
+            return pair
 
 # ---------------------------------------------------------------- capacity plan (tier_budget.py)
 PREVALENCE = {"sampling": 30, "wavetable": 22, "subtractive": 20, "fm": 8, "hybrid": 7,
@@ -112,8 +120,8 @@ class Tier:
 TIERS = {
     "lite":     Tier("lite",     4e6,   0.12e6, 0.10e6, 32,  2, 16, 2, 96,  96,   128, 112,  256,  128, 3e-4),
     "standard": Tier("standard", 16e6,  0.35e6, 0.50e6, 64,  4, 32, 4, 160, 192,  256, 288,  512,  192, 3e-4),
-    "pro":      Tier("pro",      64e6,  0.90e6, 1.50e6, 128, 6, 48, 6, 256, 384,  384, 512,  1024, 256, 2e-4),
-    "studio":   Tier("studio",   256e6, 4.0e6,  6.0e6,  256, 8, 64, 8, 512, 1024, 512, 1100, 2048, 384, 1.5e-4),
+    "pro":      Tier("pro",      64e6,  0.65e6, 1.50e6, 128, 6, 48, 6, 224, 256,  384, 512,  1024, 256, 2e-4),
+    "studio":   Tier("studio",   256e6, 2.8e6,  6.0e6,  256, 8, 64, 8, 416, 768,  512, 1100, 2048, 384, 1.5e-4),
 }
 
 # ---------------------------------------------------------------- small helpers
@@ -479,9 +487,12 @@ def build_wavetable(p, f0):
 
 
 def build_additive(p, f0):
-    a = _tail(p["harm"], p["slope"][..., 0], p["oddeven"][..., 0]) * p["amp"]
-    return {"mix": mix_vec(f0, "osc"), "attack_tau": p["attack"][..., 0],
-            "osc.re": torch.zeros_like(a), "osc.im": -a}
+    """Additive is its own family on PARTIALS: M partials at k*sqrt(1 + B k^2) * (1 + detune_k)."""
+    M = p["harm"].shape[-1]
+    k = harm_k(f0.device, M)
+    ratio = k * torch.sqrt(1 + p["stretch"] * k * k) * (1 + p["detune"])
+    return {"mix": mix_vec(f0, "partials"), "attack_tau": p["attack"][..., 0],
+            "partials.ratio": ratio, "partials.amp": p["harm"] * p["amp"]}
 
 
 def build_spectral(p, f0):
@@ -780,7 +791,7 @@ class Teachers:
     def additive(self, k, perf):
         B, T = perf["f0"].shape
         e = lambda v: v.view(B, 1, 1).expand(B, T, 1)
-        K = self.t.K_h
+        K = self.t.n_modes
         kk = torch.arange(1, K + 1, device=self.dev).float().view(1, 1, K)
         roll = (0.5 + 2.5 * k[:, 0]).view(B, 1, 1)
         even = (kk % 2 == 0).float()
@@ -790,7 +801,9 @@ class Teachers:
         a = kk ** -roll * (1 - k[:, 1].view(B, 1, 1) * even) * (1 + 4 * k[:, 4].view(B, 1, 1) * bump)
         a = a * torch.exp(-perf["t_on"].unsqueeze(-1) * k[:, 5].view(B, 1, 1) * 8 * kk / K)
         aenv, A = _adsr_knobs(perf, k, 18)
-        return {"harm": a * 0.5, "slope": (-roll * 6.0206).expand(B, T, 1), "oddeven": e(k[:, 1]),
+        stretch = (k[:, 6] > 0.6).float() * 1e-4 * 10 ** (k[:, 7] * 2)      # piano-like stretch on some patches
+        detune = (torch.rand(B, 1, K, device=self.dev, generator=self.gen) * 2 - 1) * k[:, 8].view(B, 1, 1) * 0.003
+        return {"harm": a * 0.5, "stretch": e(stretch), "detune": detune.expand(B, T, K),
                 "amp": (aenv * (0.3 + 0.7 * perf["vel"].view(B, 1))).unsqueeze(-1),
                 "attack": _attack(A, T)}
 
@@ -1019,7 +1032,7 @@ def _head_spec(m, t):
         "subtractive": [("mix", 3), ("pw", 1), ("cutoff", 1), ("q", 1), ("mode", 3), ("noise", 1),
                         ("amp", 1), ("attack", 1)],
         "wavetable": [("pos", 1), ("tilt", 1), ("amp", 1), ("attack", 1)],
-        "additive": [("harm", K), ("slope", 1), ("oddeven", 1), ("amp", 1), ("attack", 1)],
+        "additive": [("harm", M), ("detune", M), ("stretch", 1), ("amp", 1), ("attack", 1)],
         "spectral": [("env", N_BANDS), ("balance", 1), ("amp", 1), ("attack", 1)],
         "fm": [("ratio", N), ("snap", 1), ("level", N), ("index", N * N), ("amp", 1), ("attack", 1)],
         "physical": [("ratio", M), ("tau", M), ("exc", M), ("breath", N_BANDS), ("attack", 1)],
@@ -1029,7 +1042,7 @@ def _head_spec(m, t):
 
 
 def _table_entry(m, t):
-    return {"wavetable": 32 * t.K_h * 2, "additive": t.K_h, "spectral": N_BANDS, "physical": t.n_modes,
+    return {"wavetable": 32 * t.K_h * 2, "additive": t.n_modes, "spectral": N_BANDS, "physical": t.n_modes,
             "granular": GRAIN_LEN, "sampling": N_BANDS}.get(m, 0)
 
 
@@ -1100,8 +1113,8 @@ class Expert(nn.Module):
             return {"wt_re": fr[..., 0], "wt_im": fr[..., 1], "tilt": torch.tanh(r["tilt"]) * 4,
                     "amp": exp_sig(r["amp"], 1.0), "attack": att}
         if m == "additive":
-            return {"harm": exp_sig(self._lookup(h) + r["harm"], 1.0), "slope": -F.softplus(r["slope"] + 3) * 6,
-                    "oddeven": torch.sigmoid(r["oddeven"]), "amp": exp_sig(r["amp"], 1.0), "attack": att}
+            return {"harm": exp_sig(self._lookup(h) + r["harm"], 1.0), "detune": torch.tanh(r["detune"]) * 0.01,
+                    "stretch": log_rng(r["stretch"] - 3, 1e-6, 1e-2), "amp": exp_sig(r["amp"], 1.0), "attack": att}
         if m == "spectral":
             return {"env": exp_sig(self._lookup(h) + r["env"], 2.0), "balance": torch.sigmoid(r["balance"]),
                     "amp": exp_sig(r["amp"], 1.0), "attack": att}
@@ -1433,7 +1446,7 @@ def train(args):
                              ctx={"sample": batch["ref"], "sample_root": midi_hz(batch["ref_pitch"])})
             else:
                 method = random.choices(list(probs), weights=list(probs.values()))[0]
-                pair = random.sample(HYBRID_PARTS, 2) if method == "hybrid" else None
+                pair = hybrid_pair() if method == "hybrid" else None
                 batch = teachers.batch(method, args.batch, T, pair)
             with torch.autocast(dev.type, dtype=torch.bfloat16, enabled=amp):
                 ctrl, bal, zl = model(batch)
@@ -1484,8 +1497,8 @@ class _PatchG(nn.Module):
         super().__init__()
         s.m = m
 
-    def forward(s, knobs, mvec):
-        return s.m.patch(torch.cat([knobs, mvec], -1))
+    def forward(s, knobs, method, hybrid_parts):
+        return s.m.patch(torch.cat([knobs, method, hybrid_parts], -1))
 
 
 class _AudioG(nn.Module):
@@ -1518,8 +1531,8 @@ class _VoiceG(nn.Module):
 
 
 class _ExpertG(nn.Module):
-    """h [V,Hv], f0 [V] (+ modal state for physical) -> VoiceFrame fields, flattened per voice,
-    with fm.index padded to the 8x8 row-major layout and grain.source as float."""
+    """hidden [V,Hv], f0 [V] (+ modal state for physical) -> VoiceFrame fields, flattened per
+    voice (fm.index as N x N row-major, grain.source as float), per src/inference/MODEL_CONTRACT.md."""
 
     def __init__(s, m, name):
         super().__init__()
@@ -1535,9 +1548,6 @@ class _ExpertG(nn.Module):
         outs = []
         for k in sorted(ctrl):
             v = ctrl[k]
-            if k == "fm.index":
-                N = v.shape[-1]
-                v = F.pad(v, (0, 8 - N, 0, 8 - N))
             if k == "grain.source":
                 v = v.float()
             outs.append(v.reshape(v.shape[0], -1))
@@ -1582,6 +1592,9 @@ def export(args):
     model = load_ckpt(args.ckpt, dev)[0] if args.ckpt else Alfamedomega(args.tier).to(dev)
     model.eval()
     t = model.tier
+    root = args.out
+    folder = f"{t.name}-{args.version}"
+    args = argparse.Namespace(**{**vars(args), "out": os.path.join(root, folder)})
     os.makedirs(args.out, exist_ok=True)
     teachers = Teachers(t, dev, 7)
     V = 3
@@ -1597,8 +1610,6 @@ def export(args):
         err = 0.0
         for k, s in zip(sorted(full), steps):
             f = full[k].float()
-            if k == "fm.index":
-                f = F.pad(f, (0, 8 - f.shape[-1], 0, 8 - f.shape[-1]))
             err = max(err, float((f.reshape(*s.shape) - s).abs().max()))
         checks.append(f"streaming parity {m}: max abs err {err:.2e}")
         assert err < 1e-3, f"streaming parity failed for {m}: {err}"
@@ -1611,6 +1622,13 @@ def export(args):
         ref = ref if isinstance(ref, tuple) else (ref,)
         torch.onnx.export(mod, inputs, path, input_names=in_names, output_names=out_names,
                           dynamic_axes=dyn, opset_version=17, dynamo=False)
+        import onnx
+        g = onnx.load(path)                                     # pin non-voice dims to fixed sizes so the
+        for o, r in zip(g.graph.output, ref):                  # host can read widths from the graph
+            for i, d in enumerate(o.type.tensor_type.shape.dim):
+                if i > 0 or not dyn or o.name not in dyn:
+                    d.dim_value = int(r.shape[i])
+        onnx.save(g, path)
         sess = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
         present = {i.name for i in sess.get_inputs()}          # unused inputs (e.g. f0) get pruned
         got = sess.run(None, {n: x.numpy() for n, x in zip(in_names, inputs) if n in present})
@@ -1620,21 +1638,22 @@ def export(args):
         assert err < 1e-3, f"ORT parity failed for {name}: {err}"
 
     E, Hv, Hi = t.E, t.Hv, t.Hi
-    do("patch_encoder", _PatchG(model), (torch.rand(1, N_KNOBS), torch.eye(METHOD_IN)[:1]),
-       ["knobs", "method"], ["e"], None)
+    do("patch_encoder", _PatchG(model), (torch.rand(1, N_KNOBS), torch.eye(len(METHODS))[:1],
+                                         torch.zeros(1, 2 * len(METHODS))),
+       ["knobs", "method", "hybrid_parts"], ["embedding"], None)
     do("audio_encoder", _AudioG(model), (torch.randn(1, 64, 141),), ["logmel"], ["e_audio"], {"logmel": {2: "frames"}})
     do("instance_step", _InstG(model), (torch.randn(1, E), torch.rand(1, N_GLOBAL), torch.zeros(1, Hi)),
-       ["e", "global_mod", "state"], ["c", "state_out"], None)
+       ["embedding", "global_mod", "state"], ["context", "state_out"], None)
     do("voice_core", _VoiceG(model), (torch.rand(V, N_PERF), torch.randn(1, Hv), torch.zeros(V, Hv)),
-       ["note_features", "c", "state"], ["h", "state_out"],
-       {"note_features": {0: "V"}, "state": {0: "V"}, "h": {0: "V"}, "state_out": {0: "V"}})
+       ["features", "context", "state"], ["hidden", "state_out"],
+       {"features": {0: "V"}, "state": {0: "V"}, "hidden": {0: "V"}, "state_out": {0: "V"}})
     hv = torch.randn(V, Hv)
     f0 = torch.tensor([110.0, 261.6, 880.0])
     for m in model.experts:
         g = _ExpertG(model, m)
-        ins, in_names = (hv, f0), ["h", "f0"]
+        ins, in_names = (hv, f0), ["hidden", "f0"]
         if m == "physical":
-            ins, in_names = (hv, f0, torch.rand(V, t.n_modes)), ["h", "f0", "modal_state"]
+            ins, in_names = (hv, f0, torch.rand(V, t.n_modes)), ["hidden", "f0", "modal_state"]
         with torch.no_grad():
             outs = g(*ins)
             names = sorted(BUILD[m](model.experts[m].params(hv, f0), f0) if m != "physical"
@@ -1642,8 +1661,8 @@ def export(args):
         names = names + (["modal_state_out"] if m == "physical" else [])
         layout[m] = {n: int(o.shape[1]) for n, o in zip(names, outs)}
         do(f"expert_{m}", g, ins, in_names, names, {**{n: {0: "V"} for n in in_names}, **{n: {0: "V"} for n in names}})
-    do("expert_hybrid", _HybridG(model), (hv,), ["h"], ["h_a", "h_b", "xf"],
-       {"h": {0: "V"}, "h_a": {0: "V"}, "h_b": {0: "V"}, "xf": {0: "V"}})
+    do("expert_hybrid", _HybridG(model), (hv,), ["hidden"], ["hidden_a", "hidden_b", "xf"],
+       {"hidden": {0: "V"}, "hidden_a": {0: "V"}, "hidden_b": {0: "V"}, "xf": {0: "V"}})
     np.save(os.path.join(args.out, "grain_bank.npy"), model.experts["granular"].table.detach().numpy())
 
     # 3. golden DSP vectors per method, as flat VoiceFrames starting at the note-on frame
@@ -1677,12 +1696,13 @@ def export(args):
                 "note_features": ["pitch/127", "velocity", "gate", "log1p(t_on)/log1p(4)",
                                   "log1p(t_off)/log1p(4)", "mod", "aftertouch", "bend(+-2 st)"],
                 "global_mod": ["mod", "aftertouch", "bend", "reserved"],
-                "method_vector": "27 = method one-hot(9) + hybrid component A(9) + component B(9), order " + ",".join(METHODS),
+                "method_vector": "patch_encoder takes method one-hot [1,9] and hybrid_parts [1,18] = component A "
+                                  "one-hot + component B one-hot (zeros unless hybrid), order " + ",".join(METHODS),
                 "hybrid_merge": "OSC re/im = xf*mixA*A + (1-xf)*mixB*B, mix.osc = 1; NOISE band = sqrt((xf*mixA*A)^2 + "
                                 "((1-xf)*mixB*B)^2), mix.noise = 1; other primitives from their one component with mix "
                                 "scaled by its weight; attack_tau = min(A, B)",
                 "checks": checks}
-    with open(os.path.join(args.out, "manifest.json"), "w") as f:
+    with open(os.path.join(args.out, "export_info.json"), "w") as f:
         json.dump(manifest, f, indent=1)
     if args.int8:
         from onnxruntime.quantization import quantize_dynamic, QuantType
@@ -1691,7 +1711,29 @@ def export(args):
                 quantize_dynamic(os.path.join(args.out, fn), os.path.join(args.out, fn[:-5] + ".int8.onnx"),
                                  weight_type=QuantType.QInt8)
         checks.append("int8 copies written (*.int8.onnx); check them by ear before shipping")
+    write_host_manifest(root, folder, t.name, args.version)
+    checks.append(f"wrote {os.path.join(root, 'manifest.json')} entry for {folder}")
     print("\n".join(checks))
+
+
+def write_host_manifest(root, folder, tier, version):
+    """Models/manifest.json in the inference host's schema (MODEL_CONTRACT.md), with the SHA-256 of
+    every file in the tier folder. Other tiers' entries are kept; the same tier+version is replaced."""
+    import hashlib
+    path = os.path.join(root, "manifest.json")
+    man = {"schema": 1, "models": []}
+    if os.path.exists(path):
+        with open(path) as f:
+            man = json.load(f)
+    files = {}
+    for fn in sorted(os.listdir(os.path.join(root, folder))):
+        with open(os.path.join(root, folder, fn), "rb") as f:
+            files[fn] = hashlib.sha256(f.read()).hexdigest()
+    man["models"] = [m for m in man["models"] if not (m["tier"] == tier and m["version"] == version)]
+    man["models"].append({"tier": tier, "version": version, "folder": folder, "opset": 17,
+                          "frame_rate_hz": FRAME_HZ, "files": files})
+    with open(path, "w") as f:
+        json.dump(man, f, indent=1)
 
 
 # ================================================================ CLI
@@ -1724,7 +1766,8 @@ def main(argv=None):
     ex = sub.add_parser("export")
     ex.add_argument("--ckpt", default=None, help="omit to export an untrained model (pipeline test)")
     ex.add_argument("--tier", default="lite", choices=list(TIERS))
-    ex.add_argument("--out", default="export")
+    ex.add_argument("--out", default="Models", help="Models folder; the tier goes in <out>/<tier>-<version>")
+    ex.add_argument("--version", default="0.1.0")
     ex.add_argument("--int8", action="store_true", help="also write int8 dynamic-quantised copies (Lite)")
     args = ap.parse_args(argv)
     if args.cmd == "report":
