@@ -440,12 +440,15 @@ def merge_hybrid(ca, cb, xf):
 # VoiceFrame field names; arrays are tier-sized prefixes of the VoiceFrame arrays.
 
 def _filter_mag(f, cutoff, q, mode):
-    """State-variable magnitude: LP2^2, BP2, HP2^2 blended by mode [...,3]."""
+    """4-pole state-variable magnitude: a resonant 2-pole stage (Q = q) times a Butterworth 2-pole
+    stage (Q = 0.707) for LP and HP, and a resonant BP, blended by mode [...,3]. The resonant peak
+    is about q, not q^2, like a ladder filter."""
     x = f / cutoff.unsqueeze(-1)
     qq = q.unsqueeze(-1)
     den = torch.sqrt((1 - x * x) ** 2 + (x / qq) ** 2 + 1e-12)
+    den2 = torch.sqrt((1 - x * x) ** 2 + 2 * x * x + 1e-12)
     lp, bp, hp = 1 / den, (x / qq) / den, x * x / den
-    return mode[..., 0:1] * lp * lp + mode[..., 1:2] * bp + mode[..., 2:3] * hp * hp
+    return mode[..., 0:1] * lp / den2 + mode[..., 1:2] * bp + mode[..., 2:3] * hp * x * x / den2
 
 
 def _pad_h(x):
@@ -771,9 +774,11 @@ class Teachers:
         m = k[:, 16]
         lp, hp = (1 - 2 * m).clamp(0, 1), (2 * m - 1).clamp(0, 1)
         mode = torch.stack([lp, 1 - lp - hp, hp], -1).view(B, 1, 3).expand(B, T, 3)
+        q = 0.5 + 19.5 * k[:, 15] ** 2
         return {"mix": mix.view(B, 1, 3).expand(B, T, 3), "pw": e(0.05 + 0.9 * k[:, 3]),
-                "cutoff": cut.clamp(20, 20000).unsqueeze(-1), "q": e(0.5 + 19.5 * k[:, 15] ** 2), "mode": mode,
-                "noise": e(0.5 * k[:, 17] ** 2), "amp": (aenv * (0.3 + 0.7 * perf["vel"].view(B, 1)) * 0.5).unsqueeze(-1),
+                "cutoff": cut.clamp(20, 20000).unsqueeze(-1), "q": e(q), "mode": mode,
+                "noise": e(0.5 * k[:, 17] ** 2),
+                "amp": (aenv * (0.3 + 0.7 * perf["vel"].view(B, 1)) * 0.5 / q.sqrt().view(B, 1)).unsqueeze(-1),
                 "attack": _attack(A, T)}
 
     def wavetable(self, k, perf):
@@ -784,8 +789,12 @@ class Teachers:
         tab = self.wt[(k[:, 0] * 63.999).long()][:, :, :self.t.K_h]   # [B,32,K,2]
         pos = (k[:, 1:2] + (k[:, 2:3] * 2 - 1) * wenv + k[:, 3:4] * perf["mod"]).clamp(0, 1)
         fr = interp_frames(tab.unsqueeze(1).expand(B, T, *tab.shape[1:]), pos)
-        return {"wt_re": fr[..., 0], "wt_im": fr[..., 1], "tilt": e((k[:, 8] * 2 - 1) * 4),
-                "amp": (aenv * (0.3 + 0.7 * perf["vel"].view(B, 1)) * 0.5).unsqueeze(-1),
+        tilt = (k[:, 8] * 2 - 1) * 4
+        mag = tab.norm(dim=-1).mean(1)                                      # [B,K]
+        kk = torch.arange(1, mag.shape[-1] + 1, device=self.dev).float()
+        comp = mag.sum(-1) / (mag * kk ** (tilt.view(B, 1) / 6.0206)).sum(-1)  # keep level under tilt
+        return {"wt_re": fr[..., 0], "wt_im": fr[..., 1], "tilt": e(tilt),
+                "amp": (aenv * (0.3 + 0.7 * perf["vel"].view(B, 1)) * 0.5 * comp.view(B, 1)).unsqueeze(-1),
                 "attack": _attack(A, T)}
 
     def additive(self, k, perf):
@@ -821,8 +830,10 @@ class Teachers:
             c = c0 * (1 - mv) + c1 * mv
             env = env + torch.exp(-((lf - c) ** 2) / 0.08) / (i + 1)
         aenv, A = _adsr_knobs(perf, k, 18)
+        fh = perf["f0"].unsqueeze(-1) * harm_k(self.dev)
+        n_eff = (band_interp(env, fh) * (fh < SR / 2).float()).sum(-1, keepdim=True).clamp(min=1.0)
         return {"env": env, "balance": e(0.3 + 0.7 * k[:, 6]),
-                "amp": (aenv * (0.3 + 0.7 * perf["vel"].view(B, 1)) * 0.1).unsqueeze(-1),
+                "amp": (aenv * (0.3 + 0.7 * perf["vel"].view(B, 1))).unsqueeze(-1) * 0.4 / n_eff,
                 "attack": _attack(A, T)}
 
     def fm(self, k, perf):
@@ -906,7 +917,7 @@ class Teachers:
         e = lambda v: v.view(B, 1, 1).expand(B, T, 1)
         aenv, A = _adsr_knobs(perf, k, 18)
         lf = torch.log2(band_hz(self.dev)).view(1, 1, N_BANDS)
-        tilt = ((k[:, 3] * 2 - 1) * 0.5).view(B, 1, 1) * (lf - 10) + (perf["vel"].view(B, 1, 1) - 0.7) * 0.3 * (lf - 10)
+        tilt = ((k[:, 3] * 2 - 1) * 0.2).view(B, 1, 1) * (lf - 10) + (perf["vel"].view(B, 1, 1) - 0.7) * 0.15 * (lf - 10)
         bump = (k[:, 4] * 2 - 1).view(B, 1, 1) * 1.5 * torch.exp(-((lf - 7 - 7 * k[:, 5].view(B, 1, 1)) ** 2) / 0.2)
         eq = torch.exp(tilt + bump).expand(B, T, N_BANDS)
         return {"rate": e(1 + (k[:, 1] * 2 - 1) * 0.01), "start": e(k[:, 2] * 0.3), "gain": (aenv * 0.9).unsqueeze(-1),
@@ -951,7 +962,8 @@ def render_patch(patch, pitch=60, velocity=0.8, seconds=1.0, ckpt=None, tier="st
     """Render one note of a patch to 48 kHz mono float32 audio (np.ndarray), starting at note-on.
 
     patch: {"method": one of METHODS, "knobs": 32 values in [0, 1], "pair": [a, b] for hybrid}.
-    The note is held for 70% of `seconds`, then released. Without a checkpoint the patch plays
+    The note is held for 70% of `seconds`, then released. Levels are not normalised; in a sweep of
+    360 random patches peaks ran 0.1 to 0.95 (median 0.1 to 0.5 per method). Without a checkpoint the patch plays
     through the procedural teacher programs (what stage 1 trains toward); with `ckpt` (or the
     ALFA_CKPT environment variable) it plays through the trained network. Deterministic per call.
     """
