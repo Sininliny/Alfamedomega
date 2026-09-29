@@ -17,14 +17,19 @@ Only a directory's owner edits it. If you need something from another component,
 that component's own `CMakeLists.txt` with `CPMAddPackage` and a pinned version; shared ones
 live in `cmake/Dependencies.cmake`.
 
-Dependency direction: `plugin → ui, dsp, inference`. `dsp` and `inference` do not depend on
-each other or on JUCE, so they build and test in seconds and can be reused outside the plugin.
+Dependency direction: `plugin → ui, dsp, inference`. `dsp` and `inference` do not link
+against each other or JUCE, so they build and test in seconds and can be reused outside the
+plugin. The one shared piece is the control-frame contract, `alfa/dsp/ControlFrame.h`, a
+header owned by `dsp` that `inference` uses through `Alfa::dsp`'s include path only. Change it
+only through the DSP owner, since both components and the training export depend on it.
 The glue between the model's control frames and the engines lives in `src/plugin`.
 
 ## Building
 
 Requirements: CMake 3.25+, Ninja, a C++20 compiler (Clang 15+, GCC 12+, MSVC 2022),
-clang-format 18. On Linux the plugin also needs the JUCE dependencies
+clang-format 18. The inference tests export small ONNX models at build time and need
+Python 3 with `pip install numpy onnx`; without it those tests report as skipped. With Clang 20
+the RealtimeSanitizer test target (`alfa_inference_rtsan_tests`) is built as well. On Linux the plugin also needs the JUCE dependencies
 (`libasound2-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxcomposite-dev libfreetype-dev libfontconfig1-dev libgl-dev`).
 
 ```bash
