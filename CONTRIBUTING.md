@@ -10,6 +10,7 @@
 | `src/plugin/` | `Alfamedomega` | Plugin shell and UI | `juce_add_plugin`, processor, editor, parameters. |
 | `training/` | – | Training | PyTorch training and ONNX export. |
 | `apps/control-center/`, `docs/control-center/` | – | Standalone control center | Python + Qt app for training, model weights and preference batches. |
+| `preference/`, `docs/preference/` | – | Adaptive preference learning | Learns the user's sound preferences from their library. |
 | `docs/` | – | Anyone | Design docs and ADRs (`docs/decisions/NNNN-title.md`). |
 | root, `cmake/`, `.github/`, `scripts/` | – | Repo and workflow | Build system, CI, conventions. |
 
@@ -92,7 +93,7 @@ docs(adr): record frame-rate decision
 ```
 
 Types: `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `build`, `ci`, `chore`.
-Scopes: `dsp`, `inference`, `ui`, `plugin`, `training`, `control-center`, `adr`, or none for repo-wide changes.
+Scopes: `dsp`, `inference`, `ui`, `plugin`, `training`, `control-center`, `preference`, `adr`, or none for repo-wide changes.
 Keep commits small and building.
 
 ### Branches
