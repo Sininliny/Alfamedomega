@@ -16,25 +16,23 @@
 
 `ALFA_MODELS_DIR` overrides it for both apps (tests, CI, portable installs).
 
-## Layout
+## Layout and manifest
+
+The inference host owns this format (`src/inference/MODEL_CONTRACT.md` on the inference
+branch), and `training/alfamedomega_train.py export` already writes it. The control center
+follows it exactly and only adds keys the host ignores.
 
 ```
 Models/
-  manifest.json            # the index below; the only file the plugin needs to read first
-  lite-1.0.0/              # <tier>-<version>, one folder per installed model
-    manifest.json          # the training export's own manifest, copied unchanged
-    patch_encoder.onnx
-    instance_step.onnx
-    voice_core.onnx
+  manifest.json
+  lite-1.0.0/              # <tier>-<version>
+    export_info.json       # the training export's description of the graphs
+    patch_encoder.onnx  instance_step.onnx  voice_core.onnx
     expert_<method>.onnx   # eight methods + expert_hybrid
     audio_encoder.onnx     # optional
-    grain_sources.npy
+    grain_bank.npy
     *.int8.onnx            # optional int8 copies (Lite)
 ```
-
-`dsp_golden.npz` (the C++ test vectors) is left out of installs unless asked for.
-
-## manifest.json, schema 1
 
 ```json
 {
@@ -42,13 +40,15 @@ Models/
   "default_tier": "standard",
   "models": [
     {
-      "id": "standard-1.0.0",
       "tier": "standard",
       "version": "1.0.0",
-      "dir": "standard-1.0.0",
-      "files": [{"path": "voice_core.onnx", "sha256": "…", "bytes": 1234567}],
+      "folder": "standard-1.0.0",
+      "opset": 17,
+      "frame_rate_hz": 250,
+      "files": {"voice_core.onnx": "<sha-256 hex>", "...": "..."},
+
+      "sizes": {"voice_core.onnx": 1234567},
       "bytes": 25000000,
-      "sr": 48000, "frame_hz": 250, "hop": 192,
       "source": "training export export",
       "installed_at": "2026-09-29T20:00:00+00:00",
       "notes": ""
@@ -57,11 +57,18 @@ Models/
 }
 ```
 
-- `tier` is one of `lite`, `standard`, `pro`, `studio`. `version` is `MAJOR.MINOR.PATCH`.
-- Several versions of a tier can be installed at once. The plugin uses the highest version of the
-  tier a preset asks for, unless a preset pins an `id`.
-- `default_tier` is the size a new plugin instance starts with.
+- The first block of keys in each model is the host's contract. `default_tier`, `sizes`,
+  `bytes`, `source`, `installed_at` and `notes` are the control center's additions; a manifest
+  written by the training export without them is still read correctly.
+- `tier` is one of `lite`, `standard`, `pro`, `studio`. `version` is `MAJOR.MINOR.PATCH`. The
+  newest version of a tier wins in the host.
+- `dsp_golden.npz` (the C++ test vectors) is left out of installs unless asked for.
 - A reader must refuse a `schema` higher than it knows.
+
+**Importing.** The control center accepts a Models folder written by the training export
+(every model it lists is installed), a single `<tier>-<version>` folder, a zip of either (the
+Colab notebook's last cell makes one), or a `.alfamodel` bundle. It never installs in place:
+files are copied, re-hashed and published as below.
 
 ## Rules for writers and readers
 
@@ -77,7 +84,7 @@ Models/
 Moving a model between machines. A zip with:
 
 ```
-alfamodel.json    # the manifest entry without dir/source/installed_at, plus schema and exported_at
+alfamodel.json    # the manifest entry without folder/source/installed_at, plus schema and exported_at
 files/<name>      # every file in the entry
 ```
 
@@ -85,7 +92,6 @@ Import checks every hash before anything is installed, and rejects entry names w
 
 ## Open points
 
-1. The inference host thread should confirm it reads this schema, or say what it needs changed.
-2. The system folders need admin rights to write on macOS and Windows. The installer should
+1. The system folders need admin rights to write on macOS and Windows. The installer should
    create `Models/` writable by the user's group, or the control center will ask for elevation.
    Until that is decided, pointing Settings at a user folder works for development.

@@ -71,8 +71,9 @@ class TrainSpec:
         # train() saves <tier>_<stage>.pt in --out.
         return f"{self.tier}_{self.stage}.pt"
 
-    def export_args(self, ckpt: str, out: str) -> list:
-        a = ["export", "--ckpt", ckpt, "--tier", self.tier, "--out", out]
+    def export_args(self, ckpt: str, out: str, version: str) -> list:
+        # The script writes <out>/<tier>-<version>/ and <out>/manifest.json, a Models folder.
+        a = ["export", "--ckpt", ckpt, "--tier", self.tier, "--out", out, "--version", version]
         if self.int8:
             a.append("--int8")
         return a
@@ -114,13 +115,14 @@ def create_training_job(manager: jobs.JobManager, spec: TrainSpec, python: str, 
                            label=f"Train {spec.tier} ({spec.stage})")]
     if spec.export:
         export_dir = run_dir / "export"
+        version = spec.version or ModelStore(Path(models_dir)).next_version(spec.tier)
         steps.append(jobs.cmd_step(
-            [python, script, *spec.export_args(str(run_dir / spec.checkpoint_name()), str(export_dir))],
+            [python, script, *spec.export_args(str(run_dir / spec.checkpoint_name()), str(export_dir), version)],
             cwd=run_dir, label="Export ONNX graphs"))
         if spec.install:
             steps.append(jobs.action_step(
                 "install_export", label="Install into Models folder", src=str(export_dir),
-                models_dir=str(models_dir), version=spec.version,
+                models_dir=str(models_dir), version=version,
                 notes=f"trained by control center, {spec.stage}, {spec.steps} steps"))
     title = f"Train {spec.tier.capitalize()} · {spec.stage}" + (" (smoke test)" if spec.smoke else "")
     return manager.create("train", title, steps, params={**asdict(spec), "run_dir": str(run_dir)})
@@ -140,7 +142,8 @@ def create_export_job(manager: jobs.JobManager, tier: str, ckpt: str, python: st
         n += 1
         out = Path(f"{base}-{n}")
     out.mkdir(parents=True)
-    args = spec.export_args(ckpt, str(out / "export"))
+    version = version or ModelStore(Path(models_dir)).next_version(tier)
+    args = spec.export_args(ckpt, str(out / "export"), version)
     if not ckpt:  # the script exports an untrained model, which tests the pipeline
         args = [a for i, a in enumerate(args) if a != "--ckpt" and args[i - 1] != "--ckpt"]
     steps = [jobs.cmd_step([python, script, *args], cwd=out, label=f"Export {tier}")]
@@ -155,11 +158,12 @@ def create_export_job(manager: jobs.JobManager, tier: str, ckpt: str, python: st
 @jobs.action("install_export")
 def _install_export(args: dict, log) -> dict:
     store = ModelStore(Path(args["models_dir"]))
-    entry = store.import_export(Path(args["src"]), version=args.get("version") or None,
-                                notes=args.get("notes", ""))
-    log(f"installed {entry['id']} ({entry['bytes'] / 1e6:.1f} MB, {len(entry['files'])} files) "
-        f"into {store.root}")
-    return {"installed": entry["id"]}
+    entries = store.import_export(Path(args["src"]), version=args.get("version") or None,
+                                  notes=args.get("notes", ""))
+    for e in entries:
+        log(f"installed {e['folder']} ({e['bytes'] / 1e6:.1f} MB, {len(e['files'])} files) "
+            f"into {store.root}")
+    return {"installed": ", ".join(e["folder"] for e in entries)}
 
 
 # ---------------------------------------------------------------------- Colab
@@ -174,7 +178,8 @@ def colab_notebook(spec: TrainSpec, script_text: str, drive_dir: str = "alfamedo
     spec.validate()
     run = f"/content/drive/MyDrive/{drive_dir}/runs/{spec.run_name()}"
     train = " ".join(_q(a) for a in spec.train_args(run))
-    export = " ".join(_q(a) for a in spec.export_args(f"{run}/{spec.checkpoint_name()}", f"{run}/export"))
+    export = " ".join(_q(a) for a in spec.export_args(f"{run}/{spec.checkpoint_name()}", f"{run}/export",
+                                                          spec.version or "0.1.0"))
 
     def md(text):
         return {"cell_type": "markdown", "metadata": {}, "source": text.splitlines(True)}
