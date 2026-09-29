@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+
 #include "PluginEditor.h"
 
 namespace alfa
@@ -9,7 +10,9 @@ AlfamedomegaProcessor::AlfamedomegaProcessor()
 {
 }
 
-void AlfamedomegaProcessor::prepareToPlay(double, int) {}
+void AlfamedomegaProcessor::prepareToPlay(double, int)
+{
+}
 
 bool AlfamedomegaProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
