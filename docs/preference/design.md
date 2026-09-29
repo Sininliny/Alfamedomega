@@ -245,8 +245,9 @@ the seed, and generation takes a seed, so the same profile and seed give the sam
   tier="standard")` in `alfamedomega_train.py` renders one patch with the teacher programs, or with
   a checkpoint via `ckpt` or `ALFA_CKPT`. The CLI uses it with
   `--renderer alfamedomega_train:render_patch` (training/ on `PYTHONPATH`, needs torch), about
-  0.03 to 0.4 s per preview on CPU. Peaks reach about 3.7 on resonant subtractive patches, which
-  the gain-invariant descriptor does not mind.
+  0.03 to 0.4 s per preview on CPU. Preview levels are not normalised (peaks about 0.1 to 0.95
+  since training d2b34c5), which the gain-invariant descriptor does not mind. The results in
+  section 9 predate d2b34c5, which changed subtractive previews.
 - The prior (uniform knobs, `method_probs`) is mirrored in `alfapref/generate.py`. If METHOD.md
   changes the prior, this copy needs the same change; a shared definition would be better.
 - **Proposed descriptor v2:** a contrastive timbre encoder trained on teacher renders (the same
