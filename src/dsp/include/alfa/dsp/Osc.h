@@ -7,6 +7,8 @@
 #include "alfa/dsp/Primitive.h"
 #include "alfa/dsp/detail/Fft.h"
 
+#include <array>
+
 namespace alfa::dsp
 {
 
@@ -28,7 +30,7 @@ private:
     void buildTable(const VoiceFrame* frame, float f0, float* table) noexcept;
     /// Moves to the next hop: the current table becomes the previous one.
     void rotate(const HopContext& ctx) noexcept;
-    void advanceDetuned(int n) noexcept;
+    void advanceRead(int r, int n) noexcept;
 
     detail::RealFft fft_;
     detail::AlignedBuffer spectrum_;
@@ -48,13 +50,15 @@ private:
     int hop_ = 192;
     float invHop_ = 1.0f / 192.0f;
 
-    double phase_ = 0.0;  // cycles, [0, 1)
-    double phase2_ = 0.0; // detuned read (VoiceFrame::oscDetuneRatio), cycles
-    bool detune_ = false; // detune level non-zero in frame j-1 or j
-    float ratioStart_ = 1.0f;
-    float ratioDelta_ = 0.0f;
-    float levelStart_ = 0.0f;
-    float levelDelta_ = 0.0f;
+    double phase_ = 0.0; // cycles, [0, 1)
+    // Extra unison reads (VoiceFrame::oscDetuneRatio / oscDetuneLevel), limited by the tier.
+    int reads_ = 0;
+    std::array<bool, kMaxOscDetune> readOn_{};
+    std::array<double, kMaxOscDetune> readPhase_{};
+    std::array<float, kMaxOscDetune> ratioStart_{};
+    std::array<float, kMaxOscDetune> ratioDelta_{};
+    std::array<float, kMaxOscDetune> levelStart_{};
+    std::array<float, kMaxOscDetune> levelDelta_{};
     int pos_ = 0; // sample index within the hop
     float f0Start_ = 440.0f;
     float f0Delta_ = 0.0f; // f0End - f0Start

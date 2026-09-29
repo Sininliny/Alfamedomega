@@ -52,6 +52,7 @@ inline constexpr double kFrameRateHz = 250.0;
 
 inline constexpr int kOscHarmonics = 1024; ///< OSC harmonics 1..1024 (index 0 is harmonic 1)
 inline constexpr int kOscTableSize = 2048; ///< single-cycle wave length built from them
+inline constexpr int kMaxOscDetune = 7;    ///< extra OSC table reads (unison up to 8 reads)
 inline constexpr int kMaxPartials = 64;
 inline constexpr int kMaxFmOperators = 8;
 inline constexpr int kBands = 64; ///< NOISE bands and SAMPLER EQ bands (same axis)
@@ -265,12 +266,14 @@ struct VoiceFrame
     // Layout v2: processing slots and modulation.
     float pan = 0.0f;     ///< -1 (left) .. 1 (right), equal-power
     float dryGain = 1.0f; ///< primitive sum straight to the output
-    /// Second read of the OSC tables for unison / supersaw: a phase accumulator at
-    /// f0 * oscDetuneRatio, same crossfade, scaled by oscDetuneLevel (both linear per sample,
-    /// starting at phase 0 on note-on). While the level is non-zero in frame j-1 or j, the OSC
-    /// Nyquist cut uses f0 * max(1, ratio in either frame).
-    float oscDetuneRatio = 1.0f;
-    float oscDetuneLevel = 0.0f;
+    /// Extra reads of the OSC tables for unison / supersaw: read r runs a phase accumulator at
+    /// f0 * oscDetuneRatio[r] over the same crossfaded tables, scaled by oscDetuneLevel[r] (both
+    /// linear per sample; read r starts at phase (r + 1) / (kMaxOscDetune + 1) on note-on so reads do
+    /// not start coherent). Only the first TierLimits::oscUnison - 1 reads run. While any running
+    /// read's level is non-zero in frame j-1 or j, the OSC Nyquist cut uses f0 times the largest
+    /// of 1 and those reads' ratios.
+    std::array<float, kMaxOscDetune> oscDetuneRatio{1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+    std::array<float, kMaxOscDetune> oscDetuneLevel{};
     std::array<SlotControls, kMaxVoiceSlots> slots{};
     ModControls mod{};
 
@@ -330,8 +333,8 @@ inline constexpr std::size_t samplerEq = samplerGain + 1;
 inline constexpr std::size_t pan = samplerEq + kBands;
 inline constexpr std::size_t dryGain = pan + 1;
 inline constexpr std::size_t oscDetuneRatio = dryGain + 1;
-inline constexpr std::size_t oscDetuneLevel = oscDetuneRatio + 1;
-inline constexpr std::size_t slots = oscDetuneLevel + 1; // kMaxVoiceSlots x SlotControls
+inline constexpr std::size_t oscDetuneLevel = oscDetuneRatio + kMaxOscDetune;
+inline constexpr std::size_t slots = oscDetuneLevel + kMaxOscDetune; // kMaxVoiceSlots x SlotControls
 inline constexpr std::size_t slotFloats = 2 + kSlotParams + kSlotInputs;
 inline constexpr std::size_t mod = slots + kMaxVoiceSlots * slotFloats;
 inline constexpr std::size_t modFloats = kModSourceParams + 3 * kMaxModRoutes;
@@ -374,8 +377,8 @@ inline constexpr std::array<FieldInfo, 25> kFields{{
     {"sampler.eq", offsets::samplerEq, kBands, "linear gain"},
     {"pan", offsets::pan, 1, "-1..1 equal-power"},
     {"dry_gain", offsets::dryGain, 1, "linear"},
-    {"osc.detune_ratio", offsets::oscDetuneRatio, 1, "multiple of f0, second OSC table read"},
-    {"osc.detune_level", offsets::oscDetuneLevel, 1, "linear"},
+    {"osc.detune_ratio", offsets::oscDetuneRatio, kMaxOscDetune, "multiple of f0, extra OSC table reads"},
+    {"osc.detune_level", offsets::oscDetuneLevel, kMaxOscDetune, "linear"},
     {"slots", offsets::slots, kMaxVoiceSlots* offsets::slotFloats,
      "4 x [family, out_gain, params[16] 0..1, input[10]]"},
     {"mod", offsets::mod, offsets::modFloats,
@@ -416,22 +419,21 @@ struct TierLimits
     int instanceSlots;
     int modRoutes;
     int resonatorModes;
+    int oscUnison; ///< total OSC reads including the main one (1 .. kMaxOscDetune + 1)
 };
 
+} // namespace alfa::dsp
+
+#include "alfa/dsp/TierLimitsGenerated.h"
+
+namespace alfa::dsp
+{
+
+/// The tier's limits, generated from docs/tiers/allocation_by_tier.json (tools/gen_tier_limits.py).
 [[nodiscard]] constexpr TierLimits limitsFor(Tier tier) noexcept
 {
-    switch (tier)
-    {
-    case Tier::Lite:
-        return {16, 2, 2, 16, 2, 2, 4, 8};
-    case Tier::Standard:
-        return {32, 4, 4, 16, 3, 3, 6, 16};
-    case Tier::Pro:
-        return {48, 6, 6, 16, 4, 4, 8, 24};
-    case Tier::Studio:
-        return {64, 8, 8, 8, 4, 4, 8, 32};
-    }
-    return {64, 8, 8, 16, 4, 4, 8, 32};
+    const auto i = static_cast<int>(tier);
+    return generated::kTierLimits[i >= 0 && i < 4 ? i : 3];
 }
 
 } // namespace alfa::dsp
