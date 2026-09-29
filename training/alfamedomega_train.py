@@ -803,7 +803,8 @@ class Teachers:
         aenv, A = _adsr_knobs(perf, k, 18)
         stretch = (k[:, 6] > 0.6).float() * 1e-4 * 10 ** (k[:, 7] * 2)      # piano-like stretch on some patches
         detune = (torch.rand(B, 1, K, device=self.dev, generator=self.gen) * 2 - 1) * k[:, 8].view(B, 1, 1) * 0.003
-        return {"harm": a * 0.5, "stretch": e(stretch), "detune": detune.expand(B, T, K),
+        a = a / (a.sum(-1, keepdim=True) + 1e-6) * 0.6                 # peak level near 0.6
+        return {"harm": a, "stretch": e(stretch), "detune": detune.expand(B, T, K),
                 "amp": (aenv * (0.3 + 0.7 * perf["vel"].view(B, 1))).unsqueeze(-1),
                 "attack": _attack(A, T)}
 
@@ -912,10 +913,10 @@ class Teachers:
                 "eq": eq, "resid": torch.zeros(B, T, 16, device=self.dev), "attack": _attack(A, T)}
 
     # -- batches
-    def batch(self, method, B, T, pair=None):
+    def batch(self, method, B, T, pair=None, k=None, perf=None):
         g = self.gen
-        k = torch.rand(B, N_KNOBS, device=self.dev, generator=g)
-        perf = make_perf(B, T, self.dev, g)
+        k = torch.rand(B, N_KNOBS, device=self.dev, generator=g) if k is None else k
+        perf = make_perf(B, T, self.dev, g) if perf is None else perf
         mvec = torch.zeros(B, METHOD_IN, device=self.dev)
         mvec[:, M_IDX[method]] = 1
         ctx = {"grain_bank": self.grain_bank, "gen": g}
@@ -939,6 +940,54 @@ class Teachers:
             audio = render(ctrl, perf["f0"], ON_FRAME, ctx)
         return {"method": method, "pair": pair, "knobs": k, "mvec": mvec, "perf": perf, "ctx": ctx,
                 "ctrl": ctrl, "audio": audio, "lowpass": None}
+
+
+# ================================================================ preview rendering
+
+_PREVIEW = {}
+
+
+def render_patch(patch, pitch=60, velocity=0.8, seconds=1.0, ckpt=None, tier="standard"):
+    """Render one note of a patch to 48 kHz mono float32 audio (np.ndarray), starting at note-on.
+
+    patch: {"method": one of METHODS, "knobs": 32 values in [0, 1], "pair": [a, b] for hybrid}.
+    The note is held for 70% of `seconds`, then released. Without a checkpoint the patch plays
+    through the procedural teacher programs (what stage 1 trains toward); with `ckpt` (or the
+    ALFA_CKPT environment variable) it plays through the trained network. Deterministic per call.
+    """
+    method = patch["method"]
+    if method not in METHODS:
+        raise ValueError(f"unknown method {method!r}; expected one of {METHODS}")
+    knobs = torch.tensor([float(x) for x in patch["knobs"]], dtype=torch.float32).clamp(0, 1)
+    if knobs.numel() != N_KNOBS:
+        raise ValueError(f"patch needs {N_KNOBS} knobs, got {knobs.numel()}")
+    pair = list(patch.get("pair") or ["wavetable", "fm"]) if method == "hybrid" else None
+    if pair is not None and (len(pair) != 2 or frozenset(pair) in HYBRID_EXCLUDE
+                             or any(p not in HYBRID_PARTS for p in pair)):
+        raise ValueError(f"hybrid pair must be two of {HYBRID_PARTS}, not additive with physical")
+    ckpt = ckpt or os.environ.get("ALFA_CKPT")
+    key = ckpt or tier
+    if key not in _PREVIEW:
+        model = None
+        if ckpt:
+            model, _ = load_ckpt(ckpt, torch.device("cpu"))
+            model.eval()
+        t = model.tier if model is not None else TIERS[tier]
+        _PREVIEW[key] = (model, Teachers(t, torch.device("cpu")))
+    model, teachers = _PREVIEW[key]
+    teachers.gen.manual_seed(1234)
+    T = ON_FRAME + max(1, int(round(seconds * FRAME_HZ)))
+    perf = make_perf(1, T, torch.device("cpu"), teachers.gen, pitch=torch.tensor([float(pitch)]),
+                     vel=torch.tensor([float(velocity)]), length=torch.tensor([round(0.7 * (T - ON_FRAME))]),
+                     expressive=False)
+    with torch.no_grad():
+        b = teachers.batch(method, 1, T, pair, k=knobs.view(1, -1), perf=perf)
+        if model is None:
+            y = b["audio"]
+        else:
+            ctrl, _, _ = model(b)
+            y = render(_floatify(ctrl), perf["f0"], ON_FRAME, model.render_ctx(b))
+    return y[0, ON_FRAME * HOP:].numpy().astype(np.float32)
 
 
 # ================================================================ model (METHOD.md s1, s3)
