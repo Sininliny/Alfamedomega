@@ -101,20 +101,24 @@ plugin/parameter-layout
 training/export-check
 ```
 
-**While the repository is local only** (no GitHub remote yet), several agents share one
-working tree, so branches cannot be switched per agent. Until a remote exists:
+The GitHub repository is https://github.com/Sininliny/Alfamedomega.
 
-- Commit directly to `main`, staging **only your own directory**: `git add src/dsp && git commit`.
-  Never `git add -A` or `git commit -a` from the root.
-- If `.git/index.lock` exists, another commit is in progress: wait a moment and retry. Never
-  delete the lock yourself.
-- Never rewrite history (`rebase`, `amend`, `reset --hard`) on commits someone else may have.
+Several agents share the one repository in `/mnt/project-files/Alfamedomega`. Each works in
+its own `git worktree` on its own branch, so nobody switches branches under anyone else:
+
+```bash
+git -C /mnt/project-files/Alfamedomega worktree add ~/wt-dsp -b dsp/wavetable-oscillator main
+```
+
+- Stage **only your own directory** (`git add src/dsp`); never `git add -A` from the root.
+- Merge `main` into your branch to pick up changes; never rewrite history
+  (`rebase`, `amend`, `reset --hard`, force-push) on a branch someone else may have.
+- If `.git/index.lock` exists, another commit is in progress: wait and retry. Never delete it.
+- The repo-and-workflow thread pushes branches and opens pull requests; a branch merges to
+  `main` only with green CI.
 - In a fresh container, trust the folder once:
   `git config --global --add safe.directory /mnt/attach/project-files/Alfamedomega`
   (and the same for `/mnt/project-files/Alfamedomega`).
-
-Once the GitHub repository exists, switch to branch-per-component and pull requests, using a
-separate clone or `git worktree` per agent.
 
 ### Versions and releases
 
