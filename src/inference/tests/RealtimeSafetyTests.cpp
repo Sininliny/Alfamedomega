@@ -38,8 +38,10 @@ void audioBlock(InferenceHost& host, int blockSize, int block)
 TEST_CASE("the guard sees allocations", "[inference][realtime]")
 {
     AllocationGuard guard;
-    auto* p = new int(3);
-    delete p;
+    // Clang may elide a paired new-expression and delete at -O2 and above, so call the
+    // allocation function directly: an explicit call must reach the replaced operator new.
+    void* volatile p = ::operator new(sizeof(int));
+    ::operator delete(p);
     REQUIRE(guard.count() >= 1);
 }
 
