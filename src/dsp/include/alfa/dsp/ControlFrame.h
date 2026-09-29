@@ -34,7 +34,7 @@
 namespace alfa::dsp
 {
 
-inline constexpr int kLayoutVersion = 1;
+inline constexpr int kLayoutVersion = 2;
 
 // Timing ------------------------------------------------------------------------------------
 
@@ -60,8 +60,8 @@ inline constexpr int kGrainSourcesPerLayer = 2;  ///< top-2 sparse selection ove
 inline constexpr int kGrainSourceLength = 8192;  ///< samples per grain-source buffer
 
 /// Lowest band centre. Band b (0..63) is centred at 20 * (nyquist / 20)^(b / 63) Hz, so the top
-/// band sits at Nyquist. Per-bin gains are linear in log-frequency between centres, flat below
-/// band 0 and zero at DC.
+/// band sits at Nyquist. Per-bin gains are linear in log-frequency between centres and flat
+/// below band 0 (DC included).
 inline constexpr double kBandLowHz = 20.0;
 
 enum class Primitive : std::uint8_t
@@ -151,6 +151,87 @@ struct SamplerControls
     std::array<float, kBands> eq{};
 };
 
+// Processing slots and modulation (layout v2) -------------------------------------------------
+//
+// After the primitives, a voice runs up to kMaxVoiceSlots processing slots, and the instance
+// runs up to kMaxInstanceSlots more on the summed voices (Family.h lists the families). Nothing
+// is a fixed chain: per frame the network chooses each slot's family, what feeds it and how much
+// of it reaches the output.
+//
+//   voice slot k input  = sum_p input[p] * primitive_p            (p = 0..5, after the attack envelope)
+//                       + sum_{i<k} input[6 + i] * slot_i output   (entries for i >= k are ignored)
+//   voice output        = pan( dryGain * sum_p mix[p] * primitive_p + sum_k outGain[k] * slot_k )
+//
+//   instance slot k input = input[0] * voices + sum_{i<k} input[1 + i] * instance slot_i output
+//   instance output       = masterGain * width( dryGain * voices + sum_k outGain[k] * slot_k )
+//
+// Slot orders are therefore any DAG over slot indices, and a family can appear in any position.
+// family is a Family value stored as a float and rounded; params are normalised 0..1 and mapped
+// to physical ranges by the family's ParamInfo table (Family.h, exported to layout.json).
+// Changing family crossfades from the old family to the new one across the hop.
+// All slot values are linear across the hop except family (held).
+
+inline constexpr int kSlotParams = 16;
+inline constexpr int kMaxVoiceSlots = 4;
+inline constexpr int kMaxInstanceSlots = 4;
+inline constexpr int kSlotInputs = kPrimitiveCount + kMaxVoiceSlots;  ///< 10
+inline constexpr int kMaxModRoutes = 8;
+inline constexpr int kModSourceParams = 24;
+
+struct SlotControls
+{
+    float family = 0.0f;   ///< Family, rounded; 0 is Off
+    float outGain = 0.0f;  ///< linear
+    std::array<float, kSlotParams> params{};  ///< normalised 0..1, meaning per family
+    std::array<float, kSlotInputs> input{};   ///< linear weights, see above
+};
+
+/// Modulation that runs between frames, at the control sub-block rate (32 samples).
+///
+/// sources (normalised 0..1, times are log-mapped 0.1 ms .. 10 s, rates 0.01 .. 100 Hz):
+///    0..5   env 1: delay, attack, hold, decay, sustain (level), release     (DAHDSR, from note-on)
+///    6..11  env 2: same
+///   12..15  lfo 1: rate, shape (sine > triangle > saw > square > sample-and-hold morph), start
+///           phase, retrigger on note-on (>= 0.5)
+///   16..19  lfo 2: same
+///   20      sample-and-hold rate
+///   21      smoothed-random rate
+///   22, 23  envelope follower attack, release (follows the voice's primitive sum)
+///
+/// Each route adds depth * source to a destination, both rounded from floats:
+///   source:      0 none, 1 env1, 2 env2, 3 lfo1, 4 lfo2, 5 sample-and-hold, 6 smoothed random,
+///                7 envelope follower, 8 velocity, 9 key (note / 127)
+///                (envelopes, follower, velocity and key are 0..1; LFOs and random are -1..1)
+///   destination: 0..63 slot k param i at k*16+i (normalised, result clamped to 0..1),
+///                64..67 slot k outGain, 68..73 primitive mix gains, 74 pitch (depth 1 = 24
+///                semitones, applied per hop), 75 pan, 76 dryGain   (gains clamped to >= 0)
+///   depth:       -1..1
+/// In InstanceFrame only the LFO and random sources exist and only destinations 0..67 and 76
+/// apply (slot k param / outGain of the instance slots, and the instance dryGain).
+struct ModControls
+{
+    std::array<float, kModSourceParams> sources{};
+    std::array<float, kMaxModRoutes> routeSource{};
+    std::array<float, kMaxModRoutes> routeDestination{};
+    std::array<float, kMaxModRoutes> routeDepth{};
+};
+
+inline constexpr int kModDestinations = 77;
+enum class ModSource : std::uint8_t
+{
+    None = 0, Env1, Env2, Lfo1, Lfo2, SampleHold, SmoothRandom, Follower, Velocity, Key,
+};
+inline constexpr int kModSourceCount = 10;
+namespace moddest
+{
+inline constexpr int slotParam = 0;   // + slot * kSlotParams + param
+inline constexpr int slotOutGain = 64;  // + slot
+inline constexpr int mix = 68;          // + primitive
+inline constexpr int pitch = 74;
+inline constexpr int pan = 75;
+inline constexpr int dryGain = 76;
+} // namespace moddest
+
 // The frame ------------------------------------------------------------------------------------
 
 /// Everything one voice receives per frame. Voice output is
@@ -171,12 +252,31 @@ struct VoiceFrame
     GrainControls grain{};
     SamplerControls sampler{};
 
+    // Layout v2: processing slots and modulation.
+    float pan = 0.0f;      ///< -1 (left) .. 1 (right), equal-power
+    float dryGain = 1.0f;  ///< primitive sum straight to the output
+    std::array<SlotControls, kMaxVoiceSlots> slots{};
+    ModControls mod{};
+
     [[nodiscard]] float mixOf(Primitive p) const noexcept { return mix[static_cast<std::size_t>(p)]; }
     void setMix(Primitive p, float g) noexcept { mix[static_cast<std::size_t>(p)] = g; }
 };
 
 /// Number of floats in a frame when it is treated as a flat array.
 inline constexpr std::size_t kFrameFloats = sizeof(VoiceFrame) / sizeof(float);
+
+/// Everything the instance (post-voice, stereo) receives per frame, from instance_step.
+struct InstanceFrame
+{
+    float dryGain = 1.0f;     ///< summed voices straight to the output
+    float masterGain = 1.0f;  ///< linear
+    float width = 1.0f;       ///< 0 mono .. 1 unchanged .. 2 extra-wide (mid/side)
+    float reserved = 0.0f;
+    std::array<SlotControls, kMaxInstanceSlots> slots{};
+    ModControls mod{};
+};
+
+inline constexpr std::size_t kInstanceFrameFloats = sizeof(InstanceFrame) / sizeof(float);
 
 // Flat offsets (in floats) -----------------------------------------------------------------------
 // The inference host writes expert outputs at these offsets. They are checked against the struct
@@ -211,11 +311,29 @@ inline constexpr std::size_t samplerRate = grainGain + kMaxGrainLayers;
 inline constexpr std::size_t samplerStart = samplerRate + 1;
 inline constexpr std::size_t samplerGain = samplerStart + 1;
 inline constexpr std::size_t samplerEq = samplerGain + 1;
-inline constexpr std::size_t end = samplerEq + kBands;
+inline constexpr std::size_t pan = samplerEq + kBands;
+inline constexpr std::size_t dryGain = pan + 1;
+inline constexpr std::size_t slots = dryGain + 1;  // kMaxVoiceSlots x SlotControls
+inline constexpr std::size_t slotFloats = 2 + kSlotParams + kSlotInputs;
+inline constexpr std::size_t mod = slots + kMaxVoiceSlots * slotFloats;
+inline constexpr std::size_t modFloats = kModSourceParams + 3 * kMaxModRoutes;
+inline constexpr std::size_t end = mod + modFloats;
+// Within SlotControls: family 0, outGain 1, params 2, input 18. Within ModControls: sources 0,
+// routeSource 24, routeDestination 32, routeDepth 40.
+
+namespace instance
+{
+inline constexpr std::size_t dryGain = 0;
+inline constexpr std::size_t masterGain = 1;
+inline constexpr std::size_t width = 2;
+inline constexpr std::size_t slots = 4;
+inline constexpr std::size_t mod = slots + kMaxInstanceSlots * slotFloats;
+inline constexpr std::size_t end = mod + modFloats;
+} // namespace instance
 } // namespace offsets
 
 /// Every field of VoiceFrame in layout order.
-inline constexpr std::array<FieldInfo, 19> kFields{{
+inline constexpr std::array<FieldInfo, 23> kFields{{
     {"mix", offsets::mix, kPrimitiveCount, "linear gain, [osc, partials, fm, noise, grain, sampler]"},
     {"attack_tau", offsets::attackTau, 1, "seconds, note-on frame only"},
     {"osc.re", offsets::oscRe, kOscHarmonics, "linear, harmonic k+1 cosine part"},
@@ -235,6 +353,19 @@ inline constexpr std::array<FieldInfo, 19> kFields{{
     {"sampler.start", offsets::samplerStart, 1, "0..1 of sample length, note-on frame only"},
     {"sampler.gain", offsets::samplerGain, 1, "linear"},
     {"sampler.eq", offsets::samplerEq, kBands, "linear gain"},
+    {"pan", offsets::pan, 1, "-1..1 equal-power"},
+    {"dry_gain", offsets::dryGain, 1, "linear"},
+    {"slots", offsets::slots, kMaxVoiceSlots * offsets::slotFloats, "4 x [family, out_gain, params[16] 0..1, input[10]]"},
+    {"mod", offsets::mod, offsets::modFloats, "sources[24] 0..1, route_source[8], route_destination[8], route_depth[8] -1..1"},
+}};
+
+/// Every field of InstanceFrame in layout order.
+inline constexpr std::array<FieldInfo, 5> kInstanceFields{{
+    {"dry_gain", offsets::instance::dryGain, 1, "linear"},
+    {"master_gain", offsets::instance::masterGain, 1, "linear"},
+    {"width", offsets::instance::width, 1, "0 mono .. 1 unchanged .. 2"},
+    {"slots", offsets::instance::slots, kMaxInstanceSlots * offsets::slotFloats, "4 x [family, out_gain, params[16] 0..1, input[10]: dry, slot0..3]"},
+    {"mod", offsets::instance::mod, offsets::modFloats, "as VoiceFrame.mod; LFO and random sources only"},
 }};
 
 // Tiers ----------------------------------------------------------------------------------------
@@ -248,25 +379,31 @@ enum class Tier : std::uint8_t
 };
 
 /// How much of each array a tier's network fills (docs/tiers/model-tiers.md, METHOD.md section 2).
-/// OSC is always full: the graph extrapolates its explicit harmonics to 1024.
+/// OSC is always full: the graph extrapolates its explicit harmonics to 1024. Every family is
+/// available in every tier; tiers limit how many run at once, not which exist. These counts are
+/// DSP-side mirrors of the tier spec, which owns them.
 struct TierLimits
 {
     int partials;
     int fmOperators;
     int grainLayers;
     int polyphony;
+    int voiceSlots;
+    int instanceSlots;
+    int modRoutes;
+    int resonatorModes;
 };
 
 [[nodiscard]] constexpr TierLimits limitsFor(Tier tier) noexcept
 {
     switch (tier)
     {
-    case Tier::Lite: return {16, 2, 2, 16};
-    case Tier::Standard: return {32, 4, 4, 16};
-    case Tier::Pro: return {48, 6, 6, 16};
-    case Tier::Studio: return {64, 8, 8, 8};
+    case Tier::Lite: return {16, 2, 2, 16, 2, 2, 4, 8};
+    case Tier::Standard: return {32, 4, 4, 16, 3, 3, 6, 16};
+    case Tier::Pro: return {48, 6, 6, 16, 4, 4, 8, 24};
+    case Tier::Studio: return {64, 8, 8, 8, 4, 4, 8, 32};
     }
-    return {64, 8, 8, 16};
+    return {64, 8, 8, 16, 4, 4, 8, 32};
 }
 
 } // namespace alfa::dsp

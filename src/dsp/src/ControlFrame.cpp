@@ -28,6 +28,20 @@ static_assert(offsetof(VoiceFrame, sampler) / sizeof(float) == offsets::samplerR
 static_assert((offsetof(VoiceFrame, sampler) + offsetof(SamplerControls, start)) / sizeof(float) == offsets::samplerStart);
 static_assert((offsetof(VoiceFrame, sampler) + offsetof(SamplerControls, gain)) / sizeof(float) == offsets::samplerGain);
 static_assert((offsetof(VoiceFrame, sampler) + offsetof(SamplerControls, eq)) / sizeof(float) == offsets::samplerEq);
+static_assert(offsetof(VoiceFrame, pan) / sizeof(float) == offsets::pan);
+static_assert(offsetof(VoiceFrame, dryGain) / sizeof(float) == offsets::dryGain);
+static_assert(offsetof(VoiceFrame, slots) / sizeof(float) == offsets::slots);
+static_assert(sizeof(SlotControls) / sizeof(float) == offsets::slotFloats);
+static_assert(offsetof(SlotControls, params) / sizeof(float) == 2);
+static_assert(offsetof(SlotControls, input) / sizeof(float) == 2 + kSlotParams);
+static_assert(offsetof(VoiceFrame, mod) / sizeof(float) == offsets::mod);
+static_assert(sizeof(ModControls) / sizeof(float) == offsets::modFloats);
+static_assert(offsetof(ModControls, routeSource) / sizeof(float) == kModSourceParams);
 static_assert(kFrameFloats == offsets::end);
+static_assert(std::is_standard_layout_v<InstanceFrame>);
+static_assert(offsetof(InstanceFrame, slots) / sizeof(float) == offsets::instance::slots);
+static_assert(offsetof(InstanceFrame, mod) / sizeof(float) == offsets::instance::mod);
+static_assert(kInstanceFrameFloats == offsets::instance::end);
+static_assert(kMaxVoiceSlots * kSlotParams + kMaxVoiceSlots + kPrimitiveCount + 3 == kModDestinations);
 
 } // namespace alfa::dsp

@@ -10,8 +10,11 @@
 //   render(out, n)     overwrite out[0..n) with the next n samples of the hop, unscaled by the
 //                      voice mix gain; the render calls between two beginHop calls add up to
 //                      exactly spec.hop samples
-//   skipHop()          the voice skipped rendering this hop because the primitive's mix was 0;
-//                      advance time-dependent state (phases, read positions) as if rendered
+//   skipHop(ctx)       called INSTEAD of beginHop + render when the primitive's mix is 0 in
+//                      both frames of the hop: advance time-dependent state (phases, read
+//                      positions) cheaply as if the hop had rendered; output nothing
+//
+// Each hop is therefore either beginHop(ctx) followed by render calls, or one skipHop(ctx).
 //
 // Every function after prepare() is noexcept, allocation-free and lock-free.
 

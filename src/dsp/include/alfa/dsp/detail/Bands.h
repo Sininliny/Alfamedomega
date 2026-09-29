@@ -2,7 +2,7 @@
 
 // The 64-band log-frequency layout shared by NOISE and the SAMPLER EQ (ControlFrame.h):
 // band b is centred at 20 * (nyquist / 20)^(b / 63) Hz; a bin's gain is linear in log-frequency
-// between the two neighbouring centres, flat below band 0 and above band 63, and zero at DC.
+// between the two neighbouring centres, flat below band 0 (DC included) and above band 63.
 
 #include "alfa/dsp/ControlFrame.h"
 
@@ -45,8 +45,6 @@ public:
     /// Gain of bin k (0 .. fftSize/2) for the given band gains.
     [[nodiscard]] float gain(const float* bands, int k) const noexcept
     {
-        if (k == 0)
-            return 0.0f;
         const auto i = static_cast<std::size_t>(k);
         const int b = lo_[i];
         const float f = frac_[i];
