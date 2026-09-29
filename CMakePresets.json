@@ -1,0 +1,51 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CPM_SOURCE_CACHE": "$env{HOME}/.cache/CPM"
+      }
+    },
+    {
+      "name": "core",
+      "displayName": "Core libraries and tests only (no JUCE, fastest)",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "ALFA_BUILD_PLUGIN": "OFF", "ALFA_BUILD_TESTS": "ON" }
+    },
+    {
+      "name": "dev",
+      "displayName": "Everything, Debug",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "ALFA_BUILD_PLUGIN": "ON", "ALFA_BUILD_TESTS": "ON" }
+    },
+    {
+      "name": "asan",
+      "displayName": "Core libraries with AddressSanitizer and UBSan",
+      "inherits": "core",
+      "cacheVariables": { "ALFA_ENABLE_SANITIZERS": "ON" }
+    },
+    {
+      "name": "release",
+      "displayName": "Everything, Release",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "ALFA_BUILD_PLUGIN": "ON", "ALFA_BUILD_TESTS": "ON" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "core", "configurePreset": "core" },
+    { "name": "dev", "configurePreset": "dev" },
+    { "name": "asan", "configurePreset": "asan" },
+    { "name": "release", "configurePreset": "release" }
+  ],
+  "testPresets": [
+    { "name": "core", "configurePreset": "core", "output": { "outputOnFailure": true } },
+    { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true } },
+    { "name": "asan", "configurePreset": "asan", "output": { "outputOnFailure": true } },
+    { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true } }
+  ]
+}
