@@ -2,10 +2,9 @@
 
 A renderer is any callable `render(patch, pitch=60, velocity=0.8, seconds=1.0) -> np.ndarray`
 returning 48 kHz mono audio. In the plugin it is the engine itself on the Lite tier. In Python the
-real one will be the training script's teacher programs, once training/ exposes a
-`render_patch` function with that signature (design.md s8.2). Until then, `SketchRenderer` is
-a small NumPy synth whose knobs have audible, monotone effects, which is what the tests and the
-simulator need.
+real one is `render_patch` in training/alfamedomega_train.py (teacher programs, or a checkpoint;
+needs torch). `SketchRenderer` is a small NumPy stand-in whose knobs have audible, monotone
+effects, used by the tests and as the default.
 """
 import hashlib
 

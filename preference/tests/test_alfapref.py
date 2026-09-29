@@ -224,7 +224,8 @@ class Generation(unittest.TestCase):
         p = G.method_probs()
         self.assertAlmostEqual(sum(p.values()), 1.0)
         self.assertGreater(p["sampling"], p["spectral"])
-        pats = G.sample_prior(np.random.default_rng(0), 50)
+        pats = G.sample_prior(np.random.default_rng(0), 2000)
+        self.assertFalse(any(x["pair"] and set(x["pair"]) == {"additive", "physical"} for x in pats))
         self.assertTrue(all(len(x["knobs"]) == 32 and 0 <= min(x["knobs"]) <= max(x["knobs"]) <= 1 for x in pats))
         self.assertTrue(all((x["pair"] is None) == (x["method"] != "hybrid") for x in pats))
 

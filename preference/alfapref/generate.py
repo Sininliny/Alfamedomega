@@ -2,13 +2,14 @@
 
 The prior mirrors training/alfamedomega_train.py: knobs uniform in [0, 1], method drawn with
 `method_probs("pretrain")` (capacity share ** 0.5, hybrid 5% of the rest), hybrid pairs drawn
-from HYBRID_PARTS. If METHOD.md changes the prior, change it here too.
+from HYBRID_PARTS except additive with physical. If METHOD.md changes the prior, change it here too.
 """
 import numpy as np
 
 METHODS = ["subtractive", "wavetable", "additive", "spectral", "fm", "physical", "granular",
            "sampling", "hybrid"]
 HYBRID_PARTS = ["subtractive", "wavetable", "additive", "fm", "physical"]
+HYBRID_EXCLUDE = {frozenset(("additive", "physical"))}           # both use PARTIALS
 N_KNOBS = 32
 
 PREVALENCE = {"sampling": 30, "wavetable": 22, "subtractive": 20, "fm": 8, "hybrid": 7,
@@ -46,7 +47,9 @@ def sample_prior(rng, n, methods=None):
     p = p / p.sum()
     out = []
     for m in rng.choice(names, size=n, p=p):
-        pair = list(rng.choice(HYBRID_PARTS, size=2, replace=False)) if m == "hybrid" else None
+        pair = None
+        while m == "hybrid" and (pair is None or frozenset(pair) in HYBRID_EXCLUDE):
+            pair = [str(v) for v in rng.choice(HYBRID_PARTS, size=2, replace=False)]
         out.append({"method": str(m), "pair": pair, "knobs": rng.random(N_KNOBS).tolist()})
     return out
 

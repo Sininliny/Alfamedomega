@@ -35,7 +35,12 @@ python learner.py batch --index IDX.jsonl --events EVENTS_DIR --out OUT   # cont
 center calls (design section 8.3).
 
 On Colab: upload or clone the repo, `%cd Alfamedomega/preference`, and run the same commands.
-Until `training/` provides `render_patch` (design section 8.2) the patches are previewed with the
-stand-in renderer, so generated knob settings are only meaningful for testing the loop.
+The default preview renderer is a NumPy stand-in, so its knob settings only test the loop. For the
+real sound, put `training/` on the path and pass the training script's renderer (needs torch):
+
+```bash
+PYTHONPATH=../training python -m alfapref generate --profile ~/amo-profile --text warm \
+    --renderer alfamedomega_train:render_patch
+```
 
 Nothing here opens a network connection. The profile folder is the only thing written.

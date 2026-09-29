@@ -241,12 +241,12 @@ the seed, and generation takes a seed, so the same profile and seed give the sam
 
 ### 8.2 Training (`training/`)
 
-- **Requested: a `render_patch(patch, pitch=60, velocity=0.8, seconds=1.0) -> np.ndarray`
-  function** in `alfamedomega_train.py` that renders one patch with the teacher programs (and,
-  once trained, with a checkpoint) and returns 48 kHz mono audio. The sampler needs a preview
-  renderer; in the plugin that is the engine itself, and in Python it is currently a small NumPy
-  stand-in (`preference/alfapref/renderers.py`). With that function the CLI runs on Colab against
-  the real sound: `--renderer alfamedomega_train:render_patch`.
+- **Done by training:** `render_patch(patch, pitch=60, velocity=0.8, seconds=1.0, ckpt=None,
+  tier="standard")` in `alfamedomega_train.py` renders one patch with the teacher programs, or with
+  a checkpoint via `ckpt` or `ALFA_CKPT`. The CLI uses it with
+  `--renderer alfamedomega_train:render_patch` (training/ on `PYTHONPATH`, needs torch), about
+  0.03 to 0.4 s per preview on CPU. Peaks reach about 3.7 on resonant subtractive patches, which
+  the gain-invariant descriptor does not mind.
 - The prior (uniform knobs, `method_probs`) is mirrored in `alfapref/generate.py`. If METHOD.md
   changes the prior, this copy needs the same change; a shared definition would be better.
 - **Proposed descriptor v2:** a contrastive timbre encoder trained on teacher renders (the same
@@ -290,8 +290,19 @@ sigmoid(2u − 1), otherwise skips it within seconds). With the NumPy stand-in r
 
 Ranges are over three runs: seed 0 to 300 exposures with the default settings, and seeds 0 and 1
 to 60 exposures with a 128-patch background (the 100 and 300 columns are the first run only). Learning is fast and then plateaus near AUC 0.88, which is the label
-noise of the choice model plus the linear scorer's limit. These numbers say the loop works, not
-how real users behave; they need rerunning with the real renderer. With real users the honest metric
+noise of the choice model plus the linear scorer's limit.
+
+With the real teacher programs (`render_patch` from `training/`, 256-patch background, seeds 0
+and 1):
+
+| Exposures | 25 | 50 | 75 | 100 |
+|---|---|---|---|---|
+| Scorer AUC | 0.74–0.77 | 0.70–0.79 | 0.72–0.78 | 0.80–0.81 |
+| Proposal utility (prior sd) | −0.7 to +0.7 | +0.2 to +1.1 | +0.4 to +2.5 | +0.9 to +2.2 |
+
+Learning is slower and noisier than with the stand-in, because the real methods spread much more
+widely in timbre space, but proposals beat random patches by 50 to 100 exposures. These numbers
+say the loop works, not how real users behave. With real users the honest metric
 is the fraction of generated patches that are kept or saved, compared with β = 0 patches, which the
 exploration slot in section 6.2 provides for free.
 
