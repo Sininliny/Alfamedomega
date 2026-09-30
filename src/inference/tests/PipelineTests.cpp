@@ -36,6 +36,26 @@ struct Frames
     const float* frame(int v) const { return out.data() + static_cast<std::size_t>(v) * kFloatsPerVoice; }
 };
 
+const std::vector<float>& defaultVoice()
+{
+    static const std::vector<float> frame = []
+    {
+        const dsp::VoiceFrame defaults{};
+        const auto* first = reinterpret_cast<const float*>(&defaults);
+        return std::vector<float>(first, first + kFloatsPerVoice);
+    }();
+    return frame;
+}
+
+// How far floats [offset, offset + n) of a voice's frame are from a default VoiceFrame.
+float changed(const float* voiceFrame, std::size_t offset, std::size_t n)
+{
+    float s = 0.0f;
+    for (std::size_t i = offset; i < offset + n; ++i)
+        s += std::abs(voiceFrame[i] - defaultVoice()[i]);
+    return s;
+}
+
 float sumAbs(const float* p, std::size_t n)
 {
     float s = 0.0f;
@@ -58,7 +78,8 @@ TEST_CASE("pipeline reads its widths from the graphs of every tier", "[inference
     }
 }
 
-TEST_CASE("each voice gets its own method's controls and idle voices stay silent", "[inference][pipeline]")
+TEST_CASE("each voice gets its own method's controls and idle voices keep the default frame",
+          "[inference][pipeline]")
 {
     const auto library = test::loadTestLibrary();
     const auto tier = GENERATE(Tier::Lite, Tier::Studio);
@@ -83,7 +104,7 @@ TEST_CASE("each voice gets its own method's controls and idle voices stay silent
             std::find_if(voices.begin(), voices.end(), [v](const auto& p) { return p.first == v; });
         if (it == voices.end())
         {
-            REQUIRE(sumAbs(f.frame(v), kFloatsPerVoice) == 0.0f);
+            REQUIRE(changed(f.frame(v), 0, kFloatsPerVoice) == 0.0f);
             continue;
         }
         // The dummy experts pass pitch through to mix[0] exactly.
@@ -92,14 +113,14 @@ TEST_CASE("each voice gets its own method's controls and idle voices stay silent
 
     namespace off = dsp::offsets;
     // Subtractive writes OSC and NOISE, nothing of FM.
-    REQUIRE(sumAbs(f.frame(0) + off::oscRe, 2 * dsp::kOscHarmonics) > 0.0f);
-    REQUIRE(sumAbs(f.frame(0) + off::noiseBand, dsp::kBands) > 0.0f);
-    REQUIRE(sumAbs(f.frame(0) + off::fmRatio, off::noiseBand - off::fmRatio) == 0.0f);
+    REQUIRE(changed(f.frame(0), off::oscRe, 2 * dsp::kOscHarmonics) > 0.0f);
+    REQUIRE(changed(f.frame(0), off::noiseBand, dsp::kBands) > 0.0f);
+    REQUIRE(changed(f.frame(0), off::fmRatio, off::noiseBand - off::fmRatio) == 0.0f);
     // FM writes only its operators, and the N x N matrix lands in the frame's 8-wide rows.
     const auto n = static_cast<std::size_t>(limits.fmOperators);
-    REQUIRE(sumAbs(f.frame(3) + off::oscRe, 2 * dsp::kOscHarmonics) == 0.0f);
-    REQUIRE(sumAbs(f.frame(3) + off::fmRatio, n) > 0.0f);
-    REQUIRE(sumAbs(f.frame(3) + off::fmRatio + n, dsp::kMaxFmOperators - n) == 0.0f);
+    REQUIRE(changed(f.frame(3), off::oscRe, 2 * dsp::kOscHarmonics) == 0.0f);
+    REQUIRE(changed(f.frame(3), off::fmRatio, n) > 0.0f);
+    REQUIRE(changed(f.frame(3), off::fmRatio + n, dsp::kMaxFmOperators - n) == 0.0f);
     for (std::size_t row = 0; row < dsp::kMaxFmOperators; ++row)
     {
         const float* r = f.frame(3) + off::fmIndex + row * dsp::kMaxFmOperators;
@@ -115,10 +136,10 @@ TEST_CASE("each voice gets its own method's controls and idle voices stay silent
     }
     // Granular fills the tier's layers only.
     const auto layers = static_cast<std::size_t>(limits.grainLayers);
-    REQUIRE(sumAbs(f.frame(5) + off::grainGain, layers) > 0.0f);
-    REQUIRE(sumAbs(f.frame(5) + off::grainGain + layers, dsp::kMaxGrainLayers - layers) == 0.0f);
+    REQUIRE(changed(f.frame(5), off::grainGain, layers) > 0.0f);
+    REQUIRE(changed(f.frame(5), off::grainGain + layers, dsp::kMaxGrainLayers - layers) == 0.0f);
     // Sampling writes the sampler block.
-    REQUIRE(sumAbs(f.frame(9) + off::samplerEq, dsp::kBands) > 0.0f);
+    REQUIRE(changed(f.frame(9), off::samplerEq, dsp::kBands) > 0.0f);
 }
 
 TEST_CASE("recurrent state carries over frames and retrigger clears it", "[inference][pipeline]")
@@ -324,7 +345,7 @@ TEST_CASE("a hybrid voice without components stays silent", "[inference][pipelin
     f.voice(0)[0] = 0.5f;
     f.voice(0)[kNoteFeatures] = static_cast<float>(kHybridMethod);
     pipeline.runFrame(f.in.data(), f.out.data());
-    REQUIRE(sumAbs(f.frame(0), kFloatsPerVoice) == 0.0f);
+    REQUIRE(changed(f.frame(0), 0, kFloatsPerVoice) == 0.0f);
 }
 
 TEST_CASE("a reference sample conditions the patch through the audio encoder", "[inference][pipeline]")
@@ -417,4 +438,82 @@ TEST_CASE("npy reader refuses what it cannot read", "[inference][npy]")
 
     write("1d.npy", "{'descr': '<f4', 'fortran_order': False, 'shape': (6,), }", 24);
     REQUIRE_FALSE(readNpyFloat2d(dir / "1d.npy", data, rows, columns, error));
+}
+
+TEST_CASE("voices start from a default VoiceFrame, so unused unison reads keep ratio 1",
+          "[inference][pipeline]")
+{
+    const auto library = test::loadTestLibrary();
+    const auto tier = GENERATE(Tier::Lite, Tier::Standard);
+    FramePipeline pipeline(test::requireModel(library, tier));
+    const auto reads = static_cast<std::size_t>(dsp::limitsFor(static_cast<dsp::Tier>(tier)).oscUnison - 1);
+    Frames f;
+    f.voice(0)[0] = 0.5f;
+    f.voice(0)[kNoteFeatures] = static_cast<float>(kSubtractive);
+    pipeline.runFrame(f.in.data(), f.out.data());
+
+    REQUIRE(field(f.frame(0), "dry_gain")[0] == 1.0f);
+    const float* ratio = field(f.frame(0), "osc.detune_ratio");
+    const float* level = field(f.frame(0), "osc.detune_level");
+    REQUIRE(changed(f.frame(0), dsp::offsets::oscDetuneRatio, reads) > 0.0f);
+    for (std::size_t k = reads; k < dsp::kMaxOscDetune; ++k)
+    {
+        REQUIRE(ratio[k] == 1.0f);
+        REQUIRE(level[k] == 0.0f);
+    }
+}
+
+TEST_CASE("a hybrid of two OSC methods shares one set of unison reads", "[inference][pipeline]")
+{
+    const auto library = test::loadTestLibrary();
+    const auto tier = GENERATE(Tier::Lite, Tier::Studio);
+    FramePipeline pipeline(test::requireModel(library, tier));
+    std::array<float, kPatchKnobs> knobs{};
+    knobs.fill(0.6f);
+    constexpr int kWavetable = 1;
+    const auto render = [&](int method, int a, int b)
+    {
+        Frames f;
+        f.voice(2)[0] = 0.55f;
+        f.voice(2)[1] = 0.7f;
+        f.voice(2)[kNoteFeatures] = static_cast<float>(method);
+        pipeline.setPatch(knobs, method, a, b);
+        pipeline.resetState();
+        pipeline.runFrame(f.in.data(), f.out.data());
+        return std::vector<float>(f.frame(2), f.frame(2) + kFloatsPerVoice);
+    };
+    const auto A = render(kSubtractive, -1, -1);
+    const auto B = render(kWavetable, -1, -1);
+    const auto H = render(kHybridMethod, kSubtractive, kWavetable);
+    constexpr auto osc = static_cast<std::size_t>(dsp::Primitive::Osc);
+    namespace off = dsp::offsets;
+    // Training's merge_hybrid(): g = w * mix[osc]; level = sum(g * level) / (sum(g) + 1e-6),
+    // ratio = sum(g * level * ratio) / sum(g * level), or 1 when no level.
+    const float ga = kHybridXf * A[off::mix + osc];
+    const float gb = (1.0f - kHybridXf) * B[off::mix + osc];
+    for (std::size_t k = 0; k < dsp::kMaxOscDetune; ++k)
+    {
+        const float la = A[off::oscDetuneLevel + k], lb = B[off::oscDetuneLevel + k];
+        const float ra = A[off::oscDetuneRatio + k], rb = B[off::oscDetuneRatio + k];
+        const float numL = ga * la + gb * lb;
+        const float numR = ga * la * ra + gb * lb * rb;
+        REQUIRE(H[off::oscDetuneLevel + k] == Catch::Approx(numL / (ga + gb + 1e-6f)).margin(1e-5));
+        REQUIRE(H[off::oscDetuneRatio + k] ==
+                Catch::Approx(numL > 1e-9f ? numR / (numL + 1e-12f) : 1.0f).epsilon(1e-4).margin(1e-5));
+    }
+    for (std::size_t k : {0u, 700u})
+        REQUIRE(H[off::oscRe + k] ==
+                Catch::Approx(ga * A[off::oscRe + k] + gb * B[off::oscRe + k]).margin(1e-6));
+}
+
+TEST_CASE("a model exported for another control-frame layout is refused", "[inference][pipeline]")
+{
+    const auto library = test::loadTestLibrary();
+    auto model = test::requireModel(library, Tier::Lite);
+    const auto dir = std::filesystem::temp_directory_path() / "alfa-inference-layout";
+    std::filesystem::remove_all(dir);
+    std::filesystem::copy(model.folder, dir);
+    model.folder = dir;
+    std::ofstream(dir / "export_info.json") << R"({"layout_version": 1, "voiceframe_floats": 2476})";
+    REQUIRE_THROWS_WITH(FramePipeline(model), Catch::Matchers::ContainsSubstring("layout 1"));
 }

@@ -21,6 +21,8 @@ Models/                      the control center's model store (docs/control-cent
     expert_spectral.onnx     expert_fm.onnx         expert_physical.onnx
     expert_granular.onnx     expert_sampling.onnx   expert_hybrid.onnx
     grain_bank.npy           optional: GRAIN's learned sources, float32 [N, 8192]
+    export_info.json         optional: training's export record; the host checks its
+                             layout_version (= kLayoutVersion, 2) and voiceframe_floats (2627)
 ```
 
 The host reads the control center's schema 1 as written:
@@ -97,8 +99,12 @@ Each output is named after a field of `alfa::dsp::VoiceFrame`
   host writes it at the start of the field and leaves the rest zero.
 - `fm.index` is the one exception: a tier with N < 8 operators outputs it as N x N row-major
   (width N²), and the host spreads the rows to the frame's 8-wide rows.
-- Fields an expert does not output stay zero for that voice, including `mix`, so every expert
-  should output `mix` and `attack_tau`.
+- Every voice starts each frame as a default-constructed `alfa::dsp::VoiceFrame` (layout v2:
+  `dry_gain` 1, unused `osc.detune_ratio` entries 1, `attack_tau` 1 ms, ...), and each expert
+  output overwrites a prefix of its field. `mix` defaults to 0, so every expert should output
+  `mix` and `attack_tau`. Idle voices keep the default frame.
+- Layout v2 fields (`pan`, `dry_gain`, `osc.detune_ratio`, `osc.detune_level`, `slots`, `mod`)
+  are written like any other when an expert outputs them by name.
 - Values are in the physical units ControlFrame.h states (linear gains, ratios, radians,
   seconds). The graph does any scaling; the host copies values as they are.
 
@@ -112,6 +118,9 @@ exactly as training's `merge_hybrid()`, with `wa = xf` and `wb = 1 - xf`:
 - If either component drives OSC: `osc = Σ w * mix_c[osc] * osc_c`, and `mix[osc] = 1`.
 - If either drives NOISE: `noise.band = sqrt(Σ (w * mix_c[noise] * band_c)² + 1e-12)`, and
   `mix[noise] = 1`.
+- If either drives OSC unison (`osc.detune_level`): with `g_c = w_c * mix_c[osc]`,
+  `detune_level = Σ g·level / (Σ g + 1e-6)` and `detune_ratio = Σ g·level·ratio / (Σ g·level + 1e-12)`,
+  or 1 where `Σ g·level ≤ 1e-9`. A component without unison counts as level 0, ratio 1.
 - Every other field is copied from the one component that outputs it. A pair whose experts
   share such a field (additive and physical both drive PARTIALS) is refused in `setPatch`.
 

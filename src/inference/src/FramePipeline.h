@@ -46,7 +46,9 @@ public:
     /// Returns false if this model has no audio encoder.
     bool setReferenceAudio(std::span<const float> mono48k);
 
-    /// input: kInputFloatsPerFrame floats. output: kFloatsPerFrame floats. Inference thread.
+    /// input: kInputFloatsPerFrame floats. output: kFloatsPerFrame floats. Every voice starts as a
+    /// default-constructed dsp::VoiceFrame (dry_gain 1, detune ratios 1, ...) and experts
+    /// overwrite the fields they output. Inference thread.
     void runFrame(const float* input, float* output);
 
     /// Zeroes all recurrent state. Call only while no frame is running.
@@ -86,7 +88,7 @@ private:
         bool hasModalState = false;
         std::vector<ExpertOutput> outputs; // graph outputs in order; modal_state_out is skipped
         std::vector<int> outputSlot;       // graph output index to outputs index, or -1
-        bool writesOsc = false, writesNoise = false;
+        bool writesOsc = false, writesNoise = false, writesDetune = false;
     };
 
     struct Patch
@@ -131,6 +133,7 @@ private:
     std::vector<float> hybridHiddenA_, hybridHiddenB_, hybridXf_;
     std::vector<std::vector<float>> expertScratch_; // per output slot, kMaxVoices x width
     std::vector<float> componentFrames_;            // 2 x kMaxVoices VoiceFrames for hybrid parts
+    std::vector<float> defaultVoice_;               // a default-constructed dsp::VoiceFrame
     std::vector<int> activeVoices_;
     std::array<std::vector<int>, kNumMethods> voicesByMethod_;
     std::array<int, kMaxVoices> rowOfVoice_{};

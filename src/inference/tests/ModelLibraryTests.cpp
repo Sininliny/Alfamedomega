@@ -186,8 +186,8 @@ TEST_CASE("the generated dummy models are listed and intact", "[inference][manif
         std::string error;
         INFO(error);
         REQUIRE(ModelLibrary::verify(entry, error));
-        // Encoders, instance step, voice core, one expert per method and the grain bank.
-        REQUIRE(entry.files.size() == 4 + kNumMethods + 1);
+        // Encoders, instance step, voice core, one expert per method, grain bank, export info.
+        REQUIRE(entry.files.size() == 4 + kNumMethods + 2);
         REQUIRE(entry.files.at("grain_bank.npy").size.has_value());
     }
 }

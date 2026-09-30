@@ -43,13 +43,16 @@ METHODS = [
 # graphs. partials, fm_ops and grain_layers match the DSP's TierLimits. Hi (instance state) is
 # deliberately different from C (context), as in training.
 TIERS = {
-    #            embed, context, inst. state, hidden, partials, fm ops, grain layers
-    "lite":     dict(E=16, C=16, Hi=24, H=16, partials=16, fm_ops=2, grain_layers=2),
-    "standard": dict(E=16, C=16, Hi=24, H=24, partials=32, fm_ops=4, grain_layers=4),
-    "pro":      dict(E=24, C=24, Hi=32, H=32, partials=48, fm_ops=6, grain_layers=6),
-    "studio":   dict(E=32, C=32, Hi=40, H=48, partials=64, fm_ops=8, grain_layers=8),
+    #            embed, context, inst. state, hidden, partials, fm ops, grain layers,
+    #            OSC unison reads beyond the main one (oscUnison - 1)
+    "lite":     dict(E=16, C=16, Hi=24, H=16, partials=16, fm_ops=2, grain_layers=2, detune=1),
+    "standard": dict(E=16, C=16, Hi=24, H=24, partials=32, fm_ops=4, grain_layers=4, detune=3),
+    "pro":      dict(E=24, C=24, Hi=32, H=32, partials=48, fm_ops=6, grain_layers=6, detune=5),
+    "studio":   dict(E=32, C=32, Hi=40, H=48, partials=64, fm_ops=8, grain_layers=8, detune=7),
 }
 DEFAULT_TIER = "standard"
+LAYOUT_VERSION = 2          # alfa::dsp::kLayoutVersion
+VOICEFRAME_FLOATS = 2627    # alfa::dsp::kFrameFloats
 SAMPLE_RATE = 48000
 FRAME_HZ = 250
 GRAIN_BANK_ROWS = 8
@@ -74,12 +77,13 @@ def expert_outputs(method, t):
     """Which control-frame fields each method's expert writes, and at what width for this tier."""
     n, p, g = t["fm_ops"], t["partials"], t["grain_layers"]
     osc = [("osc.re", 1024), ("osc.im", 1024)]
+    unison = [("osc.detune_ratio", t["detune"]), ("osc.detune_level", t["detune"])]
     noise = [("noise.band", 64)]
     partials = [("partials.ratio", p), ("partials.amp", p)]
     fm = [("fm.ratio", n), ("fm.level", n), ("fm.index", n * n)]
     fields = {
-        "subtractive": osc + noise,
-        "wavetable": osc,
+        "subtractive": osc + unison + noise,
+        "wavetable": osc + unison,
         "additive": partials,
         "spectral": osc + noise,
         "fm": fm,
@@ -290,6 +294,10 @@ def export(models_dir, tiers):
             save(graph, out / name)
         bank = (rng.standard_normal((GRAIN_BANK_ROWS, GRAIN_SOURCE_LENGTH)) * 0.1).astype(np.float32)
         np.save(out / "grain_bank.npy", bank)
+        # What training writes next to the graphs (only the keys the host reads).
+        (out / "export_info.json").write_text(json.dumps(
+            {"tier": tier, "layout_version": LAYOUT_VERSION, "voiceframe_floats": VOICEFRAME_FLOATS,
+             "voiceframe_defaults": {"dry_gain": 1.0, "osc.detune_ratio": 1.0}}, indent=1) + "\n")
         files = [{"path": p.name, "sha256": sha256(p), "bytes": p.stat().st_size}
                  for p in sorted(out.iterdir()) if p.is_file()]
         entries.append({"id": f"{tier}-{MODEL_VERSION}", "tier": tier, "version": MODEL_VERSION,

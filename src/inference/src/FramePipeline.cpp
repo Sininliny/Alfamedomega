@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <fstream>
+#include <nlohmann/json.hpp>
 #include <stdexcept>
 
 namespace alfa::inference
@@ -88,7 +90,13 @@ constexpr std::size_t kNoiseMix = static_cast<std::size_t>(dsp::Primitive::Noise
 bool mergedSeparately(std::string_view field)
 {
     return field == "mix" || field == "attack_tau" || field == "osc.re" || field == "osc.im" ||
-           field == "noise.band";
+           field == "noise.band" || field == "osc.detune_ratio" || field == "osc.detune_level";
+}
+
+void fillDefaults(float* frames, std::size_t voices, const std::vector<float>& defaultVoice)
+{
+    for (std::size_t v = 0; v < voices; ++v)
+        std::copy(defaultVoice.begin(), defaultVoice.end(), frames + v * kFloatsPerVoice);
 }
 
 } // namespace
@@ -190,12 +198,31 @@ void FramePipeline::checkExpert(const std::string& file, Expert& expert)
         expert.outputs.push_back({width, rows, *field});
         expert.writesOsc = expert.writesOsc || name == "osc.re" || name == "osc.im";
         expert.writesNoise = expert.writesNoise || name == "noise.band";
+        expert.writesDetune = expert.writesDetune || name == "osc.detune_level";
     }
 }
 
 FramePipeline::FramePipeline(const ModelEntry& model)
     : memory_(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault))
 {
+    // The training export records the control-frame layout it was built for.
+    if (model.files.count("export_info.json") != 0)
+    {
+        std::ifstream in(model.folder / "export_info.json");
+        const auto info = nlohmann::json::parse(in, nullptr, false);
+        if (info.is_discarded())
+            fail("export_info.json", "not valid JSON");
+        const int layout = info.value("layout_version", dsp::kLayoutVersion);
+        if (layout != dsp::kLayoutVersion)
+            fail("export_info.json", "model was exported for control-frame layout " + std::to_string(layout) +
+                                         ", this build uses layout " + std::to_string(dsp::kLayoutVersion));
+        const auto floats = info.value("voiceframe_floats", kFloatsPerVoice);
+        if (floats != kFloatsPerVoice)
+            fail("export_info.json", "model expects " + std::to_string(floats) +
+                                         " floats per VoiceFrame, this build has " +
+                                         std::to_string(kFloatsPerVoice));
+    }
+
     patchEncoder_ = open(model, "patch_encoder.onnx");
     instanceStep_ = open(model, "instance_step.onnx");
     voiceCore_ = open(model, "voice_core.onnx");
@@ -307,6 +334,11 @@ FramePipeline::FramePipeline(const ModelEntry& model)
         widest = std::max(widest, f.count);
     expertScratch_.assign(maxOutputs, std::vector<float>(kMaxVoices * widest, 0.0f));
     componentFrames_.assign(2 * kMaxVoices * kFloatsPerVoice, 0.0f);
+    {
+        const dsp::VoiceFrame defaults{};
+        const auto* first = reinterpret_cast<const float*>(&defaults);
+        defaultVoice_.assign(first, first + kFloatsPerVoice);
+    }
     for (auto& v : voicesByMethod_)
         v.reserve(kMaxVoices);
     activeVoices_.reserve(kMaxVoices);
@@ -451,7 +483,7 @@ void FramePipeline::runInstanceStep(const float* globalMod, const Patch& patch)
 
 void FramePipeline::runFrame(const float* input, float* output)
 {
-    std::memset(output, 0, kFloatsPerFrame * sizeof(float));
+    fillDefaults(output, kMaxVoices, defaultVoice_);
     const auto& patch = patch_.read();
     runInstanceStep(input, patch);
 
@@ -646,7 +678,7 @@ void FramePipeline::runHybrid(const Patch& patch, float* output)
 
     // Each component expert writes a scratch VoiceFrame; state such as modal_state still
     // belongs to the voice.
-    std::fill(componentFrames_.begin(), componentFrames_.end(), 0.0f);
+    fillDefaults(componentFrames_.data(), 2 * kMaxVoices, defaultVoice_);
     std::array<float*, kMaxVoices> destA{}, destB{};
     for (std::size_t i = 0; i < n; ++i)
     {
@@ -668,6 +700,9 @@ void FramePipeline::runHybrid(const Patch& patch, float* output)
     constexpr auto kNoise = dsp::offsets::noiseBand;
     constexpr auto kBands = static_cast<std::size_t>(dsp::kBands);
     constexpr auto kPrimitives = static_cast<std::size_t>(dsp::kPrimitiveCount);
+    constexpr auto kDetuneRatio = dsp::offsets::oscDetuneRatio;
+    constexpr auto kDetuneLevel = dsp::offsets::oscDetuneLevel;
+    constexpr auto kDetune = static_cast<std::size_t>(dsp::kMaxOscDetune);
     for (std::size_t i = 0; i < n; ++i)
     {
         const float* fa = destA[i];
@@ -694,6 +729,25 @@ void FramePipeline::runHybrid(const Patch& patch, float* output)
             for (std::size_t k = 0; k < kOscFloats; ++k)
                 out[kOsc + k] = ga * fa[kOsc + k] + gb * fb[kOsc + k];
             out[kMix + kOscMix] = 1.0f;
+
+            // Unison reads act on the merged table, so one set serves both: the OSC-weighted mean
+            // of the components' levels and ratios. A component without unison reads as level 0,
+            // ratio 1, which is what its default-filled scratch frame holds.
+            if (expA.writesDetune || expB.writesDetune)
+            {
+                for (std::size_t k = 0; k < kDetune; ++k)
+                {
+                    float numR = 0.0f, numL = 0.0f;
+                    for (const auto& [frame, g] : {std::pair{fa, ga}, std::pair{fb, gb}})
+                    {
+                        const float level = frame[kDetuneLevel + k];
+                        numR += g * level * frame[kDetuneRatio + k];
+                        numL += g * level;
+                    }
+                    out[kDetuneLevel + k] = numL / (ga + gb + 1e-6f);
+                    out[kDetuneRatio + k] = numL > 1e-9f ? numR / (numL + 1e-12f) : 1.0f;
+                }
+            }
         }
         if (expA.writesNoise || expB.writesNoise)
         {
