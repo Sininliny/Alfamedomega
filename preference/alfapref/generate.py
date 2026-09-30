@@ -109,3 +109,37 @@ def propose(score_fn, rng, n=256, k=8, beta=1.0, seeds=(), seed_frac=0.25, explo
         for p, s in zip(ex, score_fn(ex)):
             out.append((p, float(s), "explore"))
     return out
+
+
+# "Randomize nearby" modes (design.md s6.5). sigma is the knob step, beta how strongly the
+# scorer picks among the neighbours (0 = uniformly), pull the share of neighbours that also move
+# part of the way toward the user's liked sounds of the same method.
+NEARBY_MODES = {
+    "my_taste": {"sigma": 0.08, "beta": 1.0, "pull": 0.25, "scorer": "personal"},
+    "model": {"sigma": 0.08, "beta": 0.0, "pull": 0.0, "scorer": None},
+    "community": {"sigma": 0.08, "beta": 1.0, "pull": 0.0, "scorer": "community"},
+    "wild": {"sigma": 0.25, "beta": 0.15, "pull": 0.0, "scorer": "personal"},
+}
+DEFAULT_NEARBY = "my_taste"
+
+
+def toward(patch, target, rng, sigma):
+    """A step from `patch` part of the way (up to half) toward `target`, plus a little noise."""
+    a, b = np.asarray(patch["knobs"]), np.asarray(target["knobs"])
+    k = a + rng.uniform(0.0, 0.5) * (b - a) + 0.5 * sigma * rng.standard_normal(N_KNOBS)
+    return {"method": patch["method"], "pair": patch.get("pair"), "knobs": np.clip(k, 0, 1).tolist()}
+
+
+def nearby(patch, score_fn, rng, k=8, n=64, sigma=0.08, beta=1.0, pull=0.0, liked=()):
+    """Neighbours of the current patch, keeping its method. score_fn may be None (no preference).
+    Returns [(patch, score, origin)] with origin "nearby" or "toward-liked"."""
+    same = [p for p in liked if p["method"] == patch["method"] and p.get("pair") == patch.get("pair")]
+    n_pull = int(round(n * pull)) if same else 0
+    cands = [perturb(patch, rng, sigma) for _ in range(n - n_pull)]
+    origin = ["nearby"] * len(cands)
+    for i in range(n_pull):
+        cands.append(toward(patch, same[i % len(same)], rng, sigma))
+        origin.append("toward-liked")
+    scores = np.zeros(len(cands)) if score_fn is None else np.asarray(score_fn(cands), dtype=np.float64)
+    picks = gumbel_topk(scores, k, beta, rng)
+    return [(cands[i], float(scores[i]), origin[i]) for i in picks]

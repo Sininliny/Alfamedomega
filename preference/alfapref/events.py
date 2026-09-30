@@ -12,6 +12,10 @@ and "inst" (salted hash of the plugin instance). Types and extra fields:
     close
 
 A patch is {"method": str, "pair": [str, str] | null, "knobs": [32 floats in 0..1]}.
+
+consent.filter_events() runs first and may add two flags to a load: "no_workflow" (no quick-replace
+penalty) and "unlabelled" (the exposure gives no labels). A quick replacement of the "init"
+default patch is not a judgement of it, so it carries no penalty either.
 """
 import hashlib
 import json
@@ -58,6 +62,8 @@ class Exposure:
     rating: int = 0
     replaced: bool = False
     reuses: int = 0
+    no_workflow: bool = False
+    unlabelled: bool = False
     next: "Exposure" = field(default=None, repr=False)
 
     @property
@@ -78,7 +84,9 @@ class Exposure:
             + 1.5 * max(self.rating, 0)
         quick = self.replaced and self.dwell < QUICK_DWELL_S and self.play_s < QUICK_PLAY_S \
             and not self.saved and not self.kept
-        neg = quick * (BROWSE_SKIP_WEIGHT if self.source == "browser" else 1.0) \
+        skip_weight = 0.0 if (self.no_workflow or self.source == "init") else \
+            BROWSE_SKIP_WEIGHT if self.source == "browser" else 1.0
+        neg = quick * skip_weight \
             + 1.5 * max(-self.rating, 0)
         return pos, neg
 
@@ -109,7 +117,8 @@ def exposures(events):
         inst, typ, t = ev.get("inst", ""), ev["type"], float(ev["t"])
         cur = current.get(inst)
         if typ == "load":
-            nxt = Exposure(inst, t, ev["patch"], ev.get("source", "user"), ev.get("project", ""))
+            nxt = Exposure(inst, t, ev["patch"], ev.get("source", "user"), ev.get("project", ""),
+                           no_workflow=bool(ev.get("no_workflow")), unlabelled=bool(ev.get("unlabelled")))
             if cur is not None:
                 cur.end, cur.replaced, cur.next = t, True, nxt
             current[inst] = nxt
@@ -155,11 +164,15 @@ def labels(exps, now=None):
     score = {}
     for e in exps:
         pos, neg = e.reward()
+        if e.unlabelled:
+            pos = neg = 0.0
         r = pos - neg
         decay = 0.5 ** (max(0.0, now - e.start) / 86400.0 / HALF_LIFE_DAYS)
         score[id(e)] = (pos, neg, r, decay)
         ctx = e.context()
         edited = e.final is not None and knob_distance(e.patch, e.final) > SMALL_EDIT
+        if e.unlabelled:
+            continue
         if abs(r) >= MIN_ABS_REWARD:
             y = 1 if r > 0 else -1
             # after a large edit the praise belongs to the edited patch, not the loaded one
