@@ -13,13 +13,14 @@ target_include_directories(alfa_plugin_core INTERFACE
 target_link_libraries(alfa_plugin_core INTERFACE
     juce::juce_audio_processors)
 
-# Processor, editor and stub backend. The plugin target and the tests both link it,
+# Processor, editor and the real and stub backends. The plugin target and the tests both link it,
 # so tests exercise exactly the code the formats ship.
 add_library(alfa_plugin_shell INTERFACE)
 add_library(Alfa::pluginShell ALIAS alfa_plugin_shell)
 target_sources(alfa_plugin_shell INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/PluginProcessor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/PluginEditor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/RealBackend.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/StubBackend.cpp)
 target_include_directories(alfa_plugin_shell INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/src)

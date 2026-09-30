@@ -8,6 +8,8 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <alfa/dsp/ControlFrame.h>
+#include <cmath>
 #include <set>
 
 using namespace alfa;
@@ -23,16 +25,23 @@ struct TempFolder
     ~TempFolder() { dir.deleteRecursively(); }
 };
 
+void setEnv(const char* name, const juce::String& value)
+{
+#if JUCE_WINDOWS
+    _putenv_s(name, value.toRawUTF8());
+#else
+    setenv(name, value.toRawUTF8(), 1);
+#endif
+}
+
 /// Points the control-center home at a scratch folder so no test reads or writes
-/// the real user's preference data.
+/// the real user's preference data, and the models folder at an empty one so
+/// tests play the stub unless they install models themselves.
 void isolateHome()
 {
-    static TempFolder home;
-#if JUCE_WINDOWS
-    _putenv_s("ALFA_CC_HOME", home.dir.getFullPathName().toRawUTF8());
-#else
-    setenv("ALFA_CC_HOME", home.dir.getFullPathName().toRawUTF8(), 1);
-#endif
+    static TempFolder home, models;
+    setEnv("ALFA_CC_HOME", home.dir.getFullPathName());
+    setEnv("ALFA_MODELS_DIR", models.dir.getFullPathName());
 }
 
 /// JUCE needs a message manager for processors and components.
@@ -324,6 +333,70 @@ TEST_CASE("An invalid hybrid is silent, as the model contract says", "[processor
     }
     CHECK(peak < 1.0e-6f);
 }
+
+#ifdef ALFA_TEST_MODELS_DIR
+TEST_CASE("With models installed, the neural backend plays notes after its latency", "[processor][model]")
+{
+    JuceFixture juce;
+    if (!juce::File(ALFA_TEST_MODELS_DIR).getChildFile("manifest.json").existsAsFile())
+        SKIP("dummy models were not exported (needs Python with numpy and onnx)");
+    setEnv("ALFA_MODELS_DIR", ALFA_TEST_MODELS_DIR);
+
+    AlfamedomegaProcessor p;
+    CHECK(p.backendDescription().startsWith("Neural model standard"));
+
+    constexpr int block = 256;
+    p.setPlayConfigDetails(0, 2, 48000.0, block);
+    p.setNonRealtime(true); // wait for every frame, so the test does not depend on CPU speed
+    p.prepareToPlay(48000.0, block);
+    const auto latency = p.getLatencySamples();
+    CHECK(latency > 0);
+    CHECK(latency % dsp::hopSamples(48000.0) == 0); // latency comes in whole frames
+
+    juce::AudioBuffer<float> buffer(2, block);
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.8f), 0);
+
+    int firstSound = -1;
+    bool finite = true;
+    for (int b = 0; b < 200; ++b)
+    {
+        p.processBlock(buffer, midi);
+        midi.clear();
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < block; ++i)
+            {
+                const auto x = buffer.getSample(ch, i);
+                finite = finite && std::isfinite(x);
+                if (firstSound < 0 && std::abs(x) > 1.0e-4f)
+                    firstSound = b * block + i;
+            }
+    }
+
+    CHECK(finite);
+    CHECK(p.telemetry().activeVoices.load() == 1);
+    CHECK_FALSE(p.telemetry().modelIsStub.load());
+    // The note reaches the DSP only once its first frames exist.
+    REQUIRE(firstSound >= 0);
+    CHECK(firstSound >= latency);
+
+    // Switching size loads the other tier on the message thread and re-prepares the DSP.
+    setReal(p.parameters(), params::id::modelTier, 0.0f); // Lite
+    juce::MessageManager::getInstance()->runDispatchLoopUntil(300);
+    CHECK(p.backendDescription().startsWith("Neural model lite"));
+    CHECK(p.telemetry().loadedTier.load() == 1); // telemetry updates on the next block
+    midi.addEvent(juce::MidiMessage::noteOn(1, 64, 0.8f), 0);
+    float peak = 0.0f;
+    for (int b = 0; b < 100; ++b)
+    {
+        p.processBlock(buffer, midi);
+        midi.clear();
+        peak = juce::jmax(peak, buffer.getMagnitude(0, block));
+    }
+    CHECK(p.telemetry().loadedTier.load() == 0);
+    CHECK(peak > 1.0e-4f);
+}
+#endif
 
 // Preference learning event log
 // ---------------------------------------------------------------------------
