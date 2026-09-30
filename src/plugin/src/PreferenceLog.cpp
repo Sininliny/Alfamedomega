@@ -30,15 +30,38 @@ juce::File controlCenterHome()
 // LearningSwitch
 // ---------------------------------------------------------------------------
 
+Consent Consent::fromVar(const juce::var& json)
+{
+    Consent c;
+    c.learn = json.getProperty("learn", false).isBool() && static_cast<bool>(json["learn"]);
+    const auto cats = json.getProperty("categories", {});
+    const auto on = [&](const char* name)
+    {
+        if (!cats.isObject())
+            return c.learn;
+        const auto v = cats.getProperty(name, false);
+        return c.learn && v.isBool() && static_cast<bool>(v);
+    };
+    c.performance = on("performance");
+    c.parameters = on("parameters");
+    c.suggestions = on("suggestions");
+    c.workflow = on("workflow");
+    const auto pers = json.getProperty("personalization", 1.0);
+    c.personalization = pers.isDouble() || pers.isInt() || pers.isInt64()
+                            ? juce::jlimit(0.0f, 1.0f, static_cast<float>(static_cast<double>(pers)))
+                            : 1.0f;
+    return c;
+}
+
 LearningSwitch::LearningSwitch(juce::File preferenceFolder)
     : folder(std::move(preferenceFolder))
 {
 }
 
-bool LearningSwitch::isOn() const
+Consent LearningSwitch::consent() const
 {
-    // Another instance or the control center may flip it; re-read the file when it
-    // changes, at most once a second.
+    // Another instance or the control center may change it; re-read the file
+    // when it changes, at most once a second.
     const auto now = juce::Time::getCurrentTime();
     if (lastChecked != juce::Time() && (now - lastChecked).inSeconds() < 1.0)
         return cached;
@@ -49,22 +72,60 @@ bool LearningSwitch::isOn() const
     if (modified == lastModified && lastModified != juce::Time())
         return cached;
     lastModified = modified;
-    cached = file.existsAsFile() && static_cast<bool>(juce::JSON::parse(file).getProperty("learn", false));
+    cached = file.existsAsFile() ? Consent::fromVar(juce::JSON::parse(file)) : Consent{};
     return cached;
 }
 
 void LearningSwitch::setOn(bool on)
 {
-    const auto file = folder.getChildFile("plugin.json");
-    auto obj = juce::JSON::parse(file);
+    auto obj = juce::JSON::parse(folder.getChildFile("plugin.json"));
     if (!obj.isObject())
         obj = juce::var(new juce::DynamicObject());
     obj.getDynamicObject()->setProperty("learn", on);
+    write(obj);
+}
+
+void LearningSwitch::setConsent(const Consent& c)
+{
+    auto obj = juce::JSON::parse(folder.getChildFile("plugin.json"));
+    if (!obj.isObject())
+        obj = juce::var(new juce::DynamicObject());
+    auto* cats = new juce::DynamicObject();
+    cats->setProperty("performance", c.performance);
+    cats->setProperty("parameters", c.parameters);
+    cats->setProperty("suggestions", c.suggestions);
+    cats->setProperty("workflow", c.workflow);
+    obj.getDynamicObject()->setProperty("learn", c.learn);
+    obj.getDynamicObject()->setProperty("categories", juce::var(cats));
+    obj.getDynamicObject()->setProperty("personalization", std::round(c.personalization * 100.0f) / 100.0f);
+    write(obj);
+}
+
+void LearningSwitch::write(const juce::var& obj)
+{
+    const auto file = folder.getChildFile("plugin.json");
     folder.createDirectory();
     file.replaceWithText(juce::JSON::toString(obj, true));
-    cached = on;
+    cached = Consent::fromVar(obj);
     lastChecked = juce::Time::getCurrentTime();
     lastModified = file.getLastModificationTime();
+}
+
+juce::StringArray LearningSwitch::learnedSummary() const
+{
+    juce::File newest;
+    for (const auto& f :
+         folder.getChildFile("profiles").findChildFiles(juce::File::findFiles, true, "summary.json"))
+        if (newest == juce::File() || f.getLastModificationTime() > newest.getLastModificationTime())
+            newest = f;
+
+    juce::StringArray lines;
+    const auto explain =
+        newest.existsAsFile() ? juce::JSON::parse(newest).getProperty("explain", {}) : juce::var();
+    if (const auto* array = explain.getArray())
+        for (const auto& line : *array)
+            lines.add(line.toString());
+    return lines;
 }
 
 // Patches
@@ -278,6 +339,11 @@ bool Recorder::learning() const
     return options.learning != nullptr && options.learning->isOn();
 }
 
+Consent Recorder::consent() const
+{
+    return options.learning != nullptr ? options.learning->consent() : Consent{};
+}
+
 void Recorder::emit(const juce::String& type, juce::DynamicObject::Ptr fields)
 {
     auto obj = fields != nullptr ? fields : juce::DynamicObject::Ptr(new juce::DynamicObject());
@@ -304,7 +370,8 @@ void Recorder::startExposure(Source source)
     juce::DynamicObject::Ptr f = new juce::DynamicObject();
     f->setProperty("patch", lastPatch);
     f->setProperty("source", sourceName(source));
-    f->setProperty("project", inst); // no host exposes a project id; the instance id stands in
+    if (consent().workflow)
+        f->setProperty("project", inst); // no host exposes a project id; the instance id stands in
     emit("load", f);
 }
 
@@ -319,13 +386,20 @@ void Recorder::flushPlay()
     const auto p = counter.take();
     if (p.notes == 0 && p.heldSamples == 0)
         return;
+    const auto c = consent();
+    if (!c.workflow && !c.performance)
+        return;
     const auto sr = sampleRate.load();
     juce::DynamicObject::Ptr f = new juce::DynamicObject();
-    f->setProperty("seconds", std::round(static_cast<double>(p.heldSamples) / sr * 100.0) / 100.0);
-    f->setProperty("notes", p.notes);
-    f->setProperty("pitch_mean", p.notes > 0 ? static_cast<double>(p.pitchSum) / p.notes : 60.0);
-    f->setProperty("len_mean",
-                   p.endedNotes > 0 ? static_cast<double>(p.lengthSamples) / p.endedNotes / sr : 0.5);
+    if (c.workflow)
+        f->setProperty("seconds", std::round(static_cast<double>(p.heldSamples) / sr * 100.0) / 100.0);
+    if (c.performance)
+    {
+        f->setProperty("notes", p.notes);
+        f->setProperty("pitch_mean", p.notes > 0 ? static_cast<double>(p.pitchSum) / p.notes : 60.0);
+        f->setProperty("len_mean",
+                       p.endedNotes > 0 ? static_cast<double>(p.lengthSamples) / p.endedNotes / sr : 0.5);
+    }
     emit("play", f);
 }
 
@@ -347,7 +421,7 @@ void Recorder::projectRestored(const juce::String& instanceId)
 void Recorder::rate(int value)
 {
     currentRating = juce::jlimit(-1, 1, value);
-    if (currentRating == 0 || !learning())
+    if (currentRating == 0 || !consent().suggestions)
         return;
     if (!hasExposure)
         startExposure(Source::user);
@@ -409,9 +483,12 @@ void Recorder::tick()
         }
         else if (t - pendingSince >= options.editSettleSeconds)
         {
-            juce::DynamicObject::Ptr f = new juce::DynamicObject();
-            f->setProperty("patch", patch);
-            emit("edit", f);
+            if (consent().parameters)
+            {
+                juce::DynamicObject::Ptr f = new juce::DynamicObject();
+                f->setProperty("patch", patch);
+                emit("edit", f);
+            }
             lastPatch = patch;
             pendingPatch = juce::var();
         }
@@ -422,7 +499,8 @@ void Recorder::tick()
     if (saveRequested.exchange(false) && !kept && t - exposureStart >= options.keptAfterSeconds)
     {
         kept = true;
-        emit("project_save");
+        if (consent().workflow)
+            emit("project_save");
     }
 }
 

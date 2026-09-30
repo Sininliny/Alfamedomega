@@ -38,7 +38,8 @@ public:
         static inline const juce::Identifier flowHidden{"flowHidden"}; // comma-separated step ids
         static inline const juce::Identifier flowSelected{"flowSelected"};
         static inline const juce::Identifier soundLayer{"soundLayer"};
-        static inline const juce::Identifier locks{"locks"}; // comma-separated parameter ids
+        static inline const juce::Identifier locks{"locks"};           // comma-separated parameter ids
+        static inline const juce::Identifier nearbyMode{"nearbyMode"}; // my_taste, model, community, wild
     };
 
     UiState();

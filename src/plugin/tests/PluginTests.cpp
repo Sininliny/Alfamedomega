@@ -543,6 +543,102 @@ TEST_CASE("Event log follows the learner's schema and only writes while learning
     CHECK(hybrid["patch"]["pair"][1].toString() == "wavetable");
 }
 
+TEST_CASE("Learning switches read like the learner's consent.py", "[preference]")
+{
+    const auto parse = [](const char* json)
+    {
+        return preference::Consent::fromVar(juce::JSON::parse(json));
+    };
+    const auto all = parse(R"({"learn": true})");
+    CHECK((all.performance && all.parameters && all.suggestions && all.workflow));
+    CHECK(all.personalization == Catch::Approx(1.0f));
+
+    const auto some = parse(
+        R"({"learn": true, "categories": {"performance": true, "workflow": "yes"}, "personalization": 1.7})");
+    CHECK(some.performance);
+    CHECK_FALSE(some.parameters); // missing
+    CHECK_FALSE(some.workflow);   // not explicitly true
+    CHECK(some.personalization == Catch::Approx(1.0f));
+
+    const auto off = parse(R"({"learn": false, "categories": {"performance": true}})");
+    CHECK_FALSE(off.performance); // the master switch wins
+    CHECK_FALSE(parse("not json").learn);
+
+    TempFolder temp;
+    preference::LearningSwitch learning(temp.dir);
+    preference::Consent c;
+    c.learn = c.performance = c.suggestions = true;
+    c.personalization = 0.4f;
+    learning.setConsent(c);
+    CHECK(preference::LearningSwitch(temp.dir).consent() == c);
+    learning.setOn(false); // keeps the categories in the file
+    auto reread = preference::Consent::fromVar(juce::JSON::parse(temp.dir.getChildFile("plugin.json")));
+    CHECK_FALSE(reread.learn);
+    CHECK(juce::JSON::parse(temp.dir.getChildFile("plugin.json"))["categories"]["performance"]);
+
+    // What is learned comes from the newest fitted profile.
+    CHECK(learning.learnedSummary().isEmpty());
+    auto older = temp.dir.getChildFile("profiles/a/summary.json");
+    auto newer = temp.dir.getChildFile("profiles/b/summary.json");
+    older.create();
+    older.replaceWithText(R"({"explain": ["old"]})");
+    newer.create();
+    newer.replaceWithText(R"({"explain": ["Learning from how you play: on", "Your words (2): warm, dark"]})");
+    older.setLastModificationTime(juce::Time::getCurrentTime() - juce::RelativeTime::hours(1));
+    CHECK(learning.learnedSummary() ==
+          juce::StringArray{"Learning from how you play: on", "Your words (2): warm, dark"});
+}
+
+TEST_CASE("A learning category that is off is not written to the log", "[preference]")
+{
+    JuceFixture juce;
+    TempFolder temp;
+    preference::LearningSwitch learning(temp.dir);
+    juce::AudioProcessorGraph dummy;
+    juce::AudioProcessorValueTreeState state(dummy, nullptr, "Parameters", params::createLayout());
+    preference::PlayCounter counter;
+
+    preference::Consent c;
+    c.learn = true;
+    c.workflow = true; // performance, parameters and suggestions off
+    learning.setConsent(c);
+
+    double clock = 1'800'000'000.0;
+    preference::Recorder::Options options;
+    options.learning = &learning;
+    options.now = [&clock]
+    {
+        return clock;
+    };
+    options.startTimer = false;
+    {
+        preference::Recorder recorder(state, counter, options);
+        clock += 10.0;
+        recorder.tick(); // load
+        counter.process(notes({juce::MidiMessage::noteOn(1, 48, 0.8f)}), 48000);
+        clock += 1.0;
+        recorder.tick(); // play: seconds only
+        setReal(state, params::id::knob(6), 0.9f);
+        clock += 1.0;
+        recorder.tick();
+        clock += 3.0;
+        recorder.tick();  // edit: not logged
+        recorder.rate(1); // not logged
+        clock += 400.0;
+        recorder.stateSaved();
+        recorder.tick(); // project_save: logged
+    }
+    juce::SharedResourcePointer<preference::EventWriter>()->flush();
+
+    const auto events = readEvents(learning.eventsFolder());
+    CHECK(types(events).joinIntoString(",") == "load,play,project_save,close");
+    REQUIRE(events.size() == 4);
+    CHECK(events[0]["project"].toString().isNotEmpty());
+    CHECK(static_cast<double>(events[1]["seconds"]) == Catch::Approx(1.0));
+    CHECK_FALSE(events[1].hasProperty("notes"));
+    CHECK_FALSE(events[1].hasProperty("pitch_mean"));
+}
+
 TEST_CASE("A restored project's sound is logged as a project load under its saved instance", "[preference]")
 {
     JuceFixture juce;

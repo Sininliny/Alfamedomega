@@ -27,6 +27,8 @@ std::array<int, 4> envelopeKnobs(const juce::AudioProcessorValueTreeState& state
 
 namespace
 {
+const juce::StringArray nearbyModeIds{"my_taste", "model", "community", "wild"};
+
 const juce::String* shapeIds()
 {
     static const juce::String ids[] = {params::id::method, params::id::hybridA, params::id::hybridB};
@@ -290,6 +292,20 @@ TimbrePad::TimbrePad(EditorContext& c)
     {
         randomizeNearby();
     };
+    // design.md section 6.5: My Taste is the default.
+    nearbyMode.addItemList({"My Taste", "Model Space", "Community Space", "Wild"}, 1);
+    nearbyMode.setTooltip("My Taste leans toward sounds you have liked. Model Space steps evenly around this "
+                          "sound. Community Space follows a shared taste profile. Wild takes bigger steps.");
+    nearbyMode.setSelectedItemIndex(
+        juce::jmax(0, nearbyModeIds.indexOf(ctx.ui.getString(UiState::Ids::nearbyMode))),
+        juce::dontSendNotification);
+    nearbyMode.onChange = [this]
+    {
+        ctx.ui.set(UiState::Ids::nearbyMode, nearbyModeIds[juce::jmax(0, nearbyMode.getSelectedItemIndex())]);
+        nearbyNote = {};
+        repaint();
+    };
+    addAndMakeVisible(nearbyMode);
     addAndMakeVisible(snapA);
     addAndMakeVisible(snapB);
     addAndMakeVisible(randomize);
@@ -342,7 +358,7 @@ juce::Rectangle<float> TimbrePad::padArea() const
 {
     return getLocalBounds()
         .withTrimmedTop(kPanelTitleHeight + 4)
-        .withTrimmedBottom(40)
+        .withTrimmedBottom(58)
         .reduced(14, 4)
         .toFloat();
 }
@@ -389,14 +405,29 @@ void TimbrePad::recallSnapshot(int slot)
 
 void TimbrePad::randomizeNearby()
 {
-    // A small Gaussian step on every knob the method uses, as the preference
-    // learner's "randomize nearby" does (preference/alfapref/generate.py).
+    // A Gaussian step on every knob the method uses, as the preference
+    // learner's "randomize nearby" does (preference/alfapref/generate.py,
+    // design.md section 6.5). Scoring neighbours by taste needs the learner's
+    // scorer, which the plugin does not have yet, so My Taste and Community
+    // Space take Model Space's unscored step and say so.
+    const auto mode = nearbyModeIds[juce::jmax(0, nearbyMode.getSelectedItemIndex())];
+    const float sigma = mode == "wild" ? 0.25f : 0.08f;
+    if (mode == "my_taste")
+        nearbyNote = "My Taste isn't in the plugin yet: used Model Space";
+    else if (mode == "community")
+        nearbyNote = "No community profile yet: used Model Space";
+    else
+        nearbyNote = {};
+    repaint();
+
     auto& rng = juce::Random::getSystemRandom();
     for (auto i : usedKnobs(ctx.params))
     {
         auto* p = ctx.params.getParameter(params::id::knob(i));
-        const auto gauss = static_cast<float>(rng.nextDouble() + rng.nextDouble() + rng.nextDouble() - 1.5);
-        auto v = p->getValue() + 0.08f * gauss;
+        // Sum of three uniforms: roughly Gaussian with standard deviation 0.5.
+        const auto gauss =
+            static_cast<float>(rng.nextDouble() + rng.nextDouble() + rng.nextDouble() - 1.5) * 2.0f;
+        auto v = p->getValue() + sigma * gauss;
         v = v < 0.0f ? -v : (v > 1.0f ? 2.0f - v : v); // reflect into 0..1
         p->beginChangeGesture();
         p->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, v));
@@ -458,6 +489,14 @@ void TimbrePad::paint(juce::Graphics& g)
                          yInfo.shortName + " " + params::formatKnob(yInfo, yParam->getValue());
     g.drawText(readout, getLocalBounds().reduced(12, 6).removeFromTop(kPanelTitleHeight - 6),
                juce::Justification::centredRight, false);
+
+    if (nearbyNote.isNotEmpty())
+    {
+        g.setColour(t.text2);
+        g.setFont(AlfaLookAndFeel::labelFont(11.5f));
+        g.drawText(nearbyNote, getLocalBounds().reduced(14, 8).withTrimmedBottom(32).removeFromBottom(16),
+                   juce::Justification::centredRight, true);
+    }
 }
 
 void TimbrePad::resized()
@@ -467,7 +506,9 @@ void TimbrePad::resized()
     row.removeFromLeft(6);
     snapB.setBounds(row.removeFromLeft(36));
     row.removeFromLeft(6);
-    randomize.setBounds(row.removeFromRight(juce::jmin(150, row.getWidth())));
+    randomize.setBounds(row.removeFromRight(juce::jmin(140, row.getWidth())));
+    row.removeFromRight(6);
+    nearbyMode.setBounds(row.removeFromRight(juce::jmin(140, row.getWidth())));
 }
 
 // FlowStrip

@@ -47,7 +47,8 @@ HeaderBar::HeaderBar(EditorContext& c, LiveData& l)
     addAndMakeVisible(presetName);
     addAndMakeVisible(nextPreset);
 
-    // Like and dislike feed preference learning, so they only show while it is on.
+    // Like and dislike feed preference learning, so they only show while it
+    // learns from suggestions.
     like.setTooltip("I like this sound (teaches your preference model)");
     dislike.setTooltip("Not for me (teaches your preference model)");
     for (auto* b : {&like, &dislike})
@@ -99,7 +100,7 @@ void HeaderBar::refreshPreset()
 
 void HeaderBar::refreshRating()
 {
-    const bool learning = ctx.host.learningEnabled();
+    const bool learning = ctx.host.learningConsent().suggestions;
     if (learning != like.isVisible())
     {
         like.setVisible(learning);

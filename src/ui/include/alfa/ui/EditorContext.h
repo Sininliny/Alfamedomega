@@ -1,6 +1,7 @@
 #pragma once
 
 #include "alfa/plugin/ParameterLayout.h"
+#include "alfa/plugin/PreferenceLog.h"
 #include "alfa/plugin/Telemetry.h"
 #include "alfa/ui/AlfaLookAndFeel.h"
 #include "alfa/ui/UiState.h"
@@ -30,6 +31,12 @@ public:
     /// "Learn from how I play" (preference learning), shared by all instances.
     virtual bool learningEnabled() const = 0;
     virtual void setLearningEnabled(bool on) = 0;
+    /// Every learning switch: the master switch, the four categories and the
+    /// personalization strength.
+    virtual preference::Consent learningConsent() const = 0;
+    virtual void setLearningConsent(const preference::Consent&) = 0;
+    /// What the control center's learner reports it has learned, one line each.
+    virtual juce::StringArray learnedSummary() const = 0;
 
     /// Like (+1), dislike (-1) or clear (0) the current sound.
     virtual void rateSound(int value) = 0;
