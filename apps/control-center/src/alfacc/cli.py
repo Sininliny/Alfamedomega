@@ -12,7 +12,7 @@ from .assimilate.plans import DENSITIES, custom_density, estimate
 from .context import Context
 from .jobs import SUCCEEDED
 from .models import ModelStoreError, model_bytes
-from .preference import create_batch_job
+from .preference import CATEGORIES, create_batch_job, reset_learning
 from .settings import Settings
 from .tiers import STAGES, TIERS
 from .training import (TrainSpec, check_environment, create_export_job, create_training_job,
@@ -139,6 +139,27 @@ def cmd_pref(ctx: Context, a) -> int:
     elif a.action == "forget":
         p.forget()
         print("deleted the library index, vocabulary, behaviour log and learned profiles")
+    elif a.action == "learn":
+        cats = {}
+        for item in a.category or []:
+            name, _, value = item.partition("=")
+            cats[name] = value.lower() in ("on", "true", "1", "yes")
+        learn = None if a.state is None else a.state == "on"
+        c = p.set_consent(learn, cats, a.personalization) if (learn is not None or cats or
+                                                              a.personalization is not None) else p.consent()
+        print(f"learn from how I play: {'on' if c['learn'] else 'off'}")
+        for name, on in c["categories"].items():
+            print(f"  [{'x' if on else ' '}] {name:<12} {CATEGORIES[name]}")
+        print(f"personalization: {c['personalization']:.2f}")
+    elif a.action == "explain":
+        lines = p.explain()
+        print("\n".join(lines) if lines else "Nothing learned yet. Run 'alfa-cc pref batch'.")
+    elif a.action == "reset":
+        print(reset_learning(p, ctx.settings.resolved_preference_learner(), a.all))
+    elif a.action == "label":
+        split = (lambda v: None if v is None else [w for w in v.split(",")])
+        entry = p.annotate(Path(a.path), split(a.tags), a.description, split(a.labels))
+        print(json.dumps(entry, ensure_ascii=False) if entry else f"cleared {a.path}")
     return 0
 
 
@@ -302,6 +323,19 @@ def build_parser() -> argparse.ArgumentParser:
     pb = psub.add_parser("batch", help="index the libraries and run the preference learner")
     pb.add_argument("--quiet", action="store_true")
     psub.add_parser("forget", help="delete everything learned from your libraries")
+    pw = psub.add_parser("learn", help="show or set what the plugin may learn from how you play")
+    pw.add_argument("state", nargs="?", choices=["on", "off"])
+    pw.add_argument("--category", action="append", metavar="NAME=on|off",
+                    help=f"one of {', '.join(CATEGORIES)}; repeatable")
+    pw.add_argument("--personalization", type=float, help="0 (plain model) to 1 (your taste)")
+    psub.add_parser("explain", help="what the latest profile learned, in plain words")
+    px = psub.add_parser("reset", help="forget the learned model and the behaviour log")
+    px.add_argument("--all", action="store_true", help="also drop every example")
+    pt = psub.add_parser("label", help="tag, describe or hand-label a file")
+    pt.add_argument("path")
+    pt.add_argument("--tags", help="comma-separated; empty clears")
+    pt.add_argument("--labels", help="comma-separated hand labels; empty clears")
+    pt.add_argument("--description")
     p.set_defaults(fn=cmd_pref)
 
     g = sub.add_parser("plugins", help="Local Plugin Assimilation: learn from your own instruments")

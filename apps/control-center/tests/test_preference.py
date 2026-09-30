@@ -1,4 +1,5 @@
 import struct
+import json
 import sys
 
 import pytest
@@ -129,3 +130,76 @@ def test_batch_passes_assimilated_plugins_only_to_a_learner_that_reads_them(tmp_
     launcher.write_text("from alfapref.cli import main\n")
     (launcher.parent / "alfapref" / "cli.py").write_text('p.add_argument("--assimilation")\n')
     assert "--assimilation" in create_batch_job(manager, home, f"python {launcher}")["steps"][1]["argv"]
+
+
+# ---------------------------------------------------------------------- consent, words, reset
+
+def test_learning_is_off_until_turned_on_and_keeps_the_plugins_keys(tmp_path):
+    from alfacc.preference import PreferenceStore
+    p = PreferenceStore(tmp_path)
+    c = p.consent()
+    assert not c["learn"] and not any(c["categories"].values())
+    p.consent_path.write_text('{"learn": true, "plugin_extra": 7}')
+    assert all(p.consent()["categories"].values())  # {"learn": true} alone means every category
+    c = p.set_consent(categories={"workflow": False}, personalization=1.7)
+    assert c["categories"] == {"performance": True, "parameters": True, "suggestions": True,
+                               "workflow": False}
+    assert c["personalization"] == 1.0
+    raw = json.loads(p.consent_path.read_text())
+    assert raw["plugin_extra"] == 7 and raw["learn"] is True
+    assert not any(p.set_consent(learn=False)["categories"].values())
+    with pytest.raises(ValueError):
+        p.set_consent(categories={"spying": True})
+
+
+def test_tags_and_labels_reach_the_index_and_the_learner(tmp_path):
+    from alfacc import jobs as jobs_mod
+    from alfacc.preference import PreferenceStore, create_batch_job
+    home, lib = tmp_path / "home", tmp_path / "lib"
+    lib.mkdir()
+    wav = lib / "Pad.wav"
+    wav.write_bytes(b"RIFF0000WAVE")
+    p = PreferenceStore(home)
+    p.add_library(lib)
+    p.annotate(wav, tags=["pad", " "], description="slow swell", labels=["warm", "warm", "airy"])
+    p.scan(lambda _l: None)
+    rec = next(iter(p.load_index().values()))
+    assert rec["tags"] == ["pad"] and rec["labels"] == ["warm", "airy"] and rec["description"] == "slow swell"
+    assert json.loads(p.labels_path.read_text())["labels"] == ["warm", "airy"]
+    learner = tmp_path / "learner.py"
+    learner.write_text('ap.add_argument("--consent")\nap.add_argument("--labels")\n')
+    argv = create_batch_job(jobs_mod.JobManager(home), home, f"python {learner}")["steps"][1]["argv"]
+    assert argv[argv.index("--consent") + 1] == str(p.consent_path)
+    assert argv[argv.index("--labels") + 1] == str(p.labels_path)
+    assert argv[-2] == "--out"
+    # An older learner gets neither flag.
+    old = tmp_path / "old.py"
+    old.write_text("# batch only\n")
+    argv = create_batch_job(jobs_mod.JobManager(home), home, f"python {old}")["steps"][1]["argv"]
+    assert "--consent" not in argv and "--labels" not in argv
+    # Clearing every field removes the file's entry, and a rescan drops the words.
+    p.annotate(wav, tags=[], description="", labels=[])
+    p.scan(lambda _l: None)
+    assert "tags" not in next(iter(p.load_index().values())) and p.annotations() == {}
+
+
+def test_explain_and_reset(tmp_path):
+    from alfacc.preference import PreferenceStore, reset_learning
+    p = PreferenceStore(tmp_path)
+    assert p.explain() == [] and reset_learning(p, "") == "Nothing was learned yet."
+    for stamp in ("20260930-100000", "20260930-110000"):
+        (p.profiles_dir / stamp).mkdir(parents=True)
+    latest = p.profiles_dir / "20260930-110000"
+    (latest / "summary.json").write_text(json.dumps({"explain": ["Heard 12 sounds.", "Liked 3."]}))
+    (p.events_dir).mkdir()
+    (p.events_dir / "2026-09-30.jsonl").write_text("{}\n")
+    assert p.explain() == ["Heard 12 sounds.", "Liked 3."]
+    learner = tmp_path / "learner.py"
+    learner.write_text(
+        'import sys, pathlib\n# choices=["reset"]\n'
+        'a = sys.argv\nprof = pathlib.Path(a[a.index("--profile") + 1])\n'
+        '(prof / "reset.txt").write_text("all" if "--all" in a else "model")\n')
+    msg = reset_learning(p, f"{sys.executable} {learner}", everything=True)
+    assert (latest / "reset.txt").read_text() == "all"
+    assert not (p.profiles_dir / "20260930-100000").exists() and not p.events_dir.exists()
+    assert msg.startswith("Reset the learned model")

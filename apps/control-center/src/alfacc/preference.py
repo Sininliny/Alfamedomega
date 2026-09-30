@@ -42,6 +42,15 @@ _CAMEL_RE = re.compile(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _SPLIT_RE = re.compile(r"[^0-9A-Za-z#]+")
 
 
+# The kinds of behaviour the user can let the learner use (preference design, section 7.1).
+CATEGORIES = {
+    "performance": "Notes you play: pitch range, note lengths, velocity and expression",
+    "parameters": "Knob and parameter movements after a sound is loaded",
+    "suggestions": "Which generated or suggested sounds you keep, like or reject",
+    "workflow": "How you use sounds: loads, play time, presets saved, sounds kept and reused",
+}
+
+
 def _shared_tokenizer(repo: str = ""):
     """preference/alfapref/tokens.py, so labels shown here match what the learner computes.
 
@@ -152,6 +161,124 @@ class PreferenceStore:
     def events_dir(self) -> Path:
         return self.dir / "events"
 
+    @property
+    def consent_path(self) -> Path:
+        """The learning switches, shared with the plugin (preference design, section 7.1)."""
+        return self.dir / "plugin.json"
+
+    @property
+    def annotations_path(self) -> Path:
+        return self.dir / "annotations.json"
+
+    @property
+    def labels_path(self) -> Path:
+        return self.dir / "labels.jsonl"
+
+    # ------------------------------------------------------------------ consent
+
+    def consent(self) -> dict:
+        """The switches as the learner reads them: anything not explicitly true is off."""
+        try:
+            raw = json.loads(self.consent_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            raw = {}
+        raw = raw if isinstance(raw, dict) else {}
+        learn = raw.get("learn") is True
+        cats = raw.get("categories")
+        if isinstance(cats, dict):
+            cats = {c: learn and cats.get(c) is True for c in CATEGORIES}
+        else:
+            cats = {c: learn for c in CATEGORIES}
+        try:
+            pers = min(1.0, max(0.0, float(raw.get("personalization", 1.0))))
+        except (TypeError, ValueError):
+            pers = 1.0
+        return {"learn": learn, "categories": cats, "personalization": pers}
+
+    def set_consent(self, learn: bool | None = None, categories: dict | None = None,
+                    personalization: float | None = None) -> dict:
+        """Change some switches. Keys the plugin or learner added are kept."""
+        try:
+            raw = json.loads(self.consent_path.read_text(encoding="utf-8"))
+            raw = raw if isinstance(raw, dict) else {}
+        except (OSError, ValueError):
+            raw = {}
+        now = self.consent()
+        raw["learn"] = now["learn"] if learn is None else bool(learn)
+        cats = dict(now["categories"]) if now["learn"] else {c: True for c in CATEGORIES}
+        for c, on in (categories or {}).items():
+            if c not in CATEGORIES:
+                raise ValueError(f"unknown category {c!r}; known: {', '.join(CATEGORIES)}")
+            cats[c] = bool(on)
+        raw["categories"] = cats
+        if personalization is not None:
+            raw["personalization"] = round(min(1.0, max(0.0, float(personalization))), 3)
+        raw.setdefault("personalization", now["personalization"])
+        write_json_atomic(self.consent_path, raw)
+        return self.consent()
+
+    # ------------------------------------------------------------------ the user's own words
+
+    def annotations(self) -> dict:
+        """{path: {"tags": [...], "description": str, "labels": [...]}} the user wrote."""
+        try:
+            return json.loads(self.annotations_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def annotate(self, path: Path, tags=None, description: str | None = None, labels=None) -> dict:
+        """Tag, describe or hand-label one file. Empty values remove that field."""
+        notes = self.annotations()
+        key = str(Path(path).expanduser().resolve())
+        entry = dict(notes.get(key, {}))
+        for field_, value in (("tags", tags), ("labels", labels)):
+            if value is not None:
+                words = [w.strip() for w in value if w and w.strip()]
+                entry[field_] = list(dict.fromkeys(words))
+        if description is not None:
+            entry["description"] = description.strip()
+        entry = {k: v for k, v in entry.items() if v}
+        if entry:
+            notes[key] = entry
+        else:
+            notes.pop(key, None)
+        write_json_atomic(self.annotations_path, notes)
+        self._write_labels(notes)
+        return entry
+
+    def _write_labels(self, notes: dict) -> None:
+        """labels.jsonl for the learner's --labels: one {"path", "labels"} per hand-labelled file."""
+        with open(self.labels_path, "w", encoding="utf-8") as f:
+            for path, entry in sorted(notes.items()):
+                if entry.get("labels"):
+                    f.write(json.dumps({"path": path, "labels": entry["labels"]}, ensure_ascii=False) + "\n")
+
+    # ------------------------------------------------------------------ what was learned
+
+    def latest_profile(self) -> Path | None:
+        names = self.profiles()
+        return self.profiles_dir / names[0] if names else None
+
+    def explain(self) -> list:
+        """Plain-language lines about what the latest profile learned, from its summary.json."""
+        prof = self.latest_profile()
+        try:
+            summary = json.loads((prof / "summary.json").read_text(encoding="utf-8")) if prof else None
+        except (OSError, ValueError):
+            summary = None
+        if not summary:
+            return []
+        if summary.get("explain"):
+            return [str(line) for line in summary["explain"]]
+        # Learners before the consent change only wrote counts.
+        files = summary.get("files", {})
+        lines = []
+        if isinstance(files, dict):
+            lines += [f"{v} {k.replace('_', ' ')}" for k, v in files.items() if isinstance(v, (int, float))]
+        if summary.get("vocabulary"):
+            lines.append("Words: " + ", ".join(list(summary["vocabulary"])[:20]))
+        return lines
+
     # ------------------------------------------------------------------ libraries
 
     def libraries(self) -> list:
@@ -200,6 +327,7 @@ class PreferenceStore:
     def scan(self, log=print) -> dict:
         """Index every enabled library. Unchanged files are carried over without rereading."""
         old = self.load_index()
+        notes = self.annotations()
         libs = [lib for lib in self.libraries() if lib.get("enabled", True)]
         records, reused, reread = [], 0, 0
         files = []
@@ -222,7 +350,7 @@ class PreferenceStore:
             key = str(p)
             prev = old.get(key)
             if prev and prev["bytes"] == st.st_size and prev["mtime"] == int(st.st_mtime):
-                rec = prev
+                rec = dict(prev)
                 reused += 1
             else:
                 rel = p.relative_to(root)
@@ -232,6 +360,9 @@ class PreferenceStore:
                        "mtime": int(st.st_mtime), "name_labels": tokens(p.stem),
                        "folder_labels": list(dict.fromkeys(folders)), **audio_info(p)}
                 reread += 1
+            for field_ in ("tags", "description", "labels"):
+                rec.pop(field_, None)
+            rec.update(notes.get(str(p.resolve()), {}))
             records.append(rec)
             if i % 200 == 0 or i == total:
                 log(f"progress {i}/{total}")
@@ -273,13 +404,33 @@ class PreferenceStore:
             shutil.rmtree(d, ignore_errors=True)
 
 
-def learner_argv(learner: str, store: PreferenceStore, out: Path, assimilation: Path | None = None) -> list:
+def learner_argv(learner: str, store: PreferenceStore, out: Path, assimilation: Path | None = None,
+                 extra: list | None = None) -> list:
     """The call to the preference learner (contract in docs/control-center/preference-batch.md)."""
     argv = [*split_command(learner), "batch",
             "--index", str(store.index_path), "--events", str(store.events_dir)]
     if assimilation is not None:
         argv += ["--assimilation", str(assimilation)]
-    return argv + ["--out", str(out)]
+    return argv + list(extra or []) + ["--out", str(out)]
+
+
+def learner_supports(learner: str, text: str) -> bool:
+    """Whether the learner's source mentions a flag or command.
+
+    Older learners reject unknown flags, so optional ones are passed only when learner.py or the
+    alfapref/cli.py it launches mentions them.
+    """
+    scripts = [t for t in split_command(learner) if t.endswith(".py")]
+    if not scripts:
+        return False
+    script = Path(scripts[-1])
+    for source in (script, script.parent / "alfapref" / "cli.py"):
+        try:
+            if text in source.read_text(encoding="utf-8"):
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def assimilation_for(home: Path, learner: str) -> Path | None:
@@ -291,18 +442,7 @@ def assimilation_for(home: Path, learner: str) -> Path | None:
     folder = Path(home) / "assimilation"
     if not any(folder.glob("*/features.jsonl")):
         return None
-    scripts = [t for t in split_command(learner) if t.endswith(".py")]
-    if not scripts:
-        return None
-    # learner.py is a thin launcher; the flag itself is defined in alfapref/cli.py next to it.
-    script = Path(scripts[-1])
-    for source in (script, script.parent / "alfapref" / "cli.py"):
-        try:
-            if "--assimilation" in source.read_text(encoding="utf-8"):
-                return folder
-        except OSError:
-            continue
-    return None
+    return folder if learner_supports(learner, "--assimilation") else None
 
 
 def create_batch_job(manager: jobs.JobManager, home: Path, learner: str) -> dict:
@@ -315,7 +455,14 @@ def create_batch_job(manager: jobs.JobManager, home: Path, learner: str) -> dict
     out = store.profiles_dir / stamp
     steps = [jobs.action_step("preference_scan", label="Index libraries", home=str(home))]
     if learner:
-        steps.append(jobs.cmd_step(learner_argv(learner, store, out, assimilation),
+        extra = []
+        if learner_supports(learner, "--consent"):
+            extra += ["--consent", str(store.consent_path)]
+        if learner_supports(learner, "--labels"):
+            store._write_labels(store.annotations())
+            if store.labels_path.stat().st_size:
+                extra += ["--labels", str(store.labels_path)]
+        steps.append(jobs.cmd_step(learner_argv(learner, store, out, assimilation, extra),
                                    label="Learn preferences"))
     else:
         steps.append(jobs.action_step("preference_no_learner", label="Learn preferences"))
@@ -334,6 +481,33 @@ def _no_learner(args: dict, log) -> dict:
         "repository folder in Settings (it uses preference/learner.py there), or set the learner "
         "command directly.")
     return {"learner": "not configured"}
+
+
+def reset_learning(store: PreferenceStore, learner: str, everything: bool = False) -> str:
+    """Forget what was learned from behaviour: the learned model and the plugin's event log.
+
+    With everything, also drop every example (the learner's reset --all). Libraries, the index
+    and the user's own tags and labels stay. Returns what was done, for the user.
+    """
+    prof = store.latest_profile()
+    done = []
+    if prof and learner and learner_supports(learner, '"reset"'):
+        argv = [*split_command(learner), "reset", "--profile", str(prof)] + (["--all"] if everything else [])
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+        if r.returncode != 0:
+            raise RuntimeError((r.stderr.strip().splitlines() or ["the learner's reset failed"])[-1])
+        done.append("reset the learned model")
+        others = [p for p in store.profiles_dir.iterdir() if p.is_dir() and p != prof]
+    else:
+        others = [p for p in store.profiles_dir.iterdir() if p.is_dir()] if store.profiles_dir.exists() else []
+    for p in others:
+        shutil.rmtree(p, ignore_errors=True)
+    if others:
+        done.append(f"deleted {len(others)} older profile{'s' if len(others) > 1 else ''}")
+    if store.events_dir.exists():
+        shutil.rmtree(store.events_dir, ignore_errors=True)
+        done.append("deleted the behaviour log")
+    return ", ".join(done).capitalize() + "." if done else "Nothing was learned yet."
 
 
 def run_learner_check(learner: str) -> str | None:

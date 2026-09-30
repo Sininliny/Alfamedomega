@@ -27,8 +27,14 @@
    <learner> batch --index <home>/preference/library_index.jsonl
                    --events <home>/preference/events
                    [--assimilation <home>/assimilation]
+                   [--consent <home>/preference/plugin.json]
+                   [--labels <home>/preference/labels.jsonl]
                    --out <home>/preference/profiles/<timestamp>
    ```
+
+   Each optional flag is passed only when `learner.py` or the `alfapref/cli.py` next to it
+   mentions it, so an older learner still runs. `--consent` names the switches file (below);
+   `--labels` is written from the user's hand labels, one `{"path", "labels"}` per line.
 
    `--assimilation` is added when plugin assimilation has analysed notes and the learner script
    supports the flag ([plugin-assimilation.md](plugin-assimilation.md), section 10).
@@ -45,10 +51,39 @@
    `preference/alfapref/tokens.py` from the repository folder (loaded by file path), and
    falls back to its own copy of those rules only when no checkout is set.
 
+## Learning from how the user plays (opt-in)
+
+Sinin decided on 2026-09-30 that behaviour learning is strictly opt-in, visible and removable
+(`docs/preference/design.md` section 7.1). The control center's Preference page shows the same
+switches the plugin reads, in `<home>/preference/plugin.json`:
+
+```json
+{"learn": true,
+ "categories": {"performance": true, "parameters": true, "suggestions": true, "workflow": false},
+ "personalization": 0.6}
+```
+
+- The switch is off unless the user turns it on; a missing file means off. `{"learn": true}` on its
+  own (what the plugin writes) turns every category on. Keys the plugin or learner add are kept.
+- **What's learned** shows the latest profile's `summary.json` `explain` lines.
+- **Reset learning** runs `<learner> reset --profile <latest>` (with `--all` for "Reset and drop
+  examples"), deletes older profiles and the behaviour log. Libraries, the index and the user's own
+  words stay.
+- **Tag or label files** stores tags, a description and hand labels per file in
+  `<home>/preference/annotations.json`. Scans copy them into the index records as `tags`,
+  `description` and `labels`, and hand labels also go to `labels.jsonl` for `--labels`.
+
+CLI: `alfa-cc pref learn on|off [--category workflow=off] [--personalization 0.6]`,
+`alfa-cc pref explain`, `alfa-cc pref reset [--all]`,
+`alfa-cc pref label FILE --tags pad --labels warm,airy --description "slow swell"`.
+
+The learner's `--presets` (the user's own presets) is not fed yet: the control center has no
+preset list of its own until the plugin's preset format is settled.
+
 ## Privacy
 
 - Nothing leaves the machine. The control center makes no network calls.
-- The index holds absolute paths, sizes and labels, never audio. It is a local cache; learned
+- The index and `annotations.json` hold absolute paths, sizes and words, never audio. It is a local cache; learned
   profiles don't contain paths.
 - **Forget everything** deletes the index, vocabulary, behaviour log and all profiles. The list
   of chosen folders stays so the user can re-run.
