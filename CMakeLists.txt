@@ -21,8 +21,14 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # Hidden symbols by default: a plugin shares its process with every other plugin.
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
-# Static MSVC runtime so hosts don't need a VC++ redistributable (packaging plan 2).
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+# DLL MSVC runtime (/MD). ONNX Runtime's prebuilt static library is compiled with /MD, and
+# mixing CRTs in one binary fails to link. The installer ships the VC++ redistributable.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+if(MSVC)
+    # A DAW may already have loaded an older msvcp140.dll; std::mutex built with VS 17.10+
+    # then crashes in it. Keep the pre-17.10 non-constexpr constructor (packaging plan).
+    add_compile_definitions(_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
+endif()
 
 if(APPLE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
