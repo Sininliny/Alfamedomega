@@ -59,12 +59,16 @@ endif()
 
 # RealtimeSanitizer (Clang 20+) additionally catches locks, blocking calls and system calls.
 # Configure with CXX=clang++-20 to build it; CI can add that as its own job.
-include(CheckCXXSourceCompiles)
-set(CMAKE_REQUIRED_FLAGS -fsanitize=realtime)
-set(CMAKE_REQUIRED_LINK_OPTIONS -fsanitize=realtime)
-check_cxx_source_compiles("int main() { return 0; }" ALFA_HAVE_RTSAN)
-unset(CMAKE_REQUIRED_FLAGS)
-unset(CMAKE_REQUIRED_LINK_OPTIONS)
+# Only a GCC-style Clang driver: MSVC and clang-cl merely warn about the unknown flag, which
+# would make the check pass and then fail on [[clang::nonblocking]] under /WX.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    include(CheckCXXSourceCompiles)
+    set(CMAKE_REQUIRED_FLAGS -fsanitize=realtime)
+    set(CMAKE_REQUIRED_LINK_OPTIONS -fsanitize=realtime)
+    check_cxx_source_compiles("int main() { return 0; }" ALFA_HAVE_RTSAN)
+    unset(CMAKE_REQUIRED_FLAGS)
+    unset(CMAKE_REQUIRED_LINK_OPTIONS)
+endif()
 if(ALFA_HAVE_RTSAN)
     alfa_inference_test(alfa_inference_rtsan_tests
         SOURCES RtsanTests.cpp
