@@ -65,6 +65,10 @@ public:
     void noteOff(int note) noexcept;
     void allNotesOff() noexcept;
     void killAll() noexcept;
+    /// Silences every voice and returns the instance chain to its state after prepare(): slot
+    /// state cleared, default InstanceFrame, hop grid restarted. For offline renders that reuse
+    /// one prepared Synth (the training binding).
+    void reset() noexcept;
 
     /// Pitch bend in semitones, applied to every voice from its next hop.
     void setPitchBend(float semitones) noexcept;

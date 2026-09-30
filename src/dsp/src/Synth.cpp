@@ -127,6 +127,23 @@ void Synth::killAll() noexcept
         v->kill();
 }
 
+void Synth::reset() noexcept
+{
+    killAll();
+    bendSemitones_ = 0.0f;
+    *latestI_ = InstanceFrame{};
+    *prevI_ = *latestI_;
+    *curI_ = *latestI_;
+    instSlots_.reset();
+    instMod_.reset();
+    instHopPos_ = spec_.hop;
+    instFirstHop_ = true;
+    instDest_.fill(0.0f);
+    lastInstOut_.fill(0.0f);
+    counter_ = 0;
+    std::fill(startOrder_.begin(), startOrder_.end(), 0);
+}
+
 void Synth::setPitchBend(float semitones) noexcept
 {
     bendSemitones_ = semitones;

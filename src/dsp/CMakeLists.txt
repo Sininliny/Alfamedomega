@@ -41,6 +41,14 @@ add_executable(alfa_dsp_layout tools/DumpLayout.cpp)
 target_link_libraries(alfa_dsp_layout PRIVATE Alfa::dsp)
 alfa_set_compile_options(alfa_dsp_layout)
 
+# C API for offline rendering from Python (training's DSP-in-the-loss; tools/alfa_dsp_py).
+# The static libraries are position-independent so they can link into this shared library.
+set_target_properties(alfa_dsp alfa_pffft PROPERTIES POSITION_INDEPENDENT_CODE ON)
+add_library(alfa_dsp_c SHARED tools/alfa_dsp_py/alfa_dsp_c.cpp)
+target_link_libraries(alfa_dsp_c PRIVATE Alfa::dsp)
+set_target_properties(alfa_dsp_c PROPERTIES CXX_VISIBILITY_PRESET hidden)
+alfa_set_compile_options(alfa_dsp_c)
+
 # CPU benchmark per tier: cmake --build <dir> --target alfa_dsp_bench && <dir>/.../alfa_dsp_bench
 add_executable(alfa_dsp_bench EXCLUDE_FROM_ALL bench/Bench.cpp)
 target_link_libraries(alfa_dsp_bench PRIVATE Alfa::dsp)

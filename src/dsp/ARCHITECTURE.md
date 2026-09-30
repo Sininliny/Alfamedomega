@@ -130,3 +130,11 @@ Denormals are flushed (`ScopedNoDenormals`, FTZ/DAZ) for the whole `Synth::proce
   fast modulation. `tests/IntegrationTests.cpp` covers the whole path.
 - `alfa_dsp_bench` (Release) prints µs per 128-sample block for each primitive scenario and each
   family, per tier. The `[.bench]` Catch2 cases time each processor on its own.
+
+## Python binding (offline)
+
+`tools/alfa_dsp_py` wraps `Synth` in a small C API (`alfa_dsp_c`, shared library) and a ctypes
+module (`alfa_dsp.py`, needs numpy). `Synth(sr, tier).render(voice_frames[T, 2627],
+instance_frames[T, 164] | None, f0[T] | None, note, velocity, note_off_frame)` returns stereo
+float32 of T·hop samples. Each call resets the synth, so renders are deterministic and can be
+batched with one `Synth` per worker. Build it with `cmake --build <dir> --target alfa_dsp_c`.
