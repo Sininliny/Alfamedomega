@@ -9,7 +9,11 @@
 // - slots: the processor alone at typical params, the median of several param sets (defaults, all 0.5, all 1,
 //   random), params nudged every control block so coefficient updates are included; mono for
 //   voice slots, stereo for instance slots; quality 0 and 1;
-// - instance base: the synth with no notes (bus, instance chain with every slot off).
+// - instance base: the synth with no notes (bus, instance chain with every slot off);
+// - rateScale: per rate, sum(measured) / sum(modelled) over whole-synth patches (each tier at
+//   full polyphony: each primitive alone, all of them, all with NONLINEAR in every voice slot,
+//   OSC with FILTER in every voice slot, OSC with REVERB in every instance slot), so the model's
+//   total matches reality; the guard's 1.2 safety margin applies on top.
 
 #include "alfa/dsp/BudgetGuard.h"
 #include "alfa/dsp/Convolution.h"
@@ -93,12 +97,23 @@ void fillPrimitive(VoiceFrame& f, Primitive p, const TierLimits& limits)
     f.setMix(p, 0.3f);
 }
 
-/// ns per sample for the whole synth over ~1 s of audio, with `notes` voices playing `frame`.
-double synthNs(Tier tier, double sr, const VoiceFrame* frame, int notes)
+struct SynthRun
+{
+    double ns = 0.0;    ///< measured ns per sample
+    float model = 0.0f; ///< the guard's modelled share (with the safety margin), if a table was given
+};
+
+/// The whole synth over ~1 s of audio, with `notes` voices playing `frame` and an optional
+/// instance frame. With `table`, also reads the guard's estimate from that table.
+SynthRun synthRun(Tier tier, double sr, const VoiceFrame* frame, int notes,
+                  const InstanceFrame* inst = nullptr, const CostTable* table = nullptr)
 {
     Synth synth;
     synth.prepare(sr, kBlock, tier);
     synth.setBudgetGuardEnabled(false);
+    synth.setCostTable(table);
+    if (inst != nullptr)
+        synth.setInstanceFrame(*inst);
     std::vector<float> bankData(4 * kGrainSourceLength);
     for (std::size_t i = 0; i < bankData.size(); ++i)
         bankData[i] = std::sin(0.01f * static_cast<float>(i));
@@ -136,7 +151,81 @@ double synthNs(Tier tier, double sr, const VoiceFrame* frame, int notes)
         synth.process(l.data(), r.data(), kBlock);
     }
     const double ns = std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - t0).count();
-    return ns / (static_cast<double>(blocks) * kBlock);
+    return {ns / (static_cast<double>(blocks) * kBlock), synth.guardReport().estimatedShare};
+}
+
+double synthNs(Tier tier, double sr, const VoiceFrame* frame, int notes)
+{
+    return synthRun(tier, sr, frame, notes).ns;
+}
+
+void fillSlot(SlotControls& slot, Family family, int inputIndex)
+{
+    slot.family = static_cast<float>(family);
+    slot.outGain = 0.3f;
+    slot.input[static_cast<std::size_t>(inputIndex)] = 1.0f;
+    const auto& table = paramTable(family);
+    for (int i = 0; i < kSlotParams; ++i)
+        slot.params[static_cast<std::size_t>(i)] = table[static_cast<std::size_t>(i)].defaultNorm;
+}
+
+/// sum(measured) / sum(modelled, without the safety margin) over the fit patches at one rate.
+float fitRateScale(const CostTable& table, int r)
+{
+    double measured = 0.0, modelled = 0.0;
+    for (int t = 0; t < 4; ++t)
+    {
+        const auto tier = static_cast<Tier>(t);
+        const auto limits = limitsFor(tier);
+        std::vector<std::unique_ptr<VoiceFrame>> frames;
+        std::vector<std::unique_ptr<InstanceFrame>> insts;
+        const auto add = [&](std::unique_ptr<VoiceFrame> f, std::unique_ptr<InstanceFrame> i)
+        {
+            f->attackTau = 0.002f;
+            frames.push_back(std::move(f));
+            insts.push_back(std::move(i));
+        };
+        for (int p = 0; p < kPrimitiveCount; ++p)
+        {
+            auto f = std::make_unique<VoiceFrame>();
+            fillPrimitive(*f, static_cast<Primitive>(p), limits);
+            add(std::move(f), nullptr);
+        }
+        auto all = std::make_unique<VoiceFrame>();
+        for (int p = 0; p < kPrimitiveCount; ++p)
+            fillPrimitive(*all, static_cast<Primitive>(p), limits);
+        auto allNl = std::make_unique<VoiceFrame>(*all);
+        for (auto& slot : allNl->slots)
+            fillSlot(slot, Family::Nonlinear, static_cast<int>(Primitive::Osc));
+        add(std::move(all), nullptr);
+        add(std::move(allNl), nullptr);
+        auto osc = std::make_unique<VoiceFrame>();
+        fillPrimitive(*osc, Primitive::Osc, limits);
+        auto oscFilter = std::make_unique<VoiceFrame>(*osc);
+        for (auto& slot : oscFilter->slots)
+            fillSlot(slot, Family::Filter, static_cast<int>(Primitive::Osc));
+        add(std::move(oscFilter), nullptr);
+        auto reverb = std::make_unique<InstanceFrame>();
+        for (auto& slot : reverb->slots)
+            fillSlot(slot, Family::Reverb, 0);
+        add(std::move(osc), std::move(reverb));
+
+        for (std::size_t i = 0; i < frames.size(); ++i)
+        {
+            std::vector<double> ns;
+            float model = 0.0f;
+            for (int k = 0; k < kRuns; ++k)
+            {
+                const auto run =
+                    synthRun(tier, kRates[r], frames[i].get(), limits.polyphony, insts[i].get(), &table);
+                ns.push_back(run.ns);
+                model = run.model;
+            }
+            measured += median(ns) * kRates[r] * 1.0e-9;
+            modelled += static_cast<double>(model / BudgetGuard::kSafetyMargin);
+        }
+    }
+    return modelled > 0.0 ? static_cast<float>(measured / modelled) : 1.0f;
 }
 
 /// ns per sample of one processor at typical params: the median over several param sets.
@@ -223,6 +312,11 @@ int main()
         (void)irs[r].add(makeSyntheticIr(ir));
     }
 
+    auto table = std::make_unique<CostTable>();
+    const auto f = [](double v)
+    {
+        return static_cast<float>(v);
+    };
     double base[2];
     for (int r = 0; r < 2; ++r)
     {
@@ -230,17 +324,11 @@ int main()
         for (int k = 0; k < kRuns; ++k)
             runs.push_back(synthNs(Tier::Standard, kRates[r], nullptr, 0));
         base[r] = median(runs);
+        table->instanceBase[r] = f(base[r]);
     }
 
-    std::printf(
-        "// Generated by alfa_dsp_calibrate (src/dsp/tools/Calibrate.cpp). Do not edit: re-run it on\n"
-        "// an idle machine. ns of CPU per sample of audio, {48 kHz, 96 kHz}; see BudgetGuard.h.\n"
-        "#pragma once\n\n// clang-format off\nnamespace alfa::dsp::generated\n{\n\n"
-        "inline constexpr CostTable kCostTable{\n");
     // Each primitive alone costs base + own; all six together cost base + sum(own), so the
     // voice base is (sum(alone) - together) / 5.
-    double prim[4][kPrimitiveCount][2];
-    double voiceBase[4][2];
     for (int t = 0; t < 4; ++t)
     {
         const auto tier = static_cast<Tier>(t);
@@ -256,6 +344,7 @@ int main()
             };
             auto all = std::make_unique<VoiceFrame>();
             all->attackTau = 0.002f;
+            double prim[kPrimitiveCount];
             double sum = 0.0;
             for (int p = 0; p < kPrimitiveCount; ++p)
             {
@@ -263,20 +352,56 @@ int main()
                 frame->attackTau = 0.002f;
                 fillPrimitive(*frame, static_cast<Primitive>(p), limits);
                 fillPrimitive(*all, static_cast<Primitive>(p), limits);
-                prim[t][p][r] = perVoice(frame.get());
-                sum += prim[t][p][r];
+                prim[p] = perVoice(frame.get());
+                sum += prim[p];
             }
             const double together = perVoice(all.get());
-            voiceBase[t][r] =
+            const double voiceBase =
                 std::clamp((sum - together) / (kPrimitiveCount - 1), 0.0, sum / kPrimitiveCount);
+            table->voiceBase[t][r] = f(voiceBase);
             for (int p = 0; p < kPrimitiveCount; ++p)
-                prim[t][p][r] = std::max(0.0, prim[t][p][r] - voiceBase[t][r]);
+                table->primitive[t][p][r] = f(std::max(0.0, prim[p] - voiceBase));
         }
     }
+
+    for (int instance = 0; instance < 2; ++instance)
+        for (int t = 0; t < 4; ++t)
+            for (int fam = 1; fam < kFamilyCount; ++fam)
+            {
+                const auto family = static_cast<Family>(fam);
+                if (instance == 0 && !allowedInVoice(family))
+                    continue;
+                const bool reduced = makeProcessor(family)->hasReducedQuality();
+                auto& cell = instance ? table->instanceSlot[t][fam] : table->voiceSlot[t][fam];
+                for (int q = 0; q < (reduced ? 2 : 1); ++q)
+                    for (int r = 0; r < 2; ++r)
+                    {
+                        std::vector<double> m;
+                        for (int k = 0; k < kRuns; ++k)
+                            m.push_back(processorNs(family, static_cast<Tier>(t), kRates[r], instance ? 2 : 1,
+                                                    q, &irs[r]));
+                        cell[q][r] = f(median(m));
+                    }
+                if (!reduced) // same processing: the same cost, so the guard never "downgrades" it
+                    for (int r = 0; r < 2; ++r)
+                        cell[1][r] = cell[0][r];
+            }
+
+    table->rateScale[0] = 1.0f;
+    table->rateScale[1] = 1.0f;
+    const float fitted[2] = {fitRateScale(*table, 0), fitRateScale(*table, 1)};
+    table->rateScale[0] = fitted[0];
+    table->rateScale[1] = fitted[1];
+
+    std::printf(
+        "// Generated by alfa_dsp_calibrate (src/dsp/tools/Calibrate.cpp). Do not edit: re-run it on\n"
+        "// an idle machine. ns of CPU per sample of audio, {48 kHz, 96 kHz}; see BudgetGuard.h.\n"
+        "#pragma once\n\n// clang-format off\nnamespace alfa::dsp::generated\n{\n\n"
+        "inline constexpr CostTable kCostTable{\n");
     std::printf("    // voiceBase[tier]\n    {");
     for (int t = 0; t < 4; ++t)
     {
-        printPair(voiceBase[t][0], voiceBase[t][1]);
+        printPair(table->voiceBase[t][0], table->voiceBase[t][1]);
         std::printf(t < 3 ? ", " : "},\n");
     }
     std::printf("    // primitive[tier][osc, partials, fm, noise, grain, sampler]\n    {\n");
@@ -285,52 +410,26 @@ int main()
         std::printf("        {");
         for (int p = 0; p < kPrimitiveCount; ++p)
         {
-            printPair(prim[t][p][0], prim[t][p][1]);
+            printPair(table->primitive[t][p][0], table->primitive[t][p][1]);
             std::printf(p + 1 < kPrimitiveCount ? ", " : "");
         }
         std::printf("}, // %s\n", tierNames[t]);
     }
     std::printf("    },\n");
-
     for (int instance = 0; instance < 2; ++instance)
     {
         std::printf("    // %s[tier][family][quality]\n    {\n", instance ? "instanceSlot" : "voiceSlot");
         for (int t = 0; t < 4; ++t)
         {
             std::printf("        { // %s\n", tierNames[t]);
-            for (int f = 0; f < kFamilyCount; ++f)
+            for (int fam = 0; fam < kFamilyCount; ++fam)
             {
-                const auto family = static_cast<Family>(f);
-                const bool runs = f != 0 && (instance == 1 || allowedInVoice(family));
-                const bool reduced = runs && makeProcessor(family)->hasReducedQuality();
+                const auto& cell = instance ? table->instanceSlot[t][fam] : table->voiceSlot[t][fam];
                 std::printf("            {");
-                double full[2] = {0.0, 0.0};
-                for (int q = 0; q < 2; ++q)
-                {
-                    double v[2] = {0.0, 0.0};
-                    if (q == 1 && !reduced)
-                    {
-                        // Same processing: the same cost, so the guard never "downgrades" it.
-                        printPair(full[0], full[1]);
-                        continue;
-                    }
-                    for (int r = 0; r < 2 && runs; ++r)
-                    {
-                        std::vector<double> m;
-                        for (int k = 0; k < kRuns; ++k)
-                            m.push_back(processorNs(family, static_cast<Tier>(t), kRates[r], instance ? 2 : 1,
-                                                    q, &irs[r]));
-                        v[r] = median(m);
-                    }
-                    if (q == 0)
-                    {
-                        full[0] = v[0];
-                        full[1] = v[1];
-                    }
-                    printPair(v[0], v[1]);
-                    std::printf(q == 0 ? ", " : "");
-                }
-                const auto name = familyName(family);
+                printPair(cell[0][0], cell[0][1]);
+                std::printf(", ");
+                printPair(cell[1][0], cell[1][1]);
+                const auto name = familyName(static_cast<Family>(fam));
                 std::printf("}, // %.*s\n", static_cast<int>(name.size()), name.data());
             }
             std::printf("        },\n");
@@ -338,7 +437,9 @@ int main()
         std::printf("    },\n");
     }
     std::printf("    // instanceBase\n    ");
-    printPair(base[0], base[1]);
-    std::printf(",\n};\n\n} // namespace alfa::dsp::generated\n// clang-format on\n");
+    printPair(table->instanceBase[0], table->instanceBase[1]);
+    std::printf(",\n    // rateScale: measured / modelled total at each rate\n    {%.3ff, %.3ff},\n",
+                static_cast<double>(fitted[0]), static_cast<double>(fitted[1]));
+    std::printf("};\n\n} // namespace alfa::dsp::generated\n// clang-format on\n");
     return 0;
 }

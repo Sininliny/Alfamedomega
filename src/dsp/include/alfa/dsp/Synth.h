@@ -93,6 +93,14 @@ public:
     /// Audio budget guard (BudgetGuard.h), on by default. The report is from the last block.
     void setBudgetGuardEnabled(bool enabled) noexcept { guard_.setEnabled(enabled); }
     void setCostScale(float scale) noexcept { guard_.setCostScale(scale); }
+    /// Real-time hosts use GuardTrigger::Measured: process() then times itself with the load
+    /// clock. The default, Model, reads no clock, so offline renders stay deterministic.
+    void setBudgetGuardTrigger(GuardTrigger trigger) noexcept { guard_.setTrigger(trigger); }
+    /// Seconds from a monotonic clock; null means std::chrono::steady_clock. For tests.
+    using LoadClock = double (*)() noexcept;
+    void setLoadClock(LoadClock clock) noexcept { clock_ = clock; }
+    /// Replaces the guard's cost table (calibration); must outlive use, null restores it.
+    void setCostTable(const CostTable* table) noexcept { guard_.setCostTable(table); }
     [[nodiscard]] const GuardReport& guardReport() const noexcept { return guardReport_; }
 
     [[nodiscard]] int voiceCount() const noexcept { return static_cast<int>(voices_.size()); }
@@ -102,6 +110,7 @@ public:
 
 private:
     [[nodiscard]] float f0For(int note) const noexcept;
+    void processUntimed(float* left, float* right, int n) noexcept;
     void renderChunk(float* left, float* right, int n) noexcept;
     void beginInstanceHop() noexcept;
     void instanceBlock(float* left, float* right, int offset, int n) noexcept;
@@ -112,6 +121,7 @@ private:
     std::vector<Voice*> voicePtrs_;
     BudgetGuard guard_;
     GuardReport guardReport_;
+    LoadClock clock_ = nullptr;
     std::vector<std::uint64_t> startOrder_;
     std::uint64_t counter_ = 0;
     float bendSemitones_ = 0.0f;

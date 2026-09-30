@@ -163,3 +163,137 @@ TEST_CASE("cost scale moves the guard's threshold", "[dsp][guard]")
     run(synth, 4800);
     REQUIRE(synth.guardReport().bypassed > 0);
 }
+
+namespace
+{
+// A fake load clock: every second call (the end of a process() call) advances by the chosen
+// share of a 256-sample block at 48 kHz, so the "measured" load is exactly fakeLoad.
+double fakeLoad = 0.0;
+int clockCalls = 0;
+double fakeNow = 0.0;
+double fakeClock() noexcept
+{
+    if (clockCalls++ % 2 == 1)
+        fakeNow += fakeLoad * 256.0 / 48000.0;
+    return fakeNow;
+}
+
+Synth& measuredSynth(Synth& synth, Tier tier, double load)
+{
+    synth.prepare(48000.0, 256, tier);
+    synth.setLoadClock(fakeClock);
+    synth.setBudgetGuardTrigger(GuardTrigger::Measured);
+    fakeLoad = load;
+    return synth;
+}
+} // namespace
+
+TEST_CASE("measured trigger: a real load under budget restores what the model would cut", "[dsp][guard]")
+{
+    Synth synth;
+    measuredSynth(synth, Tier::Pro, 0.05);
+    auto frame = heavyFrame(Family::Nonlinear, 4);
+    play(synth, *frame, limitsFor(Tier::Pro).polyphony);
+    std::vector<float> l(256), r(256);
+    synth.process(l.data(), r.data(), 256);
+    // Before any measurement the model predicts, and the model says this is over budget.
+    REQUIRE(synth.guardReport().downgraded + synth.guardReport().bypassed > 0);
+    for (int b = 0; b < 2000; ++b)
+        synth.process(l.data(), r.data(), 256);
+    const auto& rep = synth.guardReport();
+    INFO("predicted " << rep.finalShare << " measured " << rep.measuredShare);
+    REQUIRE(rep.measuredShare < 0.06f);
+    REQUIRE(rep.downgraded == 0);
+    REQUIRE(rep.bypassed == 0);
+}
+
+TEST_CASE("measured trigger: a real overload degrades a patch the model thinks is light", "[dsp][guard]")
+{
+    Synth synth;
+    measuredSynth(synth, Tier::Standard, 0.5); // a machine far slower than the calibration one
+    auto frame = heavyFrame(Family::Filter, 2);
+    play(synth, *frame, 2);
+    run(synth, 48000); // the average starts at the model estimate; give it a few time constants
+    REQUIRE(synth.guardReport().bypassed > 0);
+}
+
+TEST_CASE("measured trigger: hysteresis between the restore and degrade thresholds", "[dsp][guard]")
+{
+    Synth synth;
+    measuredSynth(synth, Tier::Pro, 0.6);
+    auto frame = heavyFrame(Family::Nonlinear, 4);
+    play(synth, *frame, 8);
+    std::vector<float> l(256), r(256);
+    for (int b = 0; b < 400; ++b)
+        synth.process(l.data(), r.data(), 256);
+    const int degraded = synth.guardReport().downgraded + 2 * synth.guardReport().bypassed;
+    REQUIRE(degraded > 0);
+
+    // Between 20% and 25%: neither degrade nor restore once settled.
+    fakeLoad = 0.225;
+    for (int b = 0; b < 400; ++b)
+        synth.process(l.data(), r.data(), 256);
+    const int settled = synth.guardReport().downgraded + 2 * synth.guardReport().bypassed;
+    for (int b = 0; b < 400; ++b)
+    {
+        synth.process(l.data(), r.data(), 256);
+        REQUIRE(synth.guardReport().downgraded + 2 * synth.guardReport().bypassed == settled);
+    }
+
+    // Well under: restored one step per block, all the way back.
+    fakeLoad = 0.02;
+    int last = settled;
+    for (int b = 0; b < 2000 && last > 0; ++b)
+    {
+        synth.process(l.data(), r.data(), 256);
+        const int now = synth.guardReport().downgraded + 2 * synth.guardReport().bypassed;
+        REQUIRE(now >= last - 1);
+        last = now;
+    }
+    REQUIRE(last == 0);
+}
+
+TEST_CASE("measured trigger: a note-on burst is caught in its first block", "[dsp][guard]")
+{
+    Synth synth;
+    measuredSynth(synth, Tier::Pro, 0.03);
+    auto light = heavyFrame(Family::Filter, 1);
+    play(synth, *light, 1);
+    std::vector<float> l(256), r(256);
+    for (int b = 0; b < 400; ++b)
+        synth.process(l.data(), r.data(), 256);
+    REQUIRE(synth.guardReport().estimatedShare < 0.1f);
+
+    auto heavy = heavyFrame(Family::Nonlinear, 4);
+    for (int n = 0; n < limitsFor(Tier::Pro).polyphony - 1; ++n)
+        synth.noteOn(50 + n, 0.8f, heavy.get());
+    synth.process(l.data(), r.data(), 256);
+    const auto& rep = synth.guardReport();
+    INFO("predicted " << rep.estimatedShare << " measured " << rep.measuredShare);
+    REQUIRE(rep.estimatedShare > rep.budgetShare);
+    REQUIRE(rep.downgraded + rep.bypassed > 0);
+}
+
+TEST_CASE("measured trigger allocates nothing; the model trigger reads no clock", "[dsp][guard]")
+{
+    Synth synth;
+    measuredSynth(synth, Tier::Pro, 0.4);
+    auto frame = heavyFrame(Family::Nonlinear, 4);
+    play(synth, *frame, limitsFor(Tier::Pro).polyphony);
+    run(synth, 4800);
+    {
+        std::vector<float> l(256), r(256);
+        AllocationGuard guard;
+        for (int b = 0; b < 100; ++b)
+            synth.process(l.data(), r.data(), 256);
+        REQUIRE(guard.count() == 0);
+    }
+
+    Synth model;
+    model.prepare(48000.0, 256, Tier::Pro);
+    model.setLoadClock(fakeClock);
+    const int before = clockCalls;
+    play(model, *frame, 4);
+    run(model, 4800);
+    REQUIRE(clockCalls == before);
+}

@@ -141,15 +141,15 @@ batched with one `Synth` per worker. Build it with `cmake --build <dir> --target
 
 ## Audio budget guard
 
-`BudgetGuard.h`. The user chose it on 2026-09-30, and the tier spec's `audio_budget_guard` configures it. Before each block, `Synth` sums a modelled CPU cost for everything that will run:
-- the voice base, the active primitives and the voice slots of every active voice;
-- the instance slots and the instance base.
-
-If the total exceeds the tier's `max_block_share` of real time, the guard degrades voice slots for their next hop:
+`BudgetGuard.h`. The user chose it on 2026-09-30, and the tier spec's `audio_budget_guard` configures it. When the load is over the tier's `max_block_share` of real time, the guard degrades voice slots for their next hop:
 - it takes the heaviest slot first, then the lowest family capacity weight (generated from `family_share_pct`), then the newest note;
 - it first moves a slot to reduced quality, where the family has a cheaper mode (`Processor::hasReducedQuality`: NONLINEAR drops to 1× oversampling, RESONATOR halves its modes);
 - after that it bypasses the slot, which crossfades out like switching to Off.
 
-Instance slots and primitives are never degraded. The cost is modelled per second of audio, so the budget holds at every sample rate.
+Instance slots and primitives are never degraded. Shares are per second of audio, so the budget holds at every sample rate.
 
-The cost table, `CostTableGenerated.h`, is written by `alfa_dsp_calibrate`. It holds the ns per sample measured at 48 and 96 kHz on the calibration machine. Slot costs are the median over several typical param sets, and the guard multiplies every cost by a 1.2× safety margin (`BudgetGuard::kSafetyMargin`), as the tier spec asked, rather than charging worst-case params. Hosts can rescale the model with `Synth::setCostScale`. The guard never reads a clock on the audio thread, so a given input always gets the same decisions.
+There are two triggers (`Synth::setBudgetGuardTrigger`):
+- **Measured**, for real-time hosts. `process()` times itself with a steady clock and the guard keeps an exponential average of the load (0.2 s time constant). The predicted load is that average plus the change in modelled cost since then, so a note-on burst is caught in its first block. Above budget it degrades; below 80% of budget (20% for a 0.25 budget) it restores one step per block, provided the step keeps it under that line. Levels persist between blocks and reset on a new note or a family change.
+- **Model**, the default, for offline renders and tests. The modelled cost alone decides, recomputed every block. No clock is read, so a given input always gets the same decisions.
+
+The cost model, `CostTableGenerated.h`, is written by `alfa_dsp_calibrate`. It holds the ns per sample measured at 48 and 96 kHz on the calibration machine. Slot costs are the median over several typical param sets. A factor per rate (`rateScale`) rescales the model so its total matches the measured total over a set of whole-synth patches, and the guard multiplies every cost by a 1.2× safety margin (`BudgetGuard::kSafetyMargin`), as the tier spec asked. Hosts can rescale the model with `Synth::setCostScale`. In the Measured trigger the model only picks victims and predicts bursts.

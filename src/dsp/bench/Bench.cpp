@@ -99,6 +99,7 @@ struct SlotSetup
     bool instance = false;
     bool guard = false;            ///< the audio budget guard (off: raw cost)
     GuardReport* report = nullptr; ///< receives the guard's last report
+    GuardTrigger trigger = GuardTrigger::Measured;
 };
 
 void fillSlot(SlotControls& slot, Family family, int inputIndex)
@@ -116,6 +117,7 @@ double measure(Tier tier, const Scenario& s, double sampleRate, int block, SlotS
     Synth synth;
     synth.prepare(sampleRate, block, tier);
     synth.setBudgetGuardEnabled(slots.guard);
+    synth.setBudgetGuardTrigger(slots.trigger);
 
     std::vector<float> bankData(4 * kGrainSourceLength);
     for (std::size_t i = 0; i < bankData.size(); ++i)
@@ -243,8 +245,10 @@ int main()
     }
 
     // Worst case: every primitive plus NONLINEAR (the heaviest voice family) in every voice slot.
-    std::printf("\nWorst case (everything + nonlinear in every voice slot), guard off vs on: us per block "
-                "(%% of block), guard model estimate -> after, slots downgraded/bypassed\n");
+    std::printf(
+        "\nWorst case (everything + nonlinear in every voice slot), guard off vs on (measured trigger): "
+        "us per block (%% of block); guard: prediction before -> after, measured average, slots "
+        "downgraded/bypassed; model-only trigger for comparison\n");
     for (const double rate : {48000.0, 96000.0})
     {
         const double us0 = block / rate * 1e6;
@@ -255,10 +259,16 @@ int main()
                 measure(static_cast<Tier>(t), scenarios[5], rate, block, {Family::Nonlinear, false});
             const double on = measure(static_cast<Tier>(t), scenarios[5], rate, block,
                                       {Family::Nonlinear, false, true, &rep});
+            GuardReport modelRep;
+            const double modelOn = measure(static_cast<Tier>(t), scenarios[5], rate, block,
+                                           {Family::Nonlinear, false, true, &modelRep, GuardTrigger::Model});
             std::printf(
-                "%3.0f kHz %-9s off %7.1f (%4.1f%%)  on %7.1f (%4.1f%%)  model %4.1f%% -> %4.1f%%  %d/%d\n",
+                "%3.0f kHz %-9s off %7.1f (%4.1f%%)  on %7.1f (%4.1f%%)  predicted %5.1f%% -> %4.1f%%  "
+                "measured %4.1f%%  %d/%d  | model-only on %4.1f%%, model %5.1f%% -> %4.1f%%  %d/%d\n",
                 rate / 1000.0, tierNames[t], off, 100.0 * off / us0, on, 100.0 * on / us0,
-                100.0 * rep.estimatedShare, 100.0 * rep.finalShare, rep.downgraded, rep.bypassed);
+                100.0 * rep.estimatedShare, 100.0 * rep.finalShare, 100.0 * rep.measuredShare, rep.downgraded,
+                rep.bypassed, 100.0 * modelOn / us0, 100.0 * modelRep.estimatedShare,
+                100.0 * modelRep.finalShare, modelRep.downgraded, modelRep.bypassed);
         }
     }
     return 0;

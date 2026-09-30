@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 
@@ -146,6 +147,7 @@ void Synth::reset() noexcept
     lastInstOut_.fill(0.0f);
     counter_ = 0;
     std::fill(startOrder_.begin(), startOrder_.end(), 0);
+    guard_.reset();
 }
 
 void Synth::setPitchBend(float semitones) noexcept
@@ -187,7 +189,25 @@ void Synth::setInstanceFrame(const InstanceFrame& frame) noexcept
     std::memcpy(static_cast<void*>(latestI_.get()), &frame, sizeof(InstanceFrame));
 }
 
+namespace
+{
+double steadySeconds() noexcept
+{
+    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+} // namespace
+
 void Synth::process(float* left, float* right, int n) noexcept
+{
+    const bool timed = guard_.trigger() == GuardTrigger::Measured && !voices_.empty();
+    const LoadClock clock = clock_ != nullptr ? clock_ : steadySeconds;
+    const double start = timed ? clock() : 0.0;
+    processUntimed(left, right, n);
+    if (timed)
+        guard_.observe(clock() - start, n);
+}
+
+void Synth::processUntimed(float* left, float* right, int n) noexcept
 {
     detail::ScopedNoDenormals noDenormals;
     if (voices_.empty())
