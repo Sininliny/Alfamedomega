@@ -107,7 +107,11 @@ The tests export dummy models at build time, which needs Python 3 with `numpy` a
   (Clang 20+, e.g. `CC=clang-20 CXX=clang++-20 cmake --preset core -B /tmp/alfa-rtsan`).
   RealtimeSanitizer aborts on any allocation, lock or system call inside the audio-thread calls,
   including inside anira and ONNX Runtime.
-- `alfa_inference_tests "[.bench]"`: audio-thread cost per frame.
+- `alfa_inference_tests "[.bench]"`: audio-thread cost per frame, and a wall-clock paced run
+  that reports late frames next to the test thread's worst oversleep. It is not a gate: an
+  oversleeping test thread catches up with blocks back to back, and frames pushed in that burst
+  cannot be back in time. The gating real-time test waits for inference between blocks instead
+  (`waitForInference()`), so it is deterministic.
 
 ## Files
 

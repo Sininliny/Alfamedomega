@@ -23,8 +23,16 @@ struct Run
     std::uint64_t late = 0;
 };
 
+enum class Pacing
+{
+    None,        // back to back; only meaningful with setNonRealtime(true)
+    WaitForWork, // after each block, wait until the inference thread has caught up (deterministic)
+    WallClock,   // sleep to the next block's deadline, like a real device (timing-dependent)
+};
+
 // Drives voice 0 with a pitch value that changes every block, and records what comes back.
-Run drive(InferenceHost& host, int blockSize, int numBlocks, double sampleRate, bool paceRealtime)
+Run drive(InferenceHost& host, int blockSize, int numBlocks, double sampleRate, Pacing pacing,
+          double* worstOversleepMs = nullptr)
 {
     Run run;
     VoiceInput voice;
@@ -44,10 +52,16 @@ Run drive(InferenceHost& host, int blockSize, int numBlocks, double sampleRate, 
             run.out.push_back(test::passThrough(e.frame, 0));
             run.offsets.push_back(e.sampleOffset);
         }
-        if (paceRealtime)
+        if (pacing == Pacing::WaitForWork)
+            REQUIRE(host.waitForInference(std::chrono::seconds(2)));
+        if (pacing == Pacing::WallClock)
         {
             next += std::chrono::duration_cast<std::chrono::steady_clock::duration>(blockDuration);
             std::this_thread::sleep_until(next);
+            const auto over =
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - next);
+            if (worstOversleepMs != nullptr)
+                *worstOversleepMs = std::max(*worstOversleepMs, over.count());
         }
     }
     run.late = host.stats().framesLate - lateBefore;
@@ -85,7 +99,7 @@ TEST_CASE("reported latency is exactly the delay the frames arrive with", "[infe
     REQUIRE(lag >= 1);
     REQUIRE(host.latencySamples() == lag * hop);
 
-    const auto run = drive(host, blockSize, 300, sampleRate, false);
+    const auto run = drive(host, blockSize, 300, sampleRate, Pacing::None);
     CAPTURE(toString(tier), sampleRate, blockSize, lag);
     REQUIRE(run.late == 0);
     // The first `lag` frames are the latency padding, then every frame is exactly `lag` late.
@@ -115,17 +129,48 @@ TEST_CASE("latency per tier stays within the tier spec", "[inference][latency]")
     }
 }
 
-TEST_CASE("paced like a real host, frames keep up and stay aligned", "[inference][latency]")
+TEST_CASE("in real-time mode, frames arrive on time and aligned when the host never outruns inference",
+          "[inference][latency]")
 {
+    // The real-time path (process() never waits) with the timing taken out: after each block the
+    // test waits until the inference thread has computed every frame handed to it. Any late or
+    // misaligned frame is then a host bug, not a slow or noisy machine.
     const auto library = test::loadTestLibrary();
+    const auto tier = GENERATE(Tier::Lite, Tier::Standard, Tier::Pro, Tier::Studio);
+    const int block = std::max(128, spec(tier).smallestBufferSupported);
     InferenceHost host;
     std::string error;
-    REQUIRE(host.loadTier(test::requireModel(library, Tier::Lite), error));
-    host.prepare(48000.0, 128);
-    const auto run = drive(host, 128, 190, 48000.0, true); // about half a second
-    CAPTURE(run.late, run.out.size());
-    REQUIRE(static_cast<double>(run.late) <= 0.05 * static_cast<double>(run.out.size()));
-    REQUIRE(matchRate(run, host.latencyFrames()) >= 0.9);
+    REQUIRE(host.loadTier(test::requireModel(library, tier), error));
+    host.prepare(48000.0, block);
+    const auto run = drive(host, block, 200, 48000.0, Pacing::WaitForWork);
+    const int lag = host.latencyFrames();
+    CAPTURE(toString(tier), block, lag, run.late, run.out.size());
+    REQUIRE(run.late == 0);
+    for (int n = 0; n < lag; ++n)
+        REQUIRE(run.out[static_cast<std::size_t>(n)] == 0.0f);
+    REQUIRE(matchRate(run, lag) == 1.0);
+}
+
+TEST_CASE("paced on the wall clock like a real device", "[inference][.bench]")
+{
+    // Timing-dependent, so not a gate: on a shared CI runner the test thread oversleeps, then
+    // catches up with several blocks back to back, and frames pushed in that burst cannot be
+    // back before they are popped. Reports late frames next to the worst oversleep.
+    const auto library = test::loadTestLibrary();
+    for (const auto& s : kTiers)
+    {
+        InferenceHost host;
+        std::string error;
+        REQUIRE(host.loadTier(test::requireModel(library, s.tier), error));
+        const int block = std::max(128, s.smallestBufferSupported);
+        host.prepare(48000.0, block);
+        double worstOversleepMs = 0.0;
+        const auto run = drive(host, block, 48000 / block, 48000.0, Pacing::WallClock, &worstOversleepMs);
+        std::printf(
+            "paced %-8s block %4d: %3llu of %3zu frames late, alignment %.3f, worst oversleep %.2f ms\n",
+            std::string(s.name).c_str(), block, static_cast<unsigned long long>(run.late), run.out.size(),
+            matchRate(run, host.latencyFrames()), worstOversleepMs);
+    }
 }
 
 TEST_CASE("without a model the host still ticks and hands out silent frames", "[inference][host]")
@@ -150,7 +195,7 @@ TEST_CASE("switching tier takes effect at the next block and changes latency", "
     host.setNonRealtime(true);
     host.prepare(48000.0, 512);
     const int liteLatency = host.latencySamples();
-    drive(host, 512, 20, 48000.0, false);
+    drive(host, 512, 20, 48000.0, Pacing::None);
 
     REQUIRE(host.loadTier(test::requireModel(library, Tier::Studio), error));
     REQUIRE(host.tier() == Tier::Studio);
@@ -158,7 +203,7 @@ TEST_CASE("switching tier takes effect at the next block and changes latency", "
     CAPTURE(liteLatency, studioLatency);
     REQUIRE(studioLatency >= liteLatency);
 
-    const auto run = drive(host, 512, 40, 48000.0, false);
+    const auto run = drive(host, 512, 40, 48000.0, Pacing::None);
     host.releaseRetired();
     REQUIRE(matchRate(run, host.latencyFrames()) > 0.9);
 }
@@ -185,9 +230,9 @@ TEST_CASE("reset restarts the stream with the latency padding", "[inference][hos
     REQUIRE(host.loadTier(test::requireModel(library, Tier::Standard), error));
     host.setNonRealtime(true);
     host.prepare(48000.0, 192);
-    drive(host, 192, 50, 48000.0, false);
+    drive(host, 192, 50, 48000.0, Pacing::None);
     host.reset();
-    const auto run = drive(host, 192, 50, 48000.0, false);
+    const auto run = drive(host, 192, 50, 48000.0, Pacing::None);
     REQUIRE(run.offsets.front() == 0);
     REQUIRE(run.out.front() == 0.0f);
     REQUIRE(matchRate(run, host.latencyFrames()) == 1.0);

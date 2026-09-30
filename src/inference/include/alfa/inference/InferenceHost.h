@@ -7,6 +7,7 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -124,6 +125,12 @@ public:
     /// pointers stay valid until the next process() call. Blocks with no boundary return an
     /// empty span: keep using the last frame.
     std::span<const FrameEvent> process(int numSamples) noexcept;
+
+    /// Blocks until every frame process() has handed to the inference thread so far has been
+    /// computed, or the timeout passes (returns false). For tests and offline tools that must
+    /// never outrun inference without switching to setNonRealtime(): call it on the audio
+    /// thread between process() calls. Not real-time safe.
+    bool waitForInference(std::chrono::milliseconds timeout) const;
 
     /// Re-anchors the stream after a transport jump: drops in-flight frames, zeroes the model's
     /// recurrent state and restarts the frame clock.
