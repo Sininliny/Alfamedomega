@@ -6,7 +6,7 @@
 // Every figure is ns of CPU per sample of audio at 48 and 96 kHz, the median of several runs:
 // - primitives: a full tier's voices each playing one primitive at the tier's limits, minus the
 //   empty synth, per voice;
-// - slots: the processor alone at the worst of several param sets (defaults, all 0.5, all 1,
+// - slots: the processor alone at typical params, the median of several param sets (defaults, all 0.5, all 1,
 //   random), params nudged every control block so coefficient updates are included; mono for
 //   voice slots, stereo for instance slots; quality 0 and 1;
 // - instance base: the synth with no notes (bus, instance chain with every slot off).
@@ -139,7 +139,7 @@ double synthNs(Tier tier, double sr, const VoiceFrame* frame, int notes)
     return ns / (static_cast<double>(blocks) * kBlock);
 }
 
-/// ns per sample of one processor at the worst of several param sets.
+/// ns per sample of one processor at typical params: the median over several param sets.
 double processorNs(Family family, Tier tier, double sr, int channels, int quality, IrBank* irs)
 {
     auto p = makeProcessor(family);
@@ -175,7 +175,7 @@ double processorNs(Family family, Tier tier, double sr, int channels, int qualit
     std::mt19937 noise(3);
     std::uniform_real_distribution<float> n(-0.5f, 0.5f);
 
-    double worst = 0.0;
+    std::vector<double> perSet;
     for (auto& params : sets)
     {
         p->reset();
@@ -197,9 +197,9 @@ double processorNs(Family family, Tier tier, double sr, int channels, int qualit
                 elapsed +=
                     std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - t0).count();
         }
-        worst = std::max(worst, elapsed / (static_cast<double>(blocks) * kBlock));
+        perSet.push_back(elapsed / (static_cast<double>(blocks) * kBlock));
     }
-    return worst;
+    return median(perSet);
 }
 
 void printPair(double a, double b)

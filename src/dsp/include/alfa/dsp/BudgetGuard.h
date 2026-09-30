@@ -9,9 +9,10 @@
 // degraded. Costs are per second of audio, so the same share holds at 44.1, 48 and 96 kHz.
 //
 // The cost model is a table of measured nanoseconds of CPU per sample at 48 and 96 kHz
-// (CostTableGenerated.h, written by `alfa_dsp_bench --calibrate`), interpolated linearly in
-// the sample rate. It is an estimate for the machine class it was measured on; hosts can scale
-// it (setCostScale) after timing their own blocks. The guard never measures time on the audio
+// (CostTableGenerated.h, written by `alfa_dsp_calibrate`), interpolated linearly in the sample
+// rate. Slot costs are the median over typical param sets, and every cost is multiplied by
+// kSafetyMargin (1.2, per the tier spec). It is an estimate for the machine class it was measured on; hosts
+// can scale it (setCostScale) after timing their own blocks. The guard never measures time on the audio
 // thread, so its decisions are deterministic for a given input.
 
 #include "alfa/dsp/ControlFrame.h"
@@ -55,6 +56,9 @@ class BudgetGuard
 {
 public:
     static constexpr int kMaxVoices = 64;
+    /// Every modelled cost is multiplied by this: the table holds typical-param costs, and
+    /// the tier spec asked for a 1.2x margin rather than worst-case params.
+    static constexpr float kSafetyMargin = 1.2f;
 
     void prepare(double sampleRate, Tier tier) noexcept;
     void setEnabled(bool enabled) noexcept { enabled_ = enabled; }

@@ -152,4 +152,4 @@ If the total exceeds the tier's `max_block_share` of real time, the guard degrad
 
 Instance slots and primitives are never degraded. The cost is modelled per second of audio, so the budget holds at every sample rate.
 
-The cost table, `CostTableGenerated.h`, is written by `alfa_dsp_calibrate`. It holds the ns per sample measured at 48 and 96 kHz on the calibration machine. Slot costs are the worst of several param sets, so the model is conservative. Hosts can rescale the model with `Synth::setCostScale`. The guard never reads a clock on the audio thread, so a given input always gets the same decisions.
+The cost table, `CostTableGenerated.h`, is written by `alfa_dsp_calibrate`. It holds the ns per sample measured at 48 and 96 kHz on the calibration machine. Slot costs are the median over several typical param sets, and the guard multiplies every cost by a 1.2× safety margin (`BudgetGuard::kSafetyMargin`), as the tier spec asked, rather than charging worst-case params. Hosts can rescale the model with `Synth::setCostScale`. The guard never reads a clock on the audio thread, so a given input always gets the same decisions.

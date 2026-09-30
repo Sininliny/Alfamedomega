@@ -21,7 +21,7 @@ float BudgetGuard::share(const float (&ns)[2]) const noexcept
     const double t = (sampleRate_ - 48000.0) / 48000.0;
     const double perSample =
         std::max(0.0, static_cast<double>(ns[0]) + t * static_cast<double>(ns[1] - ns[0]));
-    return static_cast<float>(perSample * sampleRate_ * 1.0e-9) * scale_;
+    return static_cast<float>(perSample * sampleRate_ * 1.0e-9) * scale_ * kSafetyMargin;
 }
 
 float BudgetGuard::primitiveShare(int primitive) const noexcept
