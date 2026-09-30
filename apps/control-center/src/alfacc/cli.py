@@ -9,7 +9,7 @@ from pathlib import Path
 from . import __version__
 from .context import Context
 from .jobs import SUCCEEDED
-from .models import ModelStoreError
+from .models import ModelStoreError, model_bytes
 from .preference import create_batch_job
 from .settings import Settings
 from .tiers import STAGES, TIERS
@@ -62,8 +62,8 @@ def cmd_models(ctx: Context, a) -> int:
         if not man["models"]:
             print("  (no models installed)")
         for m in man["models"]:
-            print(f"  {m['id']:<20} {_mb(m['bytes']):>10}  {len(m['files'])} files  "
-                  f"installed {m['installed_at']}  {m.get('notes', '')}")
+            print(f"  {m['folder']:<20} {_mb(model_bytes(m)):>10}  {len(m['files'])} files  "
+                  f"installed {m.get('installed_at', '?')}  {m.get('notes', '')}")
     elif a.action == "verify":
         bad = 0
         for r in store.verify(a.id):
@@ -71,8 +71,8 @@ def cmd_models(ctx: Context, a) -> int:
             bad += not r.ok
         return 1 if bad else 0
     elif a.action == "import":
-        e = store.import_any(Path(a.path), version=a.version, notes=a.notes or "", replace=a.replace)
-        print(f"installed {e['id']} ({_mb(e['bytes'])}) into {store.root}")
+        for e in store.import_any(Path(a.path), version=a.version, notes=a.notes or "", replace=a.replace):
+            print(f"installed {e['folder']} ({_mb(e['bytes'])}) into {store.root}")
     elif a.action == "export":
         print(f"wrote {store.export_bundle(a.id, Path(a.dest))}")
     elif a.action == "remove":

@@ -17,7 +17,7 @@ def test_training_job_trains_exports_and_installs(ctx):
     assert done["result"]["installed"] == "lite-0.9.0"
     assert done["artifacts"][0].endswith("lite_pretrain.pt")
     assert done["progress"] is None or done["progress"] == [5, 5]
-    assert [m["id"] for m in ctx.store.models()] == ["lite-0.9.0"]
+    assert [m["folder"] for m in ctx.store.models()] == ["lite-0.9.0"]
     log = ctx.jobs.read_log(job["id"])
     assert "step 5/5" in log and "installed lite-0.9.0" in log
 
@@ -78,7 +78,8 @@ def test_colab_notebook_embeds_script_and_commands():
     assert any(s.startswith("%%writefile alfamedomega_train.py\nprint('hi')") for s in src)
     assert any("train --tier studio --stage pretrain --steps 1000" in s for s in src)
     assert any("export --ckpt /content/drive/MyDrive/alfamedomega/runs/studio-pretrain/studio_pretrain.pt"
-               in s for s in src)
+               " --tier studio --out /content/drive/MyDrive/alfamedomega/runs/studio-pretrain/export"
+               " --version 0.1.0" in s for s in src)
     json.dumps(nb)
 
 
@@ -88,7 +89,7 @@ def test_cli_end_to_end(ctx, tmp_path, capsys, fake_export):
     assert main(base + ["settings", "--set", f"training_script={ctx.script}",
                         "--set", f"training_python={sys.executable}"]) == 0
     assert main(base + ["train", "--tier", "standard", "--steps", "3", "--quiet"]) == 0
-    assert main(base + ["models", "import", str(fake_export), "--version", "1.0.0"]) == 0
+    assert main(base + ["models", "import", str(fake_export / "lite-0.1.0"), "--version", "1.0.0"]) == 0
     assert main(base + ["models", "verify"]) == 0
     assert main(base + ["models", "export", "lite-1.0.0", str(tmp_path)]) == 0
     assert main(base + ["models", "remove", "lite-1.0.0"]) == 0

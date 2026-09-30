@@ -11,7 +11,7 @@ FAKE_TRAIN = HERE / "fake_train.py"
 
 @pytest.fixture
 def fake_export(tmp_path):
-    """A training export folder as training/alfamedomega_train.py export writes it."""
+    """A training export (a Models folder) as training/alfamedomega_train.py export writes it."""
     import subprocess
     out = tmp_path / "export"
     subprocess.run([sys.executable, str(FAKE_TRAIN), "export", "--tier", "lite", "--out", str(out)],

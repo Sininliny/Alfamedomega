@@ -21,6 +21,7 @@ ex = sub.add_parser("export")
 ex.add_argument("--ckpt")
 ex.add_argument("--tier")
 ex.add_argument("--out")
+ex.add_argument("--version", default="0.1.0")
 ex.add_argument("--int8", action="store_true")
 a = ap.parse_args()
 
@@ -36,11 +37,18 @@ if a.cmd == "train":
     open(path, "wb").write(b"ckpt")
     print(f"saved {path}")
 else:
-    os.makedirs(a.out, exist_ok=True)
+    # Like the real export: a Models folder with <tier>-<version>/ and the host's manifest.json.
+    import hashlib
+    folder = f"{a.tier}-{a.version}"
+    out = os.path.join(a.out, folder)
+    os.makedirs(out, exist_ok=True)
     for g in GRAPHS:
-        open(os.path.join(a.out, g + ".onnx"), "wb").write(os.urandom(256) + g.encode())
-    open(os.path.join(a.out, "grain_sources.npy"), "wb").write(b"npy")
-    open(os.path.join(a.out, "dsp_golden.npz"), "wb").write(b"golden")
-    json.dump({"tier": a.tier, "sr": 48000, "frame_hz": 250, "hop": 192},
+        open(os.path.join(out, g + ".onnx"), "wb").write(os.urandom(256) + g.encode())
+    open(os.path.join(out, "grain_bank.npy"), "wb").write(b"npy")
+    open(os.path.join(out, "dsp_golden.npz"), "wb").write(b"golden")
+    json.dump({"tier": a.tier, "sr_trained": 48000, "frame_hz": 250}, open(os.path.join(out, "export_info.json"), "w"))
+    files = {fn: hashlib.sha256(open(os.path.join(out, fn), "rb").read()).hexdigest() for fn in sorted(os.listdir(out))}
+    json.dump({"schema": 1, "models": [{"tier": a.tier, "version": a.version, "folder": folder, "opset": 17,
+                                        "frame_rate_hz": 250, "files": files}]},
               open(os.path.join(a.out, "manifest.json"), "w"))
-    print("exported")
+    print(f"wrote {os.path.join(a.out, 'manifest.json')} entry for {folder}")

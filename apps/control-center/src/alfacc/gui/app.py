@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
 
 from .. import __version__, jobs
 from ..context import Context
-from ..models import BUNDLE_SUFFIX, ModelStoreError
+from ..models import BUNDLE_SUFFIX, ModelStoreError, model_bytes
 from ..preference import create_batch_job
 from ..tiers import DEFAULT_TIER, STAGES, TIERS
 from ..training import (TrainSpec, check_environment, create_export_job, create_training_job,
@@ -225,12 +225,12 @@ class ModelsPage(Page):
         keep = self.selected_id()
         self.table.setRowCount(len(models))
         for r, m in enumerate(models):
-            vals = [item(m["id"], mono=True), item(TIERS[m["tier"]].label), item(m["version"], mono=True),
-                    item(f"{m['bytes'] / 1e6:.1f} MB", True, True), item(len(m["files"]), True),
+            vals = [item(m["folder"], mono=True), item(TIERS[m["tier"]].label), item(m["version"], mono=True),
+                    item(f"{model_bytes(m) / 1e6:.1f} MB", True, True), item(len(m["files"]), True),
                     item(ago(m.get("installed_at"))), item(m.get("notes", ""))]
             for c, v in enumerate(vals):
                 self.table.setItem(r, c, v)
-            if m["id"] == keep:
+            if m["folder"] == keep:
                 self.table.selectRow(r)
         self.table.resizeColumnsToContents()
         for name, (f, state) in self.tier_cards.items():

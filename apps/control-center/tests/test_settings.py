@@ -60,3 +60,26 @@ def test_settings_round_trip_ignores_unknown_keys(tmp_path):
     (tmp_path / "settings.json").write_text(
         (tmp_path / "settings.json").read_text().replace('"extra"', '"from_the_future": 1, "extra"'))
     assert settings.load_settings(tmp_path).repo_dir == "/src/alfa"
+
+
+@pytest.mark.parametrize("platform,env,expected", [
+    ("darwin", {}, "/Library/Application Support/Alfamedomega/Models"),
+    ("win32", {"PROGRAMDATA": r"D:\PD"}, str(Path(r"D:\PD") / "Alfamedomega" / "Models")),
+    ("linux", {"XDG_DATA_HOME": "/xdg"}, "/xdg/Alfamedomega/Models"),
+    ("linux", {"ALFA_MODELS_DIR": "/over"}, "/over"),
+])
+def test_models_folder_matches_the_inference_host(monkeypatch, platform, env, expected):
+    """Same lookup as src/inference/src/ModelLibrary.cpp, so both apps use one folder."""
+    for k in ("ALFA_MODELS_DIR", "XDG_DATA_HOME", "PROGRAMDATA"):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(sys, "platform", platform)
+    assert str(settings.default_models_dir()) == expected
+
+
+def test_linux_models_folder_defaults_to_local_share(monkeypatch):
+    for k in ("ALFA_MODELS_DIR", "XDG_DATA_HOME"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert settings.default_models_dir() == Path.home() / ".local/share/Alfamedomega/Models"

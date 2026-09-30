@@ -6,15 +6,19 @@ import pytest
 from alfacc.models import ModelStore, ModelStoreError
 
 
-def test_import_export_folder_writes_manifest_with_hashes(tmp_path, fake_export):
+def test_import_export_folder_writes_host_manifest(tmp_path, fake_export):
     store = ModelStore(tmp_path / "Models")
-    entry = store.import_export(fake_export)
-    assert entry["id"] == "lite-0.1.0"
-    names = {f["path"] for f in entry["files"]}
-    assert "voice_core.onnx" in names and "manifest.json" in names
-    assert "dsp_golden.npz" not in names  # developer test vectors stay out of installs
+    [entry] = store.import_export(fake_export, version="0.1.0")
+    assert entry["folder"] == "lite-0.1.0"
+    assert "voice_core.onnx" in entry["files"] and "export_info.json" in entry["files"]
+    assert "dsp_golden.npz" not in entry["files"]  # developer test vectors stay out of installs
     man = json.loads((tmp_path / "Models" / "manifest.json").read_text())
-    assert man["schema"] == 1 and man["models"][0]["hop"] == 192
+    m = man["models"][0]
+    # The inference host's contract (src/inference/MODEL_CONTRACT.md).
+    assert man["schema"] == 1
+    assert {k: m[k] for k in ("tier", "version", "folder", "opset", "frame_rate_hz")} == \
+        {"tier": "lite", "version": "0.1.0", "folder": "lite-0.1.0", "opset": 17, "frame_rate_hz": 250}
+    assert all(isinstance(v, str) and len(v) == 64 for v in m["files"].values())
     assert all(r.ok for r in store.verify())
     assert not list((tmp_path / "Models").glob(".staging-*"))
 
@@ -22,17 +26,17 @@ def test_import_export_folder_writes_manifest_with_hashes(tmp_path, fake_export)
 def test_versions_increment_and_duplicates_are_refused(tmp_path, fake_export):
     store = ModelStore(tmp_path / "Models")
     store.import_export(fake_export)
-    assert store.import_export(fake_export)["version"] == "0.1.1"
+    assert store.import_export(fake_export, version="0.1.1")[0]["version"] == "0.1.1"
     with pytest.raises(ModelStoreError, match="already installed"):
         store.import_export(fake_export, version="0.1.0")
-    assert store.import_export(fake_export, version="0.1.0", replace=True)["id"] == "lite-0.1.0"
-    assert [m["id"] for m in store.models()] == ["lite-0.1.0", "lite-0.1.1"]
+    assert store.import_export(fake_export, version="0.1.0", replace=True)[0]["folder"] == "lite-0.1.0"
+    assert [m["folder"] for m in store.models()] == ["lite-0.1.0", "lite-0.1.1"]
     with pytest.raises(ModelStoreError, match="MAJOR.MINOR.PATCH"):
         store.import_export(fake_export, version="1.0")
 
 
 def test_incomplete_export_is_rejected(tmp_path, fake_export):
-    (fake_export / "voice_core.onnx").unlink()
+    (fake_export / "lite-0.1.0" / "voice_core.onnx").unlink()
     with pytest.raises(ModelStoreError, match="voice_core"):
         ModelStore(tmp_path / "Models").import_export(fake_export)
 
@@ -54,9 +58,9 @@ def test_bundle_round_trip_between_machines(tmp_path, fake_export):
     bundle = a.export_bundle("lite-1.2.3", tmp_path)
     assert bundle.name == "alfamedomega-lite-1.2.3.alfamodel"
     b = ModelStore(tmp_path / "B")
-    entry = b.import_any(bundle)
-    assert entry["id"] == "lite-1.2.3" and entry["notes"] == "first"
-    assert [f["sha256"] for f in entry["files"]] == [f["sha256"] for f in a.get("lite-1.2.3")["files"]]
+    [entry] = b.import_any(bundle)
+    assert entry["folder"] == "lite-1.2.3" and entry["notes"] == "first"
+    assert entry["files"] == a.get("lite-1.2.3")["files"]
     assert all(r.ok for r in b.verify())
 
 
@@ -79,7 +83,7 @@ def test_bundle_with_path_traversal_is_rejected(tmp_path):
     bad = tmp_path / "evil.alfamodel"
     with zipfile.ZipFile(bad, "w") as z:
         z.writestr("alfamodel.json", json.dumps({"schema": 1, "tier": "lite", "version": "1.0.0",
-                                                 "files": [{"path": "../../x", "sha256": "0"}]}))
+                                                 "files": {"../../x": "0"}}))
         z.writestr("files/../../x", b"x")
     with pytest.raises(ModelStoreError, match="unsafe"):
         ModelStore(tmp_path / "M").import_bundle(bad)
@@ -88,11 +92,24 @@ def test_bundle_with_path_traversal_is_rejected(tmp_path):
 
 def test_zipped_export_from_colab(tmp_path, fake_export):
     z = tmp_path / "export.zip"
-    with zipfile.ZipFile(z, "w") as zf:
-        for p in fake_export.iterdir():
-            zf.write(p, f"export/{p.name}")
-    entry = ModelStore(tmp_path / "M").import_any(z, version="2.0.0")
-    assert entry["id"] == "lite-2.0.0"
+    with zipfile.ZipFile(z, "w") as zf:  # what the Colab notebook's last cell makes
+        for p in fake_export.rglob("*"):
+            if p.is_file():
+                zf.write(p, f"export/{p.relative_to(fake_export).as_posix()}")
+    [entry] = ModelStore(tmp_path / "M").import_any(z)
+    assert entry["folder"] == "lite-0.1.0"
+
+
+def test_single_tier_folder_and_training_written_models_folder(tmp_path, fake_export):
+    """A lone <tier>-<version> folder imports too, and a Models folder written by the training
+    export directly (no sizes, no default_tier) is readable."""
+    [e] = ModelStore(tmp_path / "M").import_any(fake_export / "lite-0.1.0")
+    assert e["folder"] == "lite-0.1.0"
+    direct = ModelStore(fake_export)
+    assert [m["folder"] for m in direct.models()] == ["lite-0.1.0"]
+    assert direct.manifest()["default_tier"] == "standard"
+    [r] = direct.verify()
+    assert r.ok
 
 
 def test_remove_and_default_tier(tmp_path, fake_export):
