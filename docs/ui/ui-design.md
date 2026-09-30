@@ -2,7 +2,7 @@
 
 - **Status:** Draft
 - **Date:** 2026-09-29
-- **Mockup:** https://claude.ai/artifact/EEkyiciMVE9cVzsWzwaHGH (five boards: Perform, Signal flow, Sound design, Customize, Control states)
+- **Mockup:** https://claude.ai/artifact/EEkyiciMVE9cVzsWzwaHGH (seven boards: Perform, Signal flow, Sound design, Customize, Learning settings, Generate, Control states)
 - **Depends on:** [ADR 0001](../decisions/0001-plugin-and-inference-stack.md) (JUCE 8), `docs/tiers/tier_budget.py` (tier numbers shown in the UI are provisional and come from there)
 
 ## The problem
@@ -40,6 +40,20 @@ Added after feedback on 2026-09-29: key parameters should be visualised, the cur
 - **Explain each step** turns the notes on or off.
 - **Choose what is shown:** each step can be hidden from the display with a chip in the toolbar; the sound still passes through it, and a line says how many steps are hidden. A compact version of the strip can also be pinned to the Perform view (off by default, switched on in Customize).
 - **Interpretation:** "a workflow that handles quotation marks" was read as annotated steps, where each step carries a short explanatory note. To be confirmed with Sinin.
+
+### Preference learning (Generate, Learning settings)
+
+Implements the UI items in section 8.1 of [`docs/preference/design.md`](../preference/design.md). Everything below runs locally; the UI says so wherever learning is mentioned.
+
+- **"Learn from how I play" switch** (Customize › Learning). **Off by default.** Turning it on starts the event log; turning it off stops new events but keeps what was learned until the user forgets it. While on, a line shows how many sessions have been noted.
+- **Library folders** (Customize › Learning). "Add folder…" opens the host OS folder picker; each folder row shows its indexing state and a **Forget this folder** button, which deletes that root's entries from `library.jsonl`. **Forget everything** deletes the whole profile folder and is styled as the one destructive action; it needs a confirm dialog in the build. **Show profile folder** reveals it in the file manager. A side panel restates the "stored / not stored" table from section 7 of the preference doc in plain words.
+- **Generate** (a Generate… button in the Perform view's Timbre space panel opens it; in the build it is a sheet over Perform, not a separate window):
+  - a **words box** ("warm, airy") with suggestion chips that append a word;
+  - a **Familiar ↔ Surprising** slider. Left is high β (close to the user's taste); the far right is β = 0, the plain random patch generator, and the helper text says taste is ignored there. With learning off, "familiar" means close to the words and library only, and a note says so with a link to Learning settings;
+  - a **seed** readout with **Lock seed**, because the same profile, words, setting and seed reproduce the same proposals;
+  - **Generate 4 sounds**, then four proposal cards, each with its main methods, a waveform, **Play** (audition without replacing the current patch), **Use this sound** (loads it and logs `load` with source `generate`), like and dislike, and a **Why this sound** readout of its top words. Words the user typed are drawn in the accent colour; words the model added are neutral.
+- **Like and dislike on the preset bar** (Perform header). Optional: shown only when "Show like and dislike on the preset bar" is on (off by default in the build; on in the mockup so it can be seen). Pressing one again clears it, and changing preset clears it. Each press logs a `rate` event. To make room, Save moved into the preset menu.
+- **Events the UI emits** (schema `preference/alfapref/events.py`): `load` with its source (browser, generate, project restore, init), `edit` (debounced), `save_preset`, `rate`. The UI never writes the log itself; it posts to the background writer the preference doc describes.
 
 ### Sound design
 
