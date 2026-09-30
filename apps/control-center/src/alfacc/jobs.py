@@ -20,7 +20,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .settings import write_json_atomic
+from .settings import read_json, write_json_atomic
 
 QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED, INTERRUPTED = (
     "queued", "running", "succeeded", "failed", "cancelled", "interrupted")
@@ -105,7 +105,7 @@ class JobManager:
         return self.dir / job_id / "log.txt"
 
     def get(self, job_id: str) -> dict:
-        return json.loads(self._path(job_id).read_text(encoding="utf-8"))
+        return read_json(self._path(job_id))
 
     def _save(self, job: dict) -> None:
         with self._save_lock:
@@ -138,7 +138,7 @@ class JobManager:
         jobs = []
         for p in self.dir.glob("*/job.json"):
             try:
-                jobs.append(json.loads(p.read_text(encoding="utf-8")))
+                jobs.append(read_json(p))
             except (OSError, json.JSONDecodeError):
                 continue
         return sorted(jobs, key=lambda j: j["created"], reverse=True)
