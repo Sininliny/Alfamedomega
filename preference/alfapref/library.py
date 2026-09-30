@@ -107,8 +107,9 @@ def scan(root, salt, index=None, max_files=None):
 
 def from_records(records, salt, progress=None):
     """Build entries from an index written by the control center (docs/control-center/
-    preference-batch.md): one dict per file with at least "path", "library" and "rel". Words are
-    recomputed from "rel" with tokens.path_words so there is one definition of them. The paths are
+    preference-batch.md): one dict per file with at least "path", "library" and "rel", and
+    optionally "tags" (list), "description" (text) and "labels" (list of the user's hand labels).
+    Words are recomputed with tokens.record_words so there is one definition of them. The paths are
     only read here; the entries keep salted keys, as scan() does.
     Returns (entries, report)."""
     out = []
@@ -131,7 +132,8 @@ def from_records(records, salt, progress=None):
             continue
         out.append({"key": salted(salt, root_id + "/" + rel.replace(os.sep, "/")), "root": root_id,
                     "size": st.st_size, "mtime": int(st.st_mtime), "descriptor_id": desc_mod.DESCRIPTOR_ID,
-                    "desc": [round(float(v), 5) for v in d], "words": tokens.path_words(rel), "weight": 1.0})
+                    "desc": [round(float(v), 5) for v in d], "words": tokens.record_words(rel, r.get("tags"), r.get("description"), r.get("labels")),
+                    "weight": 1.0})
         report["added"] += 1
     return out, report
 
@@ -203,6 +205,70 @@ def from_assimilation(root, salt, progress=None):
                     "desc": [round(float(v), 5) for v in r["descriptor"]], "words": words,
                     "weight": ASSIMILATION_WEIGHT / per_preset[(plugin, key)], "source": "assimilation"})
     report = {"notes": len(out), "presets": len(per_preset), "plugins": len(meta)}
+    return out, report
+
+
+LABELS_ROOT = "labels"
+PRESET_WEIGHT = 1.0        # a preset the user made and named in Alfamedomega
+
+
+def label_example(path, labels, salt, index=None):
+    """Add or replace one hand-labelled audio example ("this is what I mean by warm").
+    Returns the new index."""
+    path = os.path.abspath(path)
+    key = salted(salt, "label/" + path)
+    x, sr = read_wav(path)
+    st = os.stat(path)
+    entry = {"key": key, "root": LABELS_ROOT, "size": st.st_size, "mtime": int(st.st_mtime),
+             "descriptor_id": desc_mod.DESCRIPTOR_ID,
+             "desc": [round(float(v), 5) for v in desc_mod.descriptor(x, sr)],
+             "words": tokens.record_words(labels=labels), "weight": 1.0, "source": "label"}
+    return [e for e in (index or []) if e["key"] != key] + [entry]
+
+
+def labelled_examples(path, salt, progress=None):
+    """Entries from a JSONL file of hand labels, one {"path": ..., "labels": [...]} per line.
+    Returns (entries, report)."""
+    out, report = [], {"added": 0, "failed": 0}
+    if not path or not os.path.exists(path):
+        return out, report
+    with open(path) as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+    for i, r in enumerate(rows):
+        if progress:
+            progress(i)
+        try:
+            out = label_example(r["path"], r.get("labels") or [], salt, out)
+            report["added"] += 1
+        except (KeyError, ValueError, OSError, struct.error):
+            report["failed"] += 1
+    return out, report
+
+
+def from_presets(records, salt, renderer, progress=None):
+    """Entries from the user's own Alfamedomega presets: one dict per preset with "patch" and
+    optionally "name", "category", "tags" and "description". The patch is rendered (middle C,
+    1 s) and the preset's own words label it. Returns (entries, report)."""
+    out, report = [], {"added": 0, "failed": 0}
+    for i, r in enumerate(records):
+        if progress:
+            progress(i)
+        try:
+            patch = r["patch"]
+            y = renderer(patch, pitch=60, velocity=0.8, seconds=1.0)
+            d = desc_mod.descriptor(y, desc_mod.SR)
+        except (KeyError, ValueError, TypeError):
+            report["failed"] += 1
+            continue
+        name = r.get("name") or ""
+        label = ((r.get("category") or "").strip("/") + "/" if r.get("category") else "") + name
+        words = {} if name in ("", "default", "Default", "Init") else \
+            tokens.record_words(label, r.get("tags"), r.get("description"))
+        out.append({"key": salted(salt, "preset/" + json.dumps(patch, sort_keys=True)), "root": "presets",
+                    "size": 0, "mtime": 0, "descriptor_id": desc_mod.DESCRIPTOR_ID,
+                    "desc": [round(float(v), 5) for v in d], "words": words, "weight": PRESET_WEIGHT,
+                    "source": "preset"})
+        report["added"] += 1
     return out, report
 
 
