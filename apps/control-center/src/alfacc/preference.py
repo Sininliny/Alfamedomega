@@ -287,17 +287,22 @@ def assimilation_for(home: Path, learner: str) -> Path | None:
     """<home>/assimilation when it holds analysed plugin notes and the learner reads them.
 
     Older learners reject unknown flags, so the flag is passed only when the learner script
-    mentions it (docs/control-center/plugin-assimilation.md, section 10).
+    or its alfapref/cli.py mentions it (docs/control-center/plugin-assimilation.md, section 10).
     """
     folder = Path(home) / "assimilation"
     if not any(folder.glob("*/features.jsonl")):
         return None
     scripts = [t for t in shlex.split(learner, posix=os.name != "nt") if t.endswith(".py")]
-    try:
-        if scripts and "--assimilation" in Path(scripts[-1]).read_text(encoding="utf-8"):
-            return folder
-    except OSError:
-        pass
+    if not scripts:
+        return None
+    # learner.py is a thin launcher; the flag itself is defined in alfapref/cli.py next to it.
+    script = Path(scripts[-1])
+    for source in (script, script.parent / "alfapref" / "cli.py"):
+        try:
+            if "--assimilation" in source.read_text(encoding="utf-8"):
+                return folder
+        except OSError:
+            continue
     return None
 
 

@@ -123,3 +123,9 @@ def test_batch_passes_assimilated_plugins_only_to_a_learner_that_reads_them(tmp_
     assert argv[argv.index("--assimilation") + 1] == str(home / "assimilation")
     with pytest.raises(ValueError):
         create_batch_job(manager, home, f"python {old}")
+    # The real learner.py is a launcher; the flag lives in alfapref/cli.py beside it.
+    launcher = tmp_path / "repo" / "learner.py"
+    (launcher.parent / "alfapref").mkdir(parents=True)
+    launcher.write_text("from alfapref.cli import main\n")
+    (launcher.parent / "alfapref" / "cli.py").write_text('p.add_argument("--assimilation")\n')
+    assert "--assimilation" in create_batch_job(manager, home, f"python {launcher}")["steps"][1]["argv"]
