@@ -4,6 +4,7 @@ Only WAV is read by this reference (PCM 8/16/24/32-bit and 32/64-bit float, whic
 sample libraries). The plugin decodes other formats with JUCE and calls the same descriptor.
 """
 import hashlib
+import json
 import os
 import struct
 
@@ -132,6 +133,76 @@ def from_records(records, salt, progress=None):
                     "size": st.st_size, "mtime": int(st.st_mtime), "descriptor_id": desc_mod.DESCRIPTOR_ID,
                     "desc": [round(float(v), 5) for v in d], "words": tokens.path_words(rel), "weight": 1.0})
         report["added"] += 1
+    return out, report
+
+
+ASSIMILATION_WEIGHT = 0.5   # a preset the user owns is weaker evidence than a file they collected
+
+
+def _json(path, default):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def assimilation_lines(root):
+    """[(plugin folder, feature dict)] from <home>/assimilation/<plugin>/features.jsonl, keeping
+    only lines that carry this learner's descriptor. Torn lines are skipped."""
+    out = []
+    if not root or not os.path.isdir(root):
+        return out
+    for name in sorted(os.listdir(root)):
+        fp = os.path.join(root, name, "features.jsonl")
+        if not os.path.isfile(fp):
+            continue
+        with open(fp) as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(r, dict) and r.get("descriptor_id") == desc_mod.DESCRIPTOR_ID \
+                        and len(r.get("descriptor") or []) == desc_mod.DIM:
+                    out.append((name, r))
+    return out
+
+
+def from_assimilation(root, salt, progress=None):
+    """Entries from the control center's plugin assimilation (docs/control-center/
+    plugin-assimilation.md s7). Each rendered note is an item; a preset's notes share
+    ASSIMILATION_WEIGHT between them, and its words come from its category and name.
+    Returns (entries, report)."""
+    lines = assimilation_lines(root)
+    meta = {}
+    for plugin in {p for p, _ in lines}:
+        pj = _json(os.path.join(root, plugin, "plugin.json"), {})
+        refs = {r.get("key"): r for r in pj.get("presets", []) if isinstance(r, dict)}
+        pres = _json(os.path.join(root, plugin, "presets.json"), {})
+        meta[plugin] = (refs, pres if isinstance(pres, dict) else {})
+    per_preset = {}
+    for plugin, r in lines:
+        k = (plugin, str(r.get("preset")))
+        per_preset[k] = per_preset.get(k, 0) + 1
+    out = []
+    for i, (plugin, r) in enumerate(lines):
+        if progress:
+            progress(i)
+        refs, pres = meta[plugin]
+        key = str(r.get("preset"))
+        ref = refs.get(key) or {}
+        name = ref.get("name") or (pres.get(key) or {}).get("name") or key
+        cat = ref.get("category") or ""
+        label = (cat.strip("/") + "/" if cat else "") + name
+        words = {} if name in ("default", "Default", "Init") else tokens.path_words(label)
+        root_id = salted(salt, "assimilation/" + plugin)[:16]
+        ident = "%s/%s/%s/%s" % (key, r.get("midi", r.get("note")), r.get("velocity"), r.get("dur_s"))
+        out.append({"key": salted(salt, root_id + "/" + ident), "root": root_id, "size": 0, "mtime": 0,
+                    "descriptor_id": desc_mod.DESCRIPTOR_ID,
+                    "desc": [round(float(v), 5) for v in r["descriptor"]], "words": words,
+                    "weight": ASSIMILATION_WEIGHT / per_preset[(plugin, key)], "source": "assimilation"})
+    report = {"notes": len(out), "presets": len(per_preset), "plugins": len(meta)}
     return out, report
 
 

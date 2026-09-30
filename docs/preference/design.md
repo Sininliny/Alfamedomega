@@ -270,6 +270,15 @@ The index keeps absolute paths and file names, which section 7 keeps out of the 
 acceptable because the index is a local cache the control center rebuilds and "Forget everything"
 deletes, but it is the one place names live, and the profiles made from it hold none.
 
+**Plugin assimilation** (`docs/control-center/plugin-assimilation.md` section 7, on its branch):
+`batch --assimilation <home>/assimilation` also reads each `<plugin>/features.jsonl`. Every
+rendered note that carries a `logmel-stats-v1` descriptor becomes an item like a library file, with
+words from the preset's category and name (from `plugin.json`, falling back to `presets.json`;
+"default" and "Init" presets give no words). A preset the user owns is weaker evidence than a file
+they collected, so each preset's notes share a total weight of 0.5 (a library file is 1.0), and the
+word map uses the same weights, so a preset rendered at twenty notes counts once. Plugin and preset
+names are not stored; only their words, a salted key and the descriptor are.
+
 ### 8.4 Repo and workflow
 
 - Add `preference/` to the CONTRIBUTING ownership table (owner: preference learning) and a CI job

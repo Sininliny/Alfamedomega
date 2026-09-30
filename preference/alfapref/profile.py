@@ -149,7 +149,9 @@ class Profile:
                 rows.append((features(B(dsc)[0], None, NO_CTX), -1.0, wb))
         self.model = PreferenceModel(B.dim, self.settings["lam"]).fit(rows)
         if self.index:
-            self.words = WordModel().fit(B(np.array(lib_desc)), [e["words"] for e in self.index])
+            # item weight scales word evidence, so a preset rendered at 20 notes counts once
+            tags = [{w: v * float(e.get("weight", 1.0)) for w, v in e["words"].items()} for e in self.index]
+            self.words = WordModel().fit(B(np.array(lib_desc)), tags)
         else:
             self.words = None
         liked = sorted([(w, p) for p, _, y, w in points if y > 0], key=lambda t: -t[0])
