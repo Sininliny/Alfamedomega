@@ -72,7 +72,7 @@ A pass ends with `100% tests passed`. If a test fails, copy the failing test's o
 
 The plugin is written to `build/src/plugin/Alfamedomega_artefacts/Release/VST3/Alfamedomega.vst3`. On macOS there is also `.../AU`. Copy it into your plug-in folder to try it in a DAW.
 
-## 4. Validate the plugin with pluginval (optional, recommended for #3 and #4)
+## 4. Validate the plugin with pluginval (optional, recommended for plugin changes)
 
 Download pluginval for your OS from https://github.com/Tracktion/pluginval/releases/latest, unzip it, and run:
 
