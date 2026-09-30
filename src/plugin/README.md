@@ -6,12 +6,22 @@ Owner: the "Build the plugin shell and UI" thread. Design: [docs/ui/ui-design.md
 
 | Target | What it holds |
 |---|---|
-| `Alfa::pluginCore` | `ParameterLayout` (every parameter's ID, range, unit, group and minimum model size), `PresetLibrary`, `Telemetry`. The one place a parameter is added. |
+| `Alfa::pluginCore` | `ParameterLayout` (every parameter's ID, range, unit and group, plus what each of the 32 knobs means for each method), `PresetLibrary`, `Telemetry`, `PreferenceLog`. The one place a parameter is added. |
 | `Alfa::ui` | Theme tokens, look-and-feel, controls, visualisations and the four views (Perform, Signal flow, Sound design, Customize). Depends on `Alfa::pluginCore`, not on the processor. |
 | `Alfa::pluginShell` | Processor, editor and the stub synth backend. Linked by the plugin and by the tests. |
 | `Alfamedomega` | The JUCE plugin: VST3 and Standalone everywhere, AU on macOS, AAX when `ALFA_AAX_SDK_PATH` is set. |
 
 All four are INTERFACE libraries so JUCE modules compile once per final binary.
+
+## The sound
+
+A sound has the shape the model was trained on (training/METHOD.md, src/inference/MODEL_CONTRACT.md): `method` (nine choices, in the contract's order), `hybrid_a` and `hybrid_b` (used when the method is hybrid), and `knob_01` to `knob_32` in 0..1. What a knob means depends on the method; `params::knobInfo` holds the names, display curves and minimum model sizes taken from the teacher programs in training/alfamedomega_train.py, and the UI relabels knobs when the method changes. A hybrid runs component A on the knobs and component B on the knobs rotated by 11; knob 32 crossfades. Additive with physical, or two of the same method, is silent.
+
+Layout version 2 replaced version 1's Method blend, macros and per-engine controls, which the model cannot drive.
+
+## Preference learning log
+
+With "Learn from how I play" on (Customize view; stored in `<control-center home>/preference/plugin.json`, shared by every instance and the control center), each instance appends events to `<home>/preference/events/<date>.jsonl` in the schema of preference/alfapref/events.py: `load` (source browser, user, project or init), `play` once a second while notes sound, `edit` once the sound settles, `project_save` at most once per sound and only after 5 minutes, `rate` from the like and dislike buttons, `close`. The audio thread only counts notes in atomics; a shared background thread writes the files. With learning off nothing is written. Instance ids are random and saved with the project; no host exposes a project id, so the instance id also stands in for the project. There is no user preset saving yet, so `save_preset` is never written.
 
 ## How the pieces talk
 

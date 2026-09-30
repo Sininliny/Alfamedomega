@@ -2,6 +2,7 @@
 
 #include "SynthBackend.h"
 #include "alfa/plugin/ParameterLayout.h"
+#include "alfa/plugin/PreferenceLog.h"
 #include "alfa/plugin/PresetLibrary.h"
 #include "alfa/plugin/Telemetry.h"
 #include "alfa/ui/EditorContext.h"
@@ -41,7 +42,7 @@ public:
 
     int getNumPrograms() override { return presets.size(); }
     int getCurrentProgram() override { return currentPresetIndex; }
-    void setCurrentProgram(int index) override { loadPreset(index); }
+    void setCurrentProgram(int index) override { loadPreset(index, false); }
     const juce::String getProgramName(int index) override { return presets.get(index).name; }
     void changeProgramName(int, const juce::String&) override {}
 
@@ -54,7 +55,11 @@ public:
     juce::String presetName(int i) const override { return presets.get(i).name; }
     juce::String presetCategory(int i) const override { return presets.get(i).category; }
     params::Tier presetMadeOn(int i) const override { return presets.get(i).madeOn; }
-    void loadPreset(int index) override;
+    void loadPreset(int index, bool browsing) override;
+    bool learningEnabled() const override { return learning.isOn(); }
+    void setLearningEnabled(bool on) override;
+    void rateSound(int value) override { recorder->rate(value); }
+    int soundRating() const override { return recorder->rating(); }
     params::Tier loadedTier() const override;
     int latencySamples() const override { return getLatencySamples(); }
     juce::String backendDescription() const override { return backend->description(); }
@@ -70,6 +75,8 @@ private:
     void parameterChanged(const juce::String& parameterID, float newValue) override;
     void timerCallback() override;
 
+    // Declared before `state`: the layout's knob text reads it.
+    std::atomic<int> packedShape{0};
     juce::AudioProcessorValueTreeState state;
     ui::UiState ui;
     PresetLibrary presets;
@@ -83,6 +90,10 @@ private:
     std::atomic<float>* outputGainParam = nullptr;
     std::atomic<bool> transportPlaying{false};
     std::atomic<int> requestedTier{1};
+
+    preference::LearningSwitch learning;
+    preference::PlayCounter playCounter;
+    std::unique_ptr<preference::Recorder> recorder;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AlfamedomegaProcessor)
 };

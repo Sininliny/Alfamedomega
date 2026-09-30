@@ -3,17 +3,276 @@
 namespace alfa::ui
 {
 
+std::vector<int> usedKnobs(const juce::AudioProcessorValueTreeState& state)
+{
+    const auto shape = params::readShape(state);
+    std::vector<int> out;
+    for (int i = 0; i < params::kNumKnobs; ++i)
+        if (params::knobInfoFor(shape.method, shape.hybridA, shape.hybridB, i).used)
+            out.push_back(i);
+    return out;
+}
+
+std::array<int, 4> envelopeKnobs(const juce::AudioProcessorValueTreeState& state)
+{
+    const auto shape = params::readShape(state);
+    const auto m = shape.method == params::Method::hybrid ? shape.hybridA : shape.method;
+    if (m == params::Method::physical)
+        return {2, 3, 4, 7}; // decay, high damping, release damping, bowed
+    return {18, 19, 20, 21};
+}
+
+// ShapeWatcher
+// ------------------------------------------------------------------------
+
+namespace
+{
+const juce::String* shapeIds()
+{
+    static const juce::String ids[] = {params::id::method, params::id::hybridA, params::id::hybridB};
+    return ids;
+}
+} // namespace
+
+ShapeWatcher::ShapeWatcher(juce::AudioProcessorValueTreeState& p, std::function<void()> onChange)
+    : params(p)
+    , callback(std::move(onChange))
+{
+    for (int i = 0; i < 3; ++i)
+        params.addParameterListener(shapeIds()[i], this);
+}
+
+ShapeWatcher::~ShapeWatcher()
+{
+    *alive = false;
+    for (int i = 0; i < 3; ++i)
+        params.removeParameterListener(shapeIds()[i], this);
+}
+
+void ShapeWatcher::parameterChanged(const juce::String&, float)
+{
+    // Parameter callbacks can arrive on the audio thread (automation); rebuild on
+    // the message thread, and only while this watcher still exists.
+    juce::MessageManager::callAsync(
+        [this, weak = std::weak_ptr<bool>(alive)]
+        {
+            if (auto a = weak.lock(); a && *a && callback)
+                callback();
+        });
+}
+
+// MethodPicker
+// ------------------------------------------------------------------------
+
+MethodPicker::MethodPicker(EditorContext& c, LiveData& l, juce::String panelTitle)
+    : ctx(c)
+    , live(l)
+    , title(std::move(panelTitle))
+    , watcher(c.params,
+              [this]
+              {
+                  resized();
+                  repaint();
+              })
+{
+    for (auto* box : {&hybridA, &hybridB})
+    {
+        for (int i = 0; i < static_cast<int>(params::kHybridComponents.size()); ++i)
+            box->addItem(
+                params::kMethods[static_cast<size_t>(params::kHybridComponents[static_cast<size_t>(i)])].name,
+                i + 1);
+        addChildComponent(box);
+    }
+    hybridA.setTooltip("Hybrid component A: plays on the knobs as they are");
+    hybridB.setTooltip("Hybrid component B: plays on the knobs shifted by 11; knob 32 crossfades A to B");
+    attachA = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        ctx.params, params::id::hybridA, hybridA);
+    attachB = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        ctx.params, params::id::hybridB, hybridB);
+    setTitle(title);
+    setTooltip("Pick the sound's synthesis method. The bar is the method's share of model capacity.");
+    live.addListener(this);
+}
+
+MethodPicker::~MethodPicker()
+{
+    live.removeListener(this);
+}
+
+void MethodPicker::setShowSummaries(bool show)
+{
+    summaries = show;
+    resized();
+}
+
+void MethodPicker::liveDataUpdated()
+{
+    if (isShowing())
+        repaint();
+}
+
+void MethodPicker::select(int method)
+{
+    if (auto* p = ctx.params.getParameter(params::id::method))
+    {
+        p->beginChangeGesture();
+        p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(method)));
+        p->endChangeGesture();
+    }
+}
+
+int MethodPicker::rowAt(juce::Point<int> pos) const
+{
+    for (size_t i = 0; i < rows.size(); ++i)
+        if (rows[i].contains(pos))
+            return static_cast<int>(i);
+    return -1;
+}
+
+void MethodPicker::mouseUp(const juce::MouseEvent& e)
+{
+    const auto row = rowAt(e.getPosition());
+    if (row >= 0)
+        select(row);
+}
+
+void MethodPicker::mouseMove(const juce::MouseEvent& e)
+{
+    const auto row = rowAt(e.getPosition());
+    if (row != hover)
+    {
+        hover = row;
+        repaint();
+    }
+}
+
+void MethodPicker::mouseExit(const juce::MouseEvent&)
+{
+    hover = -1;
+    repaint();
+}
+
+void MethodPicker::resized()
+{
+    const bool hybrid = params::readShape(ctx.params).method == params::Method::hybrid;
+    auto inner = getLocalBounds().withTrimmedTop(kPanelTitleHeight + 4).reduced(8, 6);
+
+    hybridArea = hybrid ? inner.removeFromBottom(58) : juce::Rectangle<int>();
+    hybridA.setVisible(hybrid);
+    hybridB.setVisible(hybrid);
+    if (hybrid)
+    {
+        auto boxes = hybridArea.withTrimmedTop(6).removeFromTop(26);
+        const auto w = (boxes.getWidth() - 8) / 2;
+        hybridA.setBounds(boxes.removeFromLeft(w).withTrimmedLeft(20));
+        boxes.removeFromLeft(8);
+        hybridB.setBounds(boxes.withTrimmedLeft(20));
+    }
+
+    rows.clear();
+    const auto rowH = inner.getHeight() / params::kNumMethods;
+    for (int i = 0; i < params::kNumMethods; ++i)
+        rows.push_back(inner.removeFromTop(rowH).reduced(0, 1));
+}
+
+void MethodPicker::paint(juce::Graphics& g)
+{
+    const auto& t = ctx.theme();
+    const auto& s = live.snapshot();
+    const auto shape = params::readShape(ctx.params);
+    drawPanel(g, t, getLocalBounds(), title, "capacity");
+
+    for (size_t i = 0; i < rows.size(); ++i)
+    {
+        const auto m = static_cast<params::Method>(i);
+        const auto& info = params::kMethods[i];
+        const bool selected = m == shape.method;
+        const bool component =
+            shape.method == params::Method::hybrid && (m == shape.hybridA || m == shape.hybridB);
+        auto row = rows[i];
+
+        if (selected || static_cast<int>(i) == hover)
+        {
+            g.setColour(t.accent.withAlpha(selected ? 0.16f : 0.07f));
+            g.fillRoundedRectangle(row.toFloat(), 5.0f);
+        }
+        if (selected)
+        {
+            g.setColour(t.accent);
+            g.fillRect(row.withWidth(3));
+        }
+
+        auto r = row.reduced(12, 0);
+        // Live activity: the method's expert is running.
+        const auto activity = s.experts[i];
+        g.setColour(activity > 0.0f ? t.accent.withAlpha(0.4f + 0.6f * juce::jmin(1.0f, activity)) : t.line);
+        g.fillEllipse(
+            juce::Rectangle<float>(6.0f, 6.0f)
+                .withCentre({static_cast<float>(r.getX() + 3), static_cast<float>(r.getCentreY())}));
+        r.removeFromLeft(14);
+
+        const bool twoLines = summaries && row.getHeight() >= 34;
+        auto nameRow = twoLines ? r.removeFromTop(r.getHeight() / 2).removeFromBottom(18) : r;
+
+        auto cap = nameRow.removeFromRight(64);
+        const auto share = info.capacityShare;
+        auto bar = cap.withTrimmedRight(30).toFloat().withSizeKeepingCentre(
+            static_cast<float>(cap.getWidth() - 30), 4.0f);
+        g.setColour(t.line);
+        g.fillRoundedRectangle(bar, 2.0f);
+        g.setColour(t.text2);
+        g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * share / 0.3f), 2.0f);
+        g.setFont(AlfaLookAndFeel::monoFont(10.5f));
+        g.drawText(juce::String(juce::roundToInt(share * 100.0f)) + "%", cap.removeFromRight(28),
+                   juce::Justification::centredRight, false);
+
+        g.setColour(selected || component ? t.text : t.text2);
+        g.setFont(AlfaLookAndFeel::labelFont(13.0f, selected));
+        auto label = juce::String(info.name);
+        if (component)
+            label << (m == shape.hybridA ? "  (A)" : "  (B)");
+        g.drawText(label, nameRow,
+                   twoLines ? juce::Justification::bottomLeft : juce::Justification::centredLeft, true);
+        if (twoLines)
+        {
+            g.setColour(t.text2);
+            g.setFont(AlfaLookAndFeel::labelFont(11.0f));
+            g.drawText(info.summary, r, juce::Justification::topLeft, true);
+        }
+    }
+
+    if (!hybridArea.isEmpty())
+    {
+        g.setColour(t.text2);
+        g.setFont(AlfaLookAndFeel::labelFont(11.5f, true));
+        auto boxes = hybridArea.withTrimmedTop(6).removeFromTop(26);
+        const auto w = (boxes.getWidth() - 8) / 2;
+        g.drawText("A", boxes.removeFromLeft(w).withWidth(18), juce::Justification::centredLeft, false);
+        boxes.removeFromLeft(8);
+        g.drawText("B", boxes.withWidth(18), juce::Justification::centredLeft, false);
+
+        const bool ok = params::isValidHybridPair(shape.hybridA, shape.hybridB);
+        g.setColour(ok ? t.text2 : t.warn);
+        g.setFont(AlfaLookAndFeel::labelFont(11.5f));
+        g.drawText(ok ? "Knob 32 crossfades A to B"
+                      : (shape.hybridA == shape.hybridB ? "Pick two different methods: the hybrid is silent"
+                                                        : "Additive and physical can't be combined: silent"),
+                   hybridArea.withTrimmedTop(36), juce::Justification::centredLeft, true);
+    }
+}
+
 // TimbrePad
 // ------------------------------------------------------------------------
 
 TimbrePad::TimbrePad(EditorContext& c)
     : ctx(c)
-    , xParam(c.params.getParameter(params::id::timbreX))
-    , yParam(c.params.getParameter(params::id::timbreY))
+    , watcher(c.params,
+              [this]
+              {
+                  bind();
+                  repaint();
+              })
 {
-    ctx.params.addParameterListener(params::id::timbreX, this);
-    ctx.params.addParameterListener(params::id::timbreY, this);
-
     snapA.setTooltip("Click to recall snapshot A, Shift-click to store the current position");
     snapB.setTooltip("Click to recall snapshot B, Shift-click to store the current position");
     snapA.onClick = [this]
@@ -26,6 +285,7 @@ TimbrePad::TimbrePad(EditorContext& c)
         juce::ModifierKeys::currentModifiers.isShiftDown() || snapshots[1].x < 0.0f ? storeSnapshot(1)
                                                                                     : recallSnapshot(1);
     };
+    randomize.setTooltip("Nudge every knob this method uses a little, to find a neighbouring sound");
     randomize.onClick = [this]
     {
         randomizeNearby();
@@ -35,12 +295,37 @@ TimbrePad::TimbrePad(EditorContext& c)
     addAndMakeVisible(randomize);
     setWantsKeyboardFocus(true);
     setTitle("Timbre space");
+    bind();
 }
 
 TimbrePad::~TimbrePad()
 {
-    ctx.params.removeParameterListener(params::id::timbreX, this);
-    ctx.params.removeParameterListener(params::id::timbreY, this);
+    if (xParam != nullptr)
+    {
+        ctx.params.removeParameterListener(params::id::knob(xKnob), this);
+        ctx.params.removeParameterListener(params::id::knob(yKnob), this);
+    }
+}
+
+void TimbrePad::bind()
+{
+    // The pad drives the two knobs that change this method's character most.
+    if (xParam != nullptr)
+    {
+        ctx.params.removeParameterListener(params::id::knob(xKnob), this);
+        ctx.params.removeParameterListener(params::id::knob(yKnob), this);
+    }
+    const auto shape = params::readShape(ctx.params);
+    std::tie(xKnob, yKnob) = params::timbreKnobsFor(shape.method, shape.hybridA);
+    xParam = ctx.params.getParameter(params::id::knob(xKnob));
+    yParam = ctx.params.getParameter(params::id::knob(yKnob));
+    xInfo = params::knobInfoFor(shape.method, shape.hybridA, shape.hybridB, xKnob);
+    yInfo = params::knobInfoFor(shape.method, shape.hybridA, shape.hybridB, yKnob);
+    ctx.params.addParameterListener(params::id::knob(xKnob), this);
+    ctx.params.addParameterListener(params::id::knob(yKnob), this);
+    snapshots = {juce::Point<float>{-1.0f, -1.0f}, {-1.0f, -1.0f}};
+    setTooltip("Drag to set " + xInfo.name.toLowerCase() + " (across) and " + yInfo.name.toLowerCase() +
+               " (up)");
 }
 
 void TimbrePad::parameterChanged(const juce::String&, float)
@@ -104,13 +389,19 @@ void TimbrePad::recallSnapshot(int slot)
 
 void TimbrePad::randomizeNearby()
 {
+    // A small Gaussian step on every knob the method uses, as the preference
+    // learner's "randomize nearby" does (preference/alfapref/generate.py).
     auto& rng = juce::Random::getSystemRandom();
-    auto nudge = [&rng](float v)
+    for (auto i : usedKnobs(ctx.params))
     {
-        return juce::jlimit(0.0f, 1.0f, v + (rng.nextFloat() - 0.5f) * 0.2f);
-    };
-    xParam->setValueNotifyingHost(nudge(xParam->getValue()));
-    yParam->setValueNotifyingHost(nudge(yParam->getValue()));
+        auto* p = ctx.params.getParameter(params::id::knob(i));
+        const auto gauss = static_cast<float>(rng.nextDouble() + rng.nextDouble() + rng.nextDouble() - 1.5);
+        auto v = p->getValue() + 0.08f * gauss;
+        v = v < 0.0f ? -v : (v > 1.0f ? 2.0f - v : v); // reflect into 0..1
+        p->beginChangeGesture();
+        p->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, v));
+        p->endChangeGesture();
+    }
 }
 
 void TimbrePad::paint(juce::Graphics& g)
@@ -133,9 +424,10 @@ void TimbrePad::paint(juce::Graphics& g)
 
     g.setColour(t.text2);
     g.setFont(AlfaLookAndFeel::labelFont(11.0f));
-    g.drawText("warm", area.reduced(6.0f), juce::Justification::bottomLeft, false);
-    g.drawText("bright", area.reduced(6.0f), juce::Justification::bottomRight, false);
-    g.drawText("evolving", area.reduced(6.0f), juce::Justification::topLeft, false);
+    g.drawText(xInfo.name + "  " + juce::String::charToString(0x2192), area.reduced(6.0f),
+               juce::Justification::bottomRight, false);
+    g.drawText(juce::String::charToString(0x2191) + "  " + yInfo.name, area.reduced(6.0f),
+               juce::Justification::topLeft, false);
 
     auto toPoint = [&area](float x, float y)
     {
@@ -162,8 +454,8 @@ void TimbrePad::paint(juce::Graphics& g)
 
     g.setColour(t.text);
     g.setFont(AlfaLookAndFeel::monoFont(11.5f));
-    const auto readout = "bright " + juce::String(juce::roundToInt(xParam->getValue() * 100.0f)) +
-                         "   evolve " + juce::String(juce::roundToInt(yParam->getValue() * 100.0f));
+    const auto readout = xInfo.shortName + " " + params::formatKnob(xInfo, xParam->getValue()) + "   " +
+                         yInfo.shortName + " " + params::formatKnob(yInfo, yParam->getValue());
     g.drawText(readout, getLocalBounds().reduced(12, 6).removeFromTop(kPanelTitleHeight - 6),
                juce::Justification::centredRight, false);
 }
@@ -205,22 +497,20 @@ void FlowStrip::mouseUp(const juce::MouseEvent&)
 PerformView::PerformView(EditorContext& c, LiveData& l)
     : ctx(c)
     , live(l)
-    , macroPages({"A", "B", "C"}, [this](int i) { ctx.ui.set(UiState::Ids::macroPage, i); })
+    , methods(c, l, "Method")
     , timbre(c)
     , keyboard(c.keyboard, juce::MidiKeyboardComponent::horizontalKeyboard)
     , flowStrip(c, l)
+    , watcher(c.params,
+              [this]
+              {
+                  ctx.ui.set(UiState::Ids::macroPage, 0);
+                  rebuildKnobs();
+                  rebuildVoice();
+              })
 {
-    for (int m = 0; m < params::kNumMethods; ++m)
-        addAndMakeVisible(blendControls.add(
-            new ParamControl(ctx, params::id::blend(m), ParamControl::Style::horizontalBar)));
-
-    addAndMakeVisible(macroPages);
+    addAndMakeVisible(methods);
     addAndMakeVisible(timbre);
-
-    for (const auto& id :
-         {params::id::attack, params::id::decay, params::id::sustain, params::id::release, params::id::voices,
-          params::id::glide, params::id::bendRange, params::id::outputGain})
-        addAndMakeVisible(voiceControls.add(new ParamControl(ctx, id, ParamControl::Style::smallKnob)));
 
     keyboard.setAvailableRange(24, 108);
     keyboard.setLowestVisibleKey(36);
@@ -230,7 +520,8 @@ PerformView::PerformView(EditorContext& c, LiveData& l)
     addAndMakeVisible(keyboard);
     addChildComponent(flowStrip);
 
-    rebuildMacros();
+    rebuildVoice();
+    rebuildKnobs();
     live.addListener(this);
     ctx.ui.tree().addListener(this);
 }
@@ -241,19 +532,54 @@ PerformView::~PerformView()
     ctx.ui.tree().removeListener(this);
 }
 
-void PerformView::rebuildMacros()
+void PerformView::rebuildKnobs()
 {
-    macroControls.clear();
+    // Only the knobs the current method uses, paged by the "per page" setting.
+    knobControls.clear();
+    const auto used = usedKnobs(ctx.params);
     const auto perPage = juce::jlimit(4, 12, ctx.ui.getInt(UiState::Ids::macrosPerPage));
-    const auto pages = params::kNumMacros / perPage;
-    const auto page = juce::jlimit(0, juce::jmin(2, pages - 1), ctx.ui.getInt(UiState::Ids::macroPage));
-    macroPages.setSelected(page);
+    const auto pages = juce::jmax(1, (static_cast<int>(used.size()) + perPage - 1) / perPage);
+    const auto page = juce::jlimit(0, pages - 1, ctx.ui.getInt(UiState::Ids::macroPage));
 
-    for (int i = 0; i < perPage; ++i)
-    {
-        const auto index = page * perPage + i;
-        addAndMakeVisible(macroControls.add(new ParamControl(ctx, params::id::macro(index))));
-    }
+    juce::StringArray labels;
+    for (int i = 0; i < pages; ++i)
+        labels.add(juce::String(i + 1));
+    // Deferred: changing the page rebuilds this Segmented, which must not happen
+    // inside its own click handler.
+    knobPages = std::make_unique<Segmented>(labels,
+                                            [safe = juce::Component::SafePointer<PerformView>(this)](int i)
+                                            {
+                                                juce::MessageManager::callAsync(
+                                                    [safe, i]
+                                                    {
+                                                        if (safe != nullptr)
+                                                            safe->ctx.ui.set(UiState::Ids::macroPage, i);
+                                                    });
+                                            });
+    knobPages->setSelected(page);
+    addChildComponent(*knobPages);
+
+    for (int i = page * perPage; i < juce::jmin(static_cast<int>(used.size()), (page + 1) * perPage); ++i)
+        addChildComponent(
+            knobControls.add(new ParamControl(ctx, params::id::knob(used[static_cast<size_t>(i)]))));
+
+    const auto shape = params::readShape(ctx.params);
+    knobsSubtitle = juce::String(params::kMethods[static_cast<size_t>(shape.method)].name) + ", " +
+                    juce::String(used.size()) + " knobs";
+    resized();
+    repaint();
+}
+
+void PerformView::rebuildVoice()
+{
+    voiceControls.clear();
+    const auto env = envelopeKnobs(ctx.params);
+    for (auto k : env)
+        addChildComponent(
+            voiceControls.add(new ParamControl(ctx, params::id::knob(k), ParamControl::Style::smallKnob)));
+    for (const auto& id :
+         {params::id::voices, params::id::glide, params::id::bendRange, params::id::outputGain})
+        addChildComponent(voiceControls.add(new ParamControl(ctx, id, ParamControl::Style::smallKnob)));
     resized();
 }
 
@@ -261,7 +587,7 @@ void PerformView::valueTreePropertyChanged(juce::ValueTree&, const juce::Identif
 {
     using I = UiState::Ids;
     if (id == I::macrosPerPage || id == I::macroPage)
-        rebuildMacros();
+        rebuildKnobs();
     else if (id == I::showBlend || id == I::showMacros || id == I::showTimbre || id == I::showVoice ||
              id == I::showKeyboard || id == I::showFlowStrip || id == I::density)
         resized();
@@ -273,7 +599,6 @@ void PerformView::liveDataUpdated()
     {
         repaint(voiceArea);
         repaint(meterArea);
-        repaint(blendArea);
     }
 }
 
@@ -282,35 +607,16 @@ void PerformView::paint(juce::Graphics& g)
     const auto& t = ctx.theme();
     const auto& s = live.snapshot();
 
-    if (!blendArea.isEmpty())
+    if (!knobArea.isEmpty())
+        drawPanel(g, t, knobArea, "Knobs", {});
+
+    if (!knobArea.isEmpty() && knobPages != nullptr)
     {
-        drawPanel(g, t, blendArea, "Method blend", "capacity");
-        // Capacity share of each engine, drawn right of its slider, plus a live
-        // activity dot.
-        for (int m = 0; m < params::kNumMethods; ++m)
-        {
-            const auto* control = blendControls[m];
-            auto row = control->getBounds().withX(blendArea.getRight() - 58).withWidth(48);
-            const auto share = params::kMethods[static_cast<size_t>(m)].capacityShare;
-            auto bar = row.toFloat().withSizeKeepingCentre(static_cast<float>(row.getWidth()), 4.0f);
-            g.setColour(t.line);
-            g.fillRoundedRectangle(bar, 2.0f);
-            g.setColour(t.text2);
-            g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * share / 0.3f), 2.0f);
-            g.setFont(AlfaLookAndFeel::monoFont(10.5f));
-            g.drawText(juce::String(juce::roundToInt(share * 100.0f)) + "%",
-                       row.withTrimmedBottom(14).translated(0, -4), juce::Justification::centredRight, false);
-
-            const auto activity = s.engines[static_cast<size_t>(m)];
-            g.setColour(activity > 0.0f ? t.accent.withAlpha(0.4f + 0.6f * activity) : t.line);
-            g.fillEllipse(juce::Rectangle<float>(6.0f, 6.0f)
-                              .withCentre({static_cast<float>(blendArea.getX() + 10),
-                                           static_cast<float>(control->getBounds().getCentreY())}));
-        }
+        g.setColour(t.text2);
+        g.setFont(AlfaLookAndFeel::labelFont(11.5f));
+        g.drawText(knobsSubtitle, knobArea.reduced(12, 0).withHeight(kPanelTitleHeight).withTrimmedTop(6),
+                   juce::Justification::centred, false);
     }
-
-    if (!macroArea.isEmpty())
-        drawPanel(g, t, macroArea, "Macros");
 
     if (!voiceArea.isEmpty())
     {
@@ -329,7 +635,7 @@ void FlowStrip::paint(juce::Graphics& g)
     const auto& s = live.snapshot();
     drawPanel(g, t, getLocalBounds(), {});
 
-    const juce::StringArray names{"Notes", "Controls", "Model", "Blend", "Engines", "Env + FX", "Output"};
+    const juce::StringArray names{"Notes", "Controls", "Model", "Method", "Engines", "Env + FX", "Output"};
     const auto& steps = SignalFlowView::steps();
     std::vector<int> shown;
     for (int i = 0; i < names.size(); ++i)
@@ -360,7 +666,7 @@ void FlowStrip::paint(juce::Graphics& g)
             viz::modelGraph(g, area, t, s, false);
             break;
         case 3:
-            viz::blendBars(g, area, t, s, false);
+            viz::methodBars(g, area, t, s, false);
             break;
         case 4:
             viz::waveform(g, area, t, s, t.accent);
@@ -390,8 +696,8 @@ void PerformView::resized()
     const bool showKeys = ctx.ui.getBool(I::showKeyboard);
     const bool showVoice = ctx.ui.getBool(I::showVoice);
     const bool showStrip = ctx.ui.getBool(I::showFlowStrip);
-    const bool showBlend = ctx.ui.getBool(I::showBlend);
-    const bool showMacros = ctx.ui.getBool(I::showMacros);
+    const bool showMethod = ctx.ui.getBool(I::showBlend);
+    const bool showKnobs = ctx.ui.getBool(I::showMacros);
     const bool showTimbre = ctx.ui.getBool(I::showTimbre);
 
     keyboardArea = showKeys ? b.removeFromBottom(84) : juce::Rectangle<int>();
@@ -399,7 +705,8 @@ void PerformView::resized()
         b.removeFromBottom(gap);
     keyboard.setVisible(showKeys);
     keyboard.setBounds(keyboardArea);
-    keyboard.setKeyWidth(static_cast<float>(keyboardArea.getWidth()) / 49.0f);
+    if (keyboardArea.getWidth() > 0)
+        keyboard.setKeyWidth(static_cast<float>(keyboardArea.getWidth()) / 49.0f);
 
     stripArea = showStrip ? b.removeFromBottom(92) : juce::Rectangle<int>();
     if (showStrip)
@@ -412,7 +719,7 @@ void PerformView::resized()
         b.removeFromBottom(gap);
     for (auto* v : voiceControls)
         v->setVisible(showVoice);
-    if (showVoice)
+    if (showVoice && !voiceControls.isEmpty())
     {
         auto inner = voiceArea.withTrimmedTop(kPanelTitleHeight).reduced(12, 6);
         meterArea = inner.removeFromRight(22);
@@ -428,46 +735,44 @@ void PerformView::resized()
         meterArea = envelopeArea = {};
     }
 
-    blendArea = showBlend ? b.removeFromLeft(360) : juce::Rectangle<int>();
-    if (showBlend)
+    methodArea = showMethod ? b.removeFromLeft(300) : juce::Rectangle<int>();
+    if (showMethod)
         b.removeFromLeft(gap);
-    for (auto* c : blendControls)
-        c->setVisible(showBlend);
-    if (showBlend)
-    {
-        auto inner = blendArea.withTrimmedTop(kPanelTitleHeight + 4).reduced(20, 6);
-        inner.removeFromRight(56);
-        const auto rowH = inner.getHeight() / params::kNumMethods;
-        for (auto* c : blendControls)
-            c->setBounds(inner.removeFromTop(rowH).reduced(0, 3));
-    }
+    methods.setVisible(showMethod);
+    methods.setBounds(methodArea);
 
     timbreArea = showTimbre
-                     ? (showMacros ? b.removeFromRight(juce::jmin(b.getHeight() + 20, b.getWidth() / 2)) : b)
+                     ? (showKnobs ? b.removeFromRight(juce::jmin(b.getHeight() + 20, b.getWidth() / 2)) : b)
                      : juce::Rectangle<int>();
-    if (showTimbre && showMacros)
+    if (showTimbre && showKnobs)
         b.removeFromRight(gap);
     timbre.setVisible(showTimbre);
     timbre.setBounds(timbreArea);
 
-    macroArea = showMacros ? b : juce::Rectangle<int>();
-    macroPages.setVisible(showMacros);
-    for (auto* m : macroControls)
-        m->setVisible(showMacros);
-    if (showMacros)
+    knobArea = showKnobs ? b : juce::Rectangle<int>();
+    if (knobPages != nullptr)
+        knobPages->setVisible(showKnobs);
+    for (auto* m : knobControls)
+        m->setVisible(showKnobs);
+    if (showKnobs)
     {
-        macroPages.setBounds(macroArea.getRight() - 12 - 108, macroArea.getY() + 5, 108, 22);
-        auto inner = macroArea.withTrimmedTop(kPanelTitleHeight + 8).reduced(12, 8);
-        const auto count = macroControls.size();
-        const auto rows = count > 4 ? 2 : 1;
-        const auto perRow = (count + rows - 1) / rows;
+        if (knobPages != nullptr)
+        {
+            const auto w = juce::jmin(160, 28 * knobPages->getNumChildComponents());
+            knobPages->setBounds(knobArea.getRight() - 12 - w, knobArea.getY() + 5, w, 22);
+        }
+        auto inner = knobArea.withTrimmedTop(kPanelTitleHeight + 8).reduced(12, 8);
+        const auto perPage = juce::jlimit(4, 12, ctx.ui.getInt(UiState::Ids::macrosPerPage));
+        const auto rows = perPage > 4 ? 2 : 1;
+        const auto perRow = (perPage + rows - 1) / rows;
         const auto rowH = inner.getHeight() / rows;
+        const auto count = knobControls.size();
         for (int r = 0; r < rows; ++r)
         {
             auto row = inner.removeFromTop(rowH);
             const auto w = row.getWidth() / perRow;
             for (int i = 0; i < perRow && r * perRow + i < count; ++i)
-                macroControls[r * perRow + i]->setBounds(row.removeFromLeft(w).reduced(6, 4));
+                knobControls[r * perRow + i]->setBounds(row.removeFromLeft(w).reduced(6, 4));
         }
     }
 }

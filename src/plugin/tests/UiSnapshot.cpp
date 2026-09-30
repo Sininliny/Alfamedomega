@@ -17,7 +17,7 @@ int main(int argc, char* argv[])
     alfa::AlfamedomegaProcessor processor;
     processor.setPlayConfigDetails(0, 2, 48000.0, 512);
     processor.prepareToPlay(48000.0, 512);
-    processor.loadPreset(1);
+    processor.loadPreset(1, false);
 
     std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
     auto& main = dynamic_cast<alfa::AlfamedomegaEditor&>(*editor).mainComponent();
@@ -37,6 +37,15 @@ int main(int argc, char* argv[])
             main.liveData().update();
     }
 
+    // After a sound change: play on so telemetry follows, and let the views
+    // rebuild (they do so asynchronously).
+    auto pump = [&]
+    {
+        for (int block = 0; block < 20; ++block)
+            processor.processBlock(buffer, midi);
+        juce::MessageManager::getInstance()->runDispatchLoopUntil(50);
+    };
+
     auto save = [&](const juce::String& name)
     {
         main.liveData().update();
@@ -51,6 +60,20 @@ int main(int argc, char* argv[])
     using Ids = alfa::ui::UiState::Ids;
     processor.uiState().set(Ids::view, "perform");
     save("perform-" + theme);
+
+    // A hybrid, with its component picker and B's rotated knobs.
+    auto setChoice = [&processor](const juce::String& id, int index)
+    {
+        auto* p = processor.parameters().getParameter(id);
+        p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(index)));
+    };
+    setChoice(alfa::params::id::method, 8);
+    setChoice(alfa::params::id::hybridA, 3); // FM
+    setChoice(alfa::params::id::hybridB, 4); // physical
+    pump();
+    save("perform-hybrid-" + theme);
+    setChoice(alfa::params::id::method, 0);
+    pump();
 
     processor.uiState().set(Ids::showFlowStrip, true);
     save("perform-flowstrip-" + theme);
@@ -70,7 +93,8 @@ int main(int argc, char* argv[])
     processor.uiState().setStepHidden("envfx", false);
 
     processor.uiState().set(Ids::view, "sound");
-    processor.uiState().set(Ids::soundLayer, 6);
+    setChoice(alfa::params::id::method, 7); // sampling
+    pump();
     save("sound-" + theme);
 
     processor.uiState().set(Ids::view, "customize");

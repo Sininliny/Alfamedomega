@@ -29,8 +29,8 @@ struct PanelToggle
 };
 
 const PanelToggle panelToggleList[] = {
-    {&I::showBlend, "Method blend"}, {&I::showMacros, "Macros"},     {&I::showTimbre, "Timbre space"},
-    {&I::showVoice, "Voice strip"},  {&I::showKeyboard, "Keyboard"}, {&I::showFlowStrip, "Signal flow strip"},
+    {&I::showBlend, "Method"},      {&I::showMacros, "Knobs"},      {&I::showTimbre, "Timbre space"},
+    {&I::showVoice, "Voice strip"}, {&I::showKeyboard, "Keyboard"}, {&I::showFlowStrip, "Signal flow strip"},
 };
 } // namespace
 
@@ -51,7 +51,7 @@ CustomizeView::CustomizeView(EditorContext& c)
 {
     for (auto* comp : std::initializer_list<juce::Component*>{&themeChoice, &density, &gesture, &valueDisplay,
                                                               &macrosPerPage, &accent, &scale, &useForNew,
-                                                              &exportButton, &importButton})
+                                                              &exportButton, &importButton, &learn})
         addAndMakeVisible(comp);
 
     for (int i = 0; i < static_cast<int>(std::size(accents)); ++i)
@@ -89,6 +89,18 @@ CustomizeView::CustomizeView(EditorContext& c)
         };
         addAndMakeVisible(toggle);
     }
+
+    learn.setTooltip(
+        "Keeps a private log of which sounds you play, keep and like, so the control center can learn "
+        "your taste. It stays on this computer. Off by default.");
+    learn.onClick = [this]
+    {
+        ctx.host.setLearningEnabled(learn.getToggleState());
+        statusText = learn.getToggleState()
+                         ? "Learning on. The log stays on this computer; the control center reads it."
+                         : "Learning off. Nothing more is logged.";
+        repaint();
+    };
 
     useForNew.onClick = [this]
     {
@@ -130,6 +142,8 @@ void CustomizeView::syncFromState()
 
     if (!scale.isMouseButtonDown())
         scale.setValue(ctx.ui.getDouble(I::scale) * 100.0, juce::dontSendNotification);
+
+    learn.setToggleState(ctx.host.learningEnabled(), juce::dontSendNotification);
 
     for (size_t i = 0; i < std::size(panelToggleList); ++i)
         panelToggles[static_cast<int>(i)]->setToggleState(ctx.ui.getBool(*panelToggleList[i].id),
@@ -209,7 +223,8 @@ void CustomizeView::resized()
     row("Density", density, 260);
     row("Knob drag", gesture, 380);
     row("Value display", valueDisplay, 380);
-    row("Macros per page", macrosPerPage, 200);
+    row("Knobs per page", macrosPerPage, 200);
+    row("Preferences", learn, 380);
 
     rows.removeFromTop(12);
     auto panelsRow = rows.removeFromTop(24);

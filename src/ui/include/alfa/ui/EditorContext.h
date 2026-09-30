@@ -23,7 +23,17 @@ public:
     virtual juce::String presetName(int index) const = 0;
     virtual juce::String presetCategory(int index) const = 0;
     virtual params::Tier presetMadeOn(int index) const = 0;
-    virtual void loadPreset(int index) = 0;
+    /// `browsing` is true when stepping with previous/next, false for a
+    /// deliberate pick; preference learning weighs the two differently.
+    virtual void loadPreset(int index, bool browsing) = 0;
+
+    /// "Learn from how I play" (preference learning), shared by all instances.
+    virtual bool learningEnabled() const = 0;
+    virtual void setLearningEnabled(bool on) = 0;
+
+    /// Like (+1), dislike (-1) or clear (0) the current sound.
+    virtual void rateSound(int value) = 0;
+    virtual int soundRating() const = 0;
 
     /// Model size actually playing (switches complete in the background).
     virtual params::Tier loadedTier() const = 0;

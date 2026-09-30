@@ -12,9 +12,9 @@ constexpr int kMaxVoices = 32;
 constexpr float kTwoPi = juce::MathConstants<float>::twoPi;
 
 /// Stand-in for the real engines: one cheap waveform per synthesis method,
-/// mixed by the Method blend sliders. It exists so the plugin makes sound and
-/// the UI has something real to visualise; it is not an approximation of the
-/// final synth.
+/// shaped by a few of the method's knobs. It exists so the plugin makes sound
+/// and the UI has something real to visualise; it is not an approximation of
+/// the final synth.
 class StubBackend final : public SynthBackend
 {
 public:
@@ -27,24 +27,12 @@ public:
             return p;
         };
 
-        for (int m = 0; m < kNumMethods; ++m)
-        {
-            blend[static_cast<size_t>(m)] = raw(params::id::blend(m));
-            for (int slot = 0; slot < params::kNumEngineSlots; ++slot)
-                engine[static_cast<size_t>(m)][static_cast<size_t>(slot)] = raw(params::id::engine(m, slot));
-        }
-
-        for (int i = 0; i < params::kNumMacros; ++i)
-            macros[static_cast<size_t>(i)] = raw(params::id::macro(i));
-
-        attack = raw(params::id::attack);
-        decay = raw(params::id::decay);
-        sustain = raw(params::id::sustain);
-        release = raw(params::id::release);
+        method = raw(params::id::method);
+        hybridA = raw(params::id::hybridA);
+        hybridB = raw(params::id::hybridB);
+        for (int i = 0; i < params::kNumKnobs; ++i)
+            knobs[static_cast<size_t>(i)] = raw(params::id::knob(i));
         voiceCount = raw(params::id::voices);
-        timbreX = raw(params::id::timbreX);
-        timbreY = raw(params::id::timbreY);
-        drift = raw(params::id::latentDrift);
         bendRange = raw(params::id::bendRange);
     }
 
@@ -74,30 +62,25 @@ public:
     void render(juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& midi, Telemetry& t) override
     {
         const auto numSamples = buffer.getNumSamples();
-        updateEnvelopes();
-
-        std::array<float, kNumMethods> weights{};
-        float weightSum = 0.0f;
-        for (size_t m = 0; m < weights.size(); ++m)
-        {
-            weights[m] = blend[m]->load();
-            weightSum += weights[m];
-        }
-        const float norm = weightSum > 1.0f ? 1.0f / weightSum : 1.0f;
+        const auto m =
+            static_cast<Method>(juce::jlimit(0, kNumMethods - 1, juce::roundToInt(method->load())));
+        updateEnvelopes(m);
 
         int pos = 0;
         for (const auto meta : midi)
         {
-            renderRange(buffer, pos, meta.samplePosition, weights, norm);
+            renderRange(buffer, pos, meta.samplePosition, m);
             pos = meta.samplePosition;
             handleMidi(meta.getMessage(), t);
         }
-        renderRange(buffer, pos, numSamples, weights, norm);
+        renderRange(buffer, pos, numSamples, m);
 
-        publishTelemetry(t, weights, norm);
+        publishTelemetry(t, m);
     }
 
 private:
+    using Method = params::Method;
+
     struct Voice
     {
         int note = -1;
@@ -107,13 +90,27 @@ private:
         juce::ADSR env;
     };
 
-    void updateEnvelopes()
+    float knob(int i) const { return knobs[static_cast<size_t>(i)]->load(); }
+
+    void updateEnvelopes(Method m)
     {
+        // Knobs 18-21 are every method's amp envelope, with the teacher programs'
+        // curves; physical has none and rings out on its decay knob instead.
         juce::ADSR::Parameters p;
-        p.attack = attack->load() * 0.001f;
-        p.decay = decay->load() * 0.001f;
-        p.sustain = sustain->load();
-        p.release = release->load() * 0.001f;
+        if (m == Method::physical)
+        {
+            p.attack = 0.001f;
+            p.decay = 0.05f * std::exp2(knob(2) * 7.0f);
+            p.sustain = knob(7) > 0.5f ? 0.7f : 0.0f;
+            p.release = 0.05f + 0.3f * knob(4);
+        }
+        else
+        {
+            p.attack = 0.001f * std::exp2(knob(18) * 11.0f);
+            p.decay = 0.01f * std::exp2(knob(19) * 9.0f);
+            p.sustain = knob(20);
+            p.release = 0.01f * std::exp2(knob(21) * 9.0f);
+        }
         for (auto& v : voices)
             v.env.setParameters(p);
     }
@@ -165,25 +162,70 @@ private:
         }
     }
 
-    float param(int method, int slot) const
+    float sample(Method m, Voice& v, float lpCoeff) const
     {
-        return engine[static_cast<size_t>(method)][static_cast<size_t>(slot)]->load();
+        const float ph = v.phase * kTwoPi;
+        switch (m)
+        {
+        case Method::subtractive:
+        {
+            const float saw = 2.0f * v.phase - 1.0f;
+            const float pulse = v.phase < 0.05f + 0.9f * knob(3) ? 1.0f : -1.0f;
+            const float tri = 1.0f - 4.0f * std::abs(v.phase - 0.5f);
+            const float a = knob(0) * knob(0), b = knob(1) * knob(1), c = knob(2) * knob(2);
+            const float mix = (a * saw + b * pulse + c * tri) / (a + b + c + 1e-6f);
+            v.lp += lpCoeff * (mix - v.lp);
+            return v.lp;
+        }
+        case Method::wavetable:
+            return std::tanh(std::sin(ph) * (1.0f + 8.0f * knob(1)));
+        case Method::additive:
+        {
+            const float roll = 0.5f + 2.5f * knob(0);
+            float s = 0.0f;
+            for (int h = 1; h <= 6; ++h)
+                s += std::sin(ph * static_cast<float>(h)) * std::pow(static_cast<float>(h), -roll) *
+                     (h % 2 == 0 ? 1.0f - knob(1) : 1.0f);
+            return s * 0.6f;
+        }
+        case Method::spectral:
+            return std::sin(ph) + (1.0f - knob(6)) * 0.3f * (random.nextFloat() * 2.0f - 1.0f);
+        case Method::fm:
+        {
+            const float index = knob(14) * 8.0f;
+            return std::sin(ph + index * std::sin(v.modPhase * kTwoPi));
+        }
+        case Method::physical:
+            return std::sin(ph) * v.pluck;
+        case Method::granular:
+            return std::sin(ph) * (0.5f + 0.5f * std::sin(ph * 0.013f));
+        case Method::sampling:
+            return 1.0f - 4.0f * std::abs(v.phase - 0.5f);
+        case Method::hybrid:
+            break;
+        }
+        return 0.0f;
     }
 
-    void renderRange(juce::AudioBuffer<float>& buffer, int start, int end,
-                     const std::array<float, kNumMethods>& w, float norm)
+    void renderRange(juce::AudioBuffer<float>& buffer, int start, int end, Method m)
     {
         if (end <= start)
             return;
 
-        const float bright = timbreX->load();
-        const float cutoff = param(0, 0);
-        const float lpCoeff = 1.0f - std::exp(-kTwoPi * juce::jmin(cutoff * (0.5f + bright), 18000.0f) /
-                                              static_cast<float>(sampleRate));
-        const float fmRatio = param(2, 0);
-        const float fmIndex = param(2, 1);
-        const float wtPos = param(3, 0);
-        const float damping = 0.99990f - 0.0005f * param(5, 1);
+        const float cutoff = juce::jlimit(20.0f, 18000.0f, 30.0f * std::exp2(knob(6) * 9.5f));
+        const float lpCoeff = 1.0f - std::exp(-kTwoPi * cutoff / static_cast<float>(sampleRate));
+        const float fmRatio = std::round(1.0f + knob(2) * 7.0f);
+        const float damping = 0.99990f - 0.0005f * knob(3);
+
+        // A hybrid plays both components, crossfaded by knob 32.
+        const auto componentAt = [](float v)
+        {
+            return params::kHybridComponents[static_cast<size_t>(juce::jlimit(0, 4, juce::roundToInt(v)))];
+        };
+        const auto a = m == Method::hybrid ? componentAt(hybridA->load()) : m;
+        const auto b = componentAt(hybridB->load());
+        const float xf = m == Method::hybrid ? knob(31) : 0.0f;
+        const bool valid = m != Method::hybrid || params::isValidHybridPair(a, b);
 
         auto* left = buffer.getWritePointer(0);
         auto* right = buffer.getNumChannels() > 1 ? buffer.getWritePointer(1) : nullptr;
@@ -199,23 +241,13 @@ private:
 
             for (int i = start; i < end; ++i)
             {
-                const float ph = v.phase * kTwoPi;
-                const float saw = 2.0f * v.phase - 1.0f;
-                v.lp += lpCoeff * (saw - v.lp);
+                float s = sample(a, v, lpCoeff) * (1.0f - xf);
+                if (xf > 0.0f)
+                    s += sample(b, v, lpCoeff) * xf;
+                if (!valid)
+                    s = 0.0f; // the contract: a hybrid without two valid components is silent
 
-                float s = 0.0f;
-                s += w[0] * v.lp; // subtractive
-                s += w[1] * (std::sin(ph) + 0.5f * std::sin(2 * ph) + 0.33f * std::sin(3 * ph)) *
-                     0.5f;                                                              // additive
-                s += w[2] * std::sin(ph + fmIndex * std::sin(v.modPhase * kTwoPi));     // fm
-                s += w[3] * std::tanh(std::sin(ph) * (1.0f + 8.0f * wtPos));            // wavetable
-                s += w[4] * std::sin(ph) * (0.5f + 0.5f * std::sin(ph * 0.013f));       // granular
-                s += w[5] * std::sin(ph) * v.pluck;                                     // physical
-                s += w[6] * (1.0f - 4.0f * std::abs(v.phase - 0.5f));                   // sampling
-                s += w[7] * (std::sin(ph) + 0.2f * (random.nextFloat() * 2.0f - 1.0f)); // spectral
-                s += w[8] * std::sin(ph) * std::sin(ph * 1.5f);                         // hybrid
-
-                const float out = s * norm * v.velocity * v.env.getNextSample() * 0.25f;
+                const float out = s * v.velocity * v.env.getNextSample() * 0.25f;
                 left[i] += out;
                 if (right != nullptr)
                     right[i] += out;
@@ -232,52 +264,53 @@ private:
         }
     }
 
-    void publishTelemetry(Telemetry& t, const std::array<float, kNumMethods>& w, float norm)
+    void publishTelemetry(Telemetry& t, Method m)
     {
         int active = 0;
-        float envSum = 0.0f;
         for (auto& v : voices)
-        {
             if (v.env.isActive())
-            {
                 ++active;
-                envSum = juce::jmax(envSum, v.velocity);
-            }
-        }
         t.activeVoices.store(active);
 
         const float playing = active > 0 ? 1.0f : 0.0f;
-        for (size_t m = 0; m < w.size(); ++m)
-            t.engineLevel[m].store(w[m] * norm * playing);
+        const auto componentAt = [](float v)
+        {
+            return params::kHybridComponents[static_cast<size_t>(juce::jlimit(0, 4, juce::roundToInt(v)))];
+        };
+        std::array<float, kNumMethods> level{};
+        if (m == Method::hybrid)
+        {
+            level[static_cast<size_t>(Method::hybrid)] = 1.0f;
+            level[static_cast<size_t>(componentAt(hybridA->load()))] = 1.0f - knob(31);
+            level[static_cast<size_t>(componentAt(hybridB->load()))] = knob(31);
+        }
+        else
+        {
+            level[static_cast<size_t>(m)] = 1.0f;
+        }
+
+        // Each voice runs its method's expert (a hybrid runs the hybrid expert and
+        // both components' experts), which is what the model graph lights up.
+        for (size_t i = 0; i < level.size(); ++i)
+        {
+            t.engineLevel[i].store(level[i] * playing);
+            t.expertActivity[i].store(level[i] > 0.0f ? juce::jmax(0.25f, level[i]) * (0.4f + 0.6f * playing)
+                                                      : 0.0f);
+        }
 
         // The stub has no model, so the "control vector" is a readable function of
-        // the inputs a real model would see: timbre position, macros and drift.
+        // what a real model would see: the knobs, with a little movement while
+        // notes play.
         framePhase += 0.05f;
-        const float x = timbreX->load(), y = timbreY->load(), d = drift->load();
         for (size_t i = 0; i < t.controlVector.size(); ++i)
         {
-            const float base = i % 2 == 0 ? x : y;
-            const float mac = macros[i % macros.size()]->load();
-            const float wobble = d * 0.3f * std::sin(framePhase * (1.0f + 0.37f * static_cast<float>(i)));
-            t.controlVector[i].store(juce::jlimit(0.0f, 1.0f, 0.5f * base + 0.3f * mac + 0.2f + wobble));
+            const float a = knobs[i * 2]->load(), b = knobs[i * 2 + 1]->load();
+            const float wobble =
+                playing * 0.05f * std::sin(framePhase * (1.0f + 0.37f * static_cast<float>(i)));
+            t.controlVector[i].store(juce::jlimit(0.0f, 1.0f, 0.5f * (a + b) + wobble));
         }
 
-        // Mixture-of-experts routing: the top engines by blend weight are active,
-        // and bigger models keep more experts running at once.
-        const int tierIndex = tier.load();
-        const int topK = tierIndex + 2;
-        std::array<size_t, kNumMethods> order{};
-        for (size_t i = 0; i < order.size(); ++i)
-            order[i] = i;
-        std::sort(order.begin(), order.end(), [&w](size_t a, size_t b) { return w[a] > w[b]; });
-        for (size_t rank = 0; rank < order.size(); ++rank)
-        {
-            const auto m = order[rank];
-            const bool on = static_cast<int>(rank) < topK && w[m] > 0.001f;
-            t.expertActivity[m].store(on ? juce::jmax(0.2f, w[m] * norm) * (0.4f + 0.6f * playing) : 0.0f);
-        }
-
-        t.loadedTier.store(tierIndex);
+        t.loadedTier.store(tier.load());
         t.modelIsStub.store(true);
         t.modelFrameMs.store(0.0f);
     }
@@ -286,20 +319,14 @@ private:
     std::array<Voice, kMaxVoices> voices{};
     uint32_t ageCounter = 0;
     float bend = 0.0f, framePhase = 0.0f;
-    juce::Random random;
+    mutable juce::Random random;
     std::atomic<int> tier{1};
 
-    std::array<std::atomic<float>*, kNumMethods> blend{};
-    std::array<std::array<std::atomic<float>*, params::kNumEngineSlots>, kNumMethods> engine{};
-    std::array<std::atomic<float>*, params::kNumMacros> macros{};
-    std::atomic<float>* attack = nullptr;
-    std::atomic<float>* decay = nullptr;
-    std::atomic<float>* sustain = nullptr;
-    std::atomic<float>* release = nullptr;
+    std::atomic<float>* method = nullptr;
+    std::atomic<float>* hybridA = nullptr;
+    std::atomic<float>* hybridB = nullptr;
+    std::array<std::atomic<float>*, params::kNumKnobs> knobs{};
     std::atomic<float>* voiceCount = nullptr;
-    std::atomic<float>* timbreX = nullptr;
-    std::atomic<float>* timbreY = nullptr;
-    std::atomic<float>* drift = nullptr;
     std::atomic<float>* bendRange = nullptr;
 };
 } // namespace

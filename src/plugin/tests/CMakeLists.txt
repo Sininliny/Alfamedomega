@@ -4,6 +4,7 @@
 set(ALFA_JUCE_APP_DEFINITIONS
     JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
     JUCE_STANDALONE_APPLICATION=1
+    JUCE_MODAL_LOOPS_PERMITTED=1 # lets tests pump the message loop for async UI updates
     JucePlugin_Name="Alfamedomega")
 
 add_executable(alfa_plugin_tests PluginTests.cpp)

@@ -30,12 +30,14 @@ private:
     void liveDataUpdated() override;
     void valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier&) override;
     void refreshPreset();
+    void refreshRating();
     void showPresetMenu();
 
     EditorContext& ctx;
     LiveData& live;
     Segmented viewSwitch;
     juce::TextButton prevPreset{"<"}, nextPreset{">"}, presetName;
+    juce::TextButton like{"+"}, dislike{"-"};
     juce::ComboBox tierBox;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> tierAttachment;
     juce::String statsText;
@@ -46,7 +48,59 @@ private:
 // Perform
 // ----------------------------------------------------------------------------
 
-class TimbrePad : public juce::Component, private juce::AudioProcessorValueTreeState::Listener
+/// Calls back on the message thread when the sound's method or hybrid
+/// components change, so method-dependent layouts can rebuild.
+class ShapeWatcher : private juce::AudioProcessorValueTreeState::Listener
+{
+public:
+    ShapeWatcher(juce::AudioProcessorValueTreeState&, std::function<void()> onChange);
+    ~ShapeWatcher() override;
+
+private:
+    void parameterChanged(const juce::String&, float) override;
+    juce::AudioProcessorValueTreeState& params;
+    std::function<void()> callback;
+    std::shared_ptr<bool> alive = std::make_shared<bool>(true);
+};
+
+/// The nine methods as a pick list: capacity share, a live activity dot, and
+/// the two components when the sound is a hybrid. Replaces the Method blend of
+/// the first layout: a sound has one method, as the model was trained.
+class MethodPicker : public juce::Component, public juce::SettableTooltipClient, private LiveData::Listener
+{
+public:
+    MethodPicker(EditorContext&, LiveData&, juce::String title);
+    ~MethodPicker() override;
+
+    void paint(juce::Graphics&) override;
+    void resized() override;
+    void mouseUp(const juce::MouseEvent&) override;
+    void mouseMove(const juce::MouseEvent&) override;
+    void mouseExit(const juce::MouseEvent&) override;
+
+    /// Rows show the method's one-line summary when there is room.
+    void setShowSummaries(bool show);
+
+private:
+    void liveDataUpdated() override;
+    void select(int method);
+    int rowAt(juce::Point<int>) const;
+
+    EditorContext& ctx;
+    LiveData& live;
+    juce::String title;
+    bool summaries = false;
+    int hover = -1;
+    juce::ComboBox hybridA, hybridB;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> attachA, attachB;
+    std::vector<juce::Rectangle<int>> rows;
+    juce::Rectangle<int> hybridArea;
+    ShapeWatcher watcher;
+};
+
+class TimbrePad : public juce::Component,
+                  public juce::SettableTooltipClient,
+                  private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     explicit TimbrePad(EditorContext&);
@@ -60,6 +114,7 @@ public:
 
 private:
     void parameterChanged(const juce::String&, float) override;
+    void bind();
     void setFromPosition(juce::Point<float>);
     juce::Rectangle<float> padArea() const;
     void storeSnapshot(int slot);
@@ -67,10 +122,13 @@ private:
     void randomizeNearby();
 
     EditorContext& ctx;
-    juce::RangedAudioParameter* xParam;
-    juce::RangedAudioParameter* yParam;
+    int xKnob = 0, yKnob = 1;
+    juce::RangedAudioParameter* xParam = nullptr;
+    juce::RangedAudioParameter* yParam = nullptr;
+    params::KnobInfo xInfo, yInfo;
     std::array<juce::Point<float>, 2> snapshots{juce::Point<float>{-1.0f, -1.0f}, {-1.0f, -1.0f}};
     juce::TextButton snapA{"A"}, snapB{"B"}, randomize{"Randomize nearby"};
+    ShapeWatcher watcher;
 };
 
 /// The Signal flow strip in compact form, for the Perform view (off by
@@ -101,22 +159,31 @@ public:
 private:
     void liveDataUpdated() override;
     void valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier&) override;
-    void rebuildMacros();
+    void rebuildKnobs();
+    void rebuildVoice();
 
     EditorContext& ctx;
     LiveData& live;
 
-    juce::OwnedArray<ParamControl> blendControls;
-    juce::OwnedArray<ParamControl> macroControls;
-    Segmented macroPages;
+    MethodPicker methods;
+    juce::OwnedArray<ParamControl> knobControls;
+    std::unique_ptr<Segmented> knobPages;
     TimbrePad timbre;
     juce::OwnedArray<ParamControl> voiceControls;
     juce::MidiKeyboardComponent keyboard;
     FlowStrip flowStrip;
+    ShapeWatcher watcher;
+    juce::String knobsSubtitle;
 
-    juce::Rectangle<int> blendArea, macroArea, timbreArea, voiceArea, envelopeArea, meterArea, keyboardArea,
+    juce::Rectangle<int> methodArea, knobArea, timbreArea, voiceArea, envelopeArea, meterArea, keyboardArea,
         stripArea;
 };
+
+/// The knobs a method actually uses, in knob order.
+std::vector<int> usedKnobs(const juce::AudioProcessorValueTreeState&);
+
+/// The amp envelope's knobs for the current sound (physical has its own).
+std::array<int, 4> envelopeKnobs(const juce::AudioProcessorValueTreeState&);
 
 // Signal flow
 // ------------------------------------------------------------------------
@@ -179,23 +246,21 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
-    void mouseUp(const juce::MouseEvent&) override;
 
 private:
     void liveDataUpdated() override;
     void valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier&) override;
-    void selectLayer(int);
-    int layer() const;
+    void rebuild();
 
     EditorContext& ctx;
     LiveData& live;
-    std::unique_ptr<ParamControl> layerBlend;
-    juce::OwnedArray<ParamControl> engineControls;
-    juce::OwnedArray<ParamControl> neuralControls;
+    MethodPicker methods;
+    juce::OwnedArray<ParamControl> knobControls;
+    juce::ToggleButton showUnused{"Show unused knobs"};
     juce::TextButton addRoute{"Add route"};
+    ShapeWatcher watcher;
 
-    juce::Rectangle<int> layersArea, layerArea, displayArea, modArea;
-    std::vector<juce::Rectangle<int>> layerRows;
+    juce::Rectangle<int> methodArea, layerArea, displayArea, knobGrid, modArea;
 };
 
 // Customize
@@ -221,6 +286,7 @@ private:
     juce::ComboBox accent;
     juce::Slider scale;
     juce::OwnedArray<juce::ToggleButton> panelToggles;
+    juce::ToggleButton learn{"Learn from how I play"};
     juce::TextButton useForNew{"Use for new instances"}, exportButton{"Export theme file..."},
         importButton{"Import theme file..."};
     std::unique_ptr<juce::FileChooser> chooser;
