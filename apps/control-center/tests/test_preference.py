@@ -1,8 +1,10 @@
 import struct
 import sys
 
-from alfacc import jobs
-from alfacc.preference import PreferenceStore, audio_info, create_batch_job, tokens
+import pytest
+
+from alfacc import jobs, preference
+from alfacc.preference import PreferenceStore, audio_info, create_batch_job, fallback_tokens, tokens
 
 
 def write_wav(path, seconds=0.5, sr=48000, ch=2, bits=24):
@@ -16,13 +18,25 @@ def write_wav(path, seconds=0.5, sr=48000, ch=2, bits=24):
                      + b"fmt " + struct.pack("<I", 16) + fmt + b"data" + struct.pack("<I", len(data)) + data)
 
 
-def test_tokens_keep_timbre_words_only():
+def test_fallback_tokens_keep_timbre_words_only():
+    # The control center's own rules, used when no preference/ checkout is around.
+    assert fallback_tokens("warm_pad_03") == ["warm", "pad"]
+    assert fallback_tokens("AiryVocal C3 120bpm v2 (final)") == ["airy", "vocal"]
+    assert fallback_tokens("GlassBell-OneShot") == ["glass", "bell"]
+    assert fallback_tokens("dark bass F#1.wav") == ["dark", "bass"]
+    assert fallback_tokens("G#-1 bell Bb pluck") == ["bell", "pluck"]
+    assert fallback_tokens("808 Kick") == ["kick"]
+    assert fallback_tokens("Pads Leads Keys Brass Chorus") == ["pad", "lead", "key", "brass", "chorus"]
+
+
+def test_tokens_follow_the_preference_tokenizer_in_a_checkout():
+    """In a checkout, labels come from preference/alfapref/tokens.py so they match what the
+    learner computes. Its exact rules belong to preference/ and are tested there."""
+    if preference._SHARED_WORDS is None:
+        pytest.skip("no preference/ checkout next to the control center")
+    for text in ("warm_pad_03", "dark bass F#1.wav", "GlassBell-OneShot"):
+        assert tokens(text) == list(dict.fromkeys(preference._SHARED_WORDS(text)))
     assert tokens("warm_pad_03") == ["warm", "pad"]
-    assert tokens("AiryVocal C3 120bpm v2 (final)") == ["airy", "vocal"]
-    assert tokens("GlassBell-OneShot") == ["glass", "bell"]
-    assert tokens("dark bass F#1.wav") == ["dark", "bass"]
-    assert tokens("808 Kick") == ["kick"]
-    assert tokens("Pads Leads Keys Brass Chorus") == ["pad", "lead", "key", "brass", "chorus"]
 
 
 def test_wav_header_is_read_without_decoding(tmp_path):
