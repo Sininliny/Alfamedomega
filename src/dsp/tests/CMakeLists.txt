@@ -12,8 +12,9 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(alfa_dsp_tier_limits_fresh PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
-# The Python binding renders through the C API (skipped without numpy).
-if(Python3_Interpreter_FOUND)
+# The Python binding renders through the C API (skipped without numpy). Not under sanitizers:
+# an instrumented shared library cannot load into an uninstrumented Python interpreter.
+if(Python3_Interpreter_FOUND AND NOT ALFA_ENABLE_SANITIZERS)
     add_test(NAME alfa_dsp_python_binding
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../tools/alfa_dsp_py/test_alfa_dsp.py
                 $<TARGET_FILE:alfa_dsp_c>)
