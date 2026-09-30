@@ -19,9 +19,10 @@ juce::File controlCenterHome()
     return base.getChildFile("Alfamedomega").getChildFile("ControlCenter");
 #else
     const auto xdg = juce::SystemStats::getEnvironmentVariable("XDG_DATA_HOME", {});
-    auto base = xdg.isNotEmpty() ? juce::File(xdg)
-                                 : juce::File::getSpecialLocation(juce::File::userHomeDirectory)
-                                       .getChildFile(".local/share");
+    auto base =
+        xdg.isNotEmpty()
+            ? juce::File(xdg)
+            : juce::File::getSpecialLocation(juce::File::userHomeDirectory).getChildFile(".local/share");
     return base.getChildFile("Alfamedomega").getChildFile("ControlCenter");
 #endif
 }
@@ -323,7 +324,8 @@ void Recorder::flushPlay()
     f->setProperty("seconds", std::round(static_cast<double>(p.heldSamples) / sr * 100.0) / 100.0);
     f->setProperty("notes", p.notes);
     f->setProperty("pitch_mean", p.notes > 0 ? static_cast<double>(p.pitchSum) / p.notes : 60.0);
-    f->setProperty("len_mean", p.endedNotes > 0 ? static_cast<double>(p.lengthSamples) / p.endedNotes / sr : 0.5);
+    f->setProperty("len_mean",
+                   p.endedNotes > 0 ? static_cast<double>(p.lengthSamples) / p.endedNotes / sr : 0.5);
     emit("play", f);
 }
 

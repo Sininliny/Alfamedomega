@@ -112,10 +112,10 @@ public:
     struct Options
     {
         LearningSwitch* learning = nullptr;
-        std::function<double()> now;        // unix seconds; wall clock if empty
-        double initDelaySeconds = 2.0;      // wait this long for a project restore
-        double keptAfterSeconds = 300.0;    // design.md 8.1: project_save counts after 5 minutes
-        double editSettleSeconds = 2.0;     // an edit is logged once the sound stops changing
+        std::function<double()> now;     // unix seconds; wall clock if empty
+        double initDelaySeconds = 2.0;   // wait this long for a project restore
+        double keptAfterSeconds = 300.0; // design.md 8.1: project_save counts after 5 minutes
+        double editSettleSeconds = 2.0;  // an edit is logged once the sound stops changing
         double sampleRate = 48000.0;
         bool startTimer = true;
     };
