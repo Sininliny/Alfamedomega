@@ -61,6 +61,11 @@ stayed below −90 dBFS for 50 ms or `tail_s` passes. Between notes it sends all
 all-sound-off and resets the plugin, so one note's tail never leaks into the next. Rendering is
 offline (`setNonRealtime(true)`), usually much faster than real time.
 
+On Apple Silicon the render host is built universal and runs natively, so it can't load an
+Intel-only plugin. When opening a plugin fails there, the scan tries again under Rosetta
+(`arch -x86_64 alfa-render-host ...`); if that works, the plugin is marked and every later render
+of it runs under Rosetta too.
+
 `render-host/test-synth` builds **AlfaTestSynth**, a tiny VST3 with three known programs (a sine on
 every key, a saw that is silent outside C1–C4, and decaying noise). The end-to-end test renders it
 and checks the ranges found are exactly those.

@@ -77,6 +77,15 @@ class _Collect:
         return json.loads(text[start:])
 
 
+ROSETTA = ("arch", "-x86_64")
+
+
+def rosetta_available() -> bool:
+    """Apple Silicon Mac, where Intel-only plugins need the render host run under Rosetta."""
+    import platform
+    return sys.platform == "darwin" and platform.machine() == "arm64" and bool(shutil.which("arch"))
+
+
 def host_formats(host: str) -> list:
     out = _Collect()
     jobs.spawn([host, "formats"], out, timeout=30, label="render host")
@@ -255,7 +264,7 @@ def _render(host: str, plugin: dict, presets: list, notes: list, work: Path, log
         elif line.startswith(("warning", "error", "$ ")):
             log(line)
 
-    jobs.spawn([host, "render", str(job_path)], relay, timeout=120 + 2 * audio_s,
+    jobs.spawn(list(plugin.get("launch") or []) + [host, "render", str(job_path)], relay, timeout=120 + 2 * audio_s,
                label=f"render {plugin['name']}")
     return json.loads((work / "renders.json").read_text(encoding="utf-8"))
 
@@ -332,10 +341,21 @@ def _scan(args: dict, log) -> dict:
     ok = 0
     for i, path in enumerate(files, 1):
         out = _Collect(forward=log)
+        launch = []
         try:
-            jobs.spawn([args["host"], "scan", "--programs", path], out, timeout=SCAN_TIMEOUT_S,
-                       label=f"scan {Path(path).name}")
+            try:
+                jobs.spawn([args["host"], "scan", "--programs", path], out, timeout=SCAN_TIMEOUT_S,
+                           label=f"scan {Path(path).name}")
+            except RuntimeError:
+                if not rosetta_available():
+                    raise
+                # On Apple Silicon a native host can't load an Intel-only plugin: try under Rosetta.
+                out, launch = _Collect(forward=log), list(ROSETTA)
+                jobs.spawn(launch + [args["host"], "scan", "--programs", path], out,
+                           timeout=SCAN_TIMEOUT_S, label=f"scan {Path(path).name} (Rosetta)")
             for p in out.json()["plugins"]:
+                if launch:
+                    p["launch"] = launch
                 p["scanned_at"] = _now()
                 p["status"] = "ok"
                 cat["plugins"][p["uid"]] = p

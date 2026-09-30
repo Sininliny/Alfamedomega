@@ -45,6 +45,10 @@ def write(path, x, sr):
 
 
 def main(argv):
+    # FAKE_HOST_NATIVE_FAILS: fail unless started through the test's stand-in for `arch -x86_64`.
+    if os.environ.get("FAKE_HOST_NATIVE_FAILS") and os.environ.get("FAKE_UNDER_ARCH") != "1":
+        print("error: could not open FakeSynth: wrong architecture", file=sys.stderr)
+        return 3
     if argv[0] == "formats":
         print(json.dumps(["VST3"]))
     elif argv[0] == "scan":

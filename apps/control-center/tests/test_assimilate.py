@@ -222,3 +222,24 @@ def test_real_render_host_with_the_test_synth(ctx):
     assert done["status"] == "succeeded", ctx.jobs.read_log(done["id"])
     res = ctx.assimilation.results(plugin)
     assert res["p0001"]["range"] == "C1–C4" and not res["p0002"]["pitched"]
+
+
+def test_intel_only_plugins_are_retried_under_rosetta(ctx, fake_host, tmp_path, monkeypatch):
+    # Stand in for `arch -x86_64 host ...`: a wrapper that just runs the rest of its arguments.
+    arch = tmp_path / "arch"
+    arch.write_text('#!/bin/sh\nshift\nFAKE_UNDER_ARCH=1 exec "$@"\n')
+    arch.chmod(arch.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setattr(harvest, "ROSETTA", (str(arch), "-x86_64"))
+    monkeypatch.setattr(harvest, "rosetta_available", lambda: True)
+    monkeypatch.setenv("FAKE_HOST_NATIVE_FAILS", "1")
+    plug = Path(ctx.home) / "IntelOnly.vst3"
+    plug.mkdir()
+    done = ctx.jobs.run(harvest.create_scan_job(ctx.jobs, ctx.home, fake_host, [str(plug)])["id"])
+    assert done["status"] == "succeeded"
+    plugin = ctx.assimilation.instruments()[0]
+    assert plugin["launch"][0] == str(arch)
+    done = ctx.jobs.run(harvest.create_assimilation_job(
+        ctx.jobs, ctx.home, plugin["uid"], plans.DENSITIES["fast"], fake_host, sys.executable,
+        presets=["p0001"])["id"])
+    assert done["status"] == "succeeded", ctx.jobs.read_log(done["id"])
+    assert "-x86_64" in ctx.jobs.read_log(done["id"])
