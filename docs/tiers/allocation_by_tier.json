@@ -68,72 +68,48 @@
         "Studio"
       ],
       "measured": {
-        "_note": "DSP thread, 2026-09-30, dsp/primitives cea4ff2. Worst case = every primitive plus NONLINEAR in every voice slot. Percent of block; +/-20% noise. Model = guard's own estimate (worst-case params, over-estimates ~1.5-2x). At 96 kHz Standard/Pro/Studio stay over 25% even with every voice slot bypassed because primitives alone exceed the budget.",
+        "_note": "DSP thread, 2026-09-30, dsp/primitives ccd289f, measured trigger. Worst case = every primitive plus NONLINEAR in every voice slot. % of block, +/-20% noise.",
         "48k": {
           "off": {
-            "Lite": 19,
-            "Standard": 22,
-            "Pro": 40,
-            "Studio": 17
+            "Lite": 17.2,
+            "Standard": 26.7,
+            "Pro": 32.1,
+            "Studio": 17.5
           },
           "on": {
-            "Lite": 22,
-            "Standard": 20,
-            "Pro": 21,
-            "Studio": 18
+            "Lite": 20.7,
+            "Standard": 23.0,
+            "Pro": 19.7,
+            "Studio": 17.7
           },
-          "model_before": {
-            "Lite": 31,
-            "Standard": 40,
-            "Pro": 61,
-            "Studio": 42
-          },
-          "model_after": {
-            "Lite": 25,
-            "Standard": 25,
-            "Pro": 25,
-            "Studio": 25
-          },
-          "downgraded": {
-            "Lite": 18,
-            "Standard": 42,
-            "Pro": 9,
-            "Studio": 28
+          "degraded": {
+            "Lite": 0,
+            "Standard": 3,
+            "Pro": 0,
+            "Studio": 0
           },
           "bypassed": {
             "Lite": 0,
-            "Standard": 6,
-            "Pro": 55,
+            "Standard": 29,
+            "Pro": 56,
             "Studio": 0
           }
         },
         "96k": {
           "off": {
-            "Lite": 34,
-            "Standard": 50,
-            "Pro": 70,
-            "Studio": 46
+            "Lite": 27.9,
+            "Standard": 44.6,
+            "Pro": 67.2,
+            "Studio": 35.4
           },
           "on": {
-            "Lite": 24,
-            "Standard": 32,
-            "Pro": 42,
-            "Studio": 36
+            "Lite": 19.3,
+            "Standard": 25.9,
+            "Pro": 34.5,
+            "Studio": 24.3
           },
-          "model_before": {
-            "Lite": 60,
-            "Standard": 79,
-            "Pro": 151,
-            "Studio": 78
-          },
-          "model_after": {
-            "Lite": 25,
-            "Standard": 29,
-            "Pro": 48,
-            "Studio": 27
-          },
-          "downgraded": {
-            "Lite": 9,
+          "degraded": {
+            "Lite": 1,
             "Standard": 0,
             "Pro": 0,
             "Studio": 0
@@ -145,6 +121,14 @@
             "Studio": 32
           }
         }
+      },
+      "trigger": {
+        "realtime": "measured",
+        "offline": "model_only",
+        "ema_seconds": 0.2,
+        "degrade_above": 0.25,
+        "restore_below": 0.2,
+        "_note": "DSP ccd289f (2026-09-30): real-time hosts trigger on a 0.2 s EMA of measured process() time plus the model's predicted change (catches note-on bursts); restore one step per block while prediction stays under 20%. The cost model only picks victims. Offline renders use the deterministic model-only trigger so training stays reproducible. Model rescaled per rate (0.955 at 48k, 0.942 at 96k) with a 1.2 margin."
       }
     },
     "voice_dsp_cap_flops_per_sample": 400,
@@ -312,72 +296,48 @@
         "Studio"
       ],
       "measured": {
-        "_note": "DSP thread, 2026-09-30, dsp/primitives cea4ff2. Worst case = every primitive plus NONLINEAR in every voice slot. Percent of block; +/-20% noise. Model = guard's own estimate (worst-case params, over-estimates ~1.5-2x). At 96 kHz Standard/Pro/Studio stay over 25% even with every voice slot bypassed because primitives alone exceed the budget.",
+        "_note": "DSP thread, 2026-09-30, dsp/primitives ccd289f, measured trigger. Worst case = every primitive plus NONLINEAR in every voice slot. % of block, +/-20% noise.",
         "48k": {
           "off": {
-            "Lite": 19,
-            "Standard": 22,
-            "Pro": 40,
-            "Studio": 17
+            "Lite": 17.2,
+            "Standard": 26.7,
+            "Pro": 32.1,
+            "Studio": 17.5
           },
           "on": {
-            "Lite": 22,
-            "Standard": 20,
-            "Pro": 21,
-            "Studio": 18
+            "Lite": 20.7,
+            "Standard": 23.0,
+            "Pro": 19.7,
+            "Studio": 17.7
           },
-          "model_before": {
-            "Lite": 31,
-            "Standard": 40,
-            "Pro": 61,
-            "Studio": 42
-          },
-          "model_after": {
-            "Lite": 25,
-            "Standard": 25,
-            "Pro": 25,
-            "Studio": 25
-          },
-          "downgraded": {
-            "Lite": 18,
-            "Standard": 42,
-            "Pro": 9,
-            "Studio": 28
+          "degraded": {
+            "Lite": 0,
+            "Standard": 3,
+            "Pro": 0,
+            "Studio": 0
           },
           "bypassed": {
             "Lite": 0,
-            "Standard": 6,
-            "Pro": 55,
+            "Standard": 29,
+            "Pro": 56,
             "Studio": 0
           }
         },
         "96k": {
           "off": {
-            "Lite": 34,
-            "Standard": 50,
-            "Pro": 70,
-            "Studio": 46
+            "Lite": 27.9,
+            "Standard": 44.6,
+            "Pro": 67.2,
+            "Studio": 35.4
           },
           "on": {
-            "Lite": 24,
-            "Standard": 32,
-            "Pro": 42,
-            "Studio": 36
+            "Lite": 19.3,
+            "Standard": 25.9,
+            "Pro": 34.5,
+            "Studio": 24.3
           },
-          "model_before": {
-            "Lite": 60,
-            "Standard": 79,
-            "Pro": 151,
-            "Studio": 78
-          },
-          "model_after": {
-            "Lite": 25,
-            "Standard": 29,
-            "Pro": 48,
-            "Studio": 27
-          },
-          "downgraded": {
-            "Lite": 9,
+          "degraded": {
+            "Lite": 1,
             "Standard": 0,
             "Pro": 0,
             "Studio": 0
@@ -389,6 +349,14 @@
             "Studio": 32
           }
         }
+      },
+      "trigger": {
+        "realtime": "measured",
+        "offline": "model_only",
+        "ema_seconds": 0.2,
+        "degrade_above": 0.25,
+        "restore_below": 0.2,
+        "_note": "DSP ccd289f (2026-09-30): real-time hosts trigger on a 0.2 s EMA of measured process() time plus the model's predicted change (catches note-on bursts); restore one step per block while prediction stays under 20%. The cost model only picks victims. Offline renders use the deterministic model-only trigger so training stays reproducible. Model rescaled per rate (0.955 at 48k, 0.942 at 96k) with a 1.2 margin."
       }
     },
     "voice_dsp_cap_flops_per_sample": 900,
@@ -556,72 +524,48 @@
         "Studio"
       ],
       "measured": {
-        "_note": "DSP thread, 2026-09-30, dsp/primitives cea4ff2. Worst case = every primitive plus NONLINEAR in every voice slot. Percent of block; +/-20% noise. Model = guard's own estimate (worst-case params, over-estimates ~1.5-2x). At 96 kHz Standard/Pro/Studio stay over 25% even with every voice slot bypassed because primitives alone exceed the budget.",
+        "_note": "DSP thread, 2026-09-30, dsp/primitives ccd289f, measured trigger. Worst case = every primitive plus NONLINEAR in every voice slot. % of block, +/-20% noise.",
         "48k": {
           "off": {
-            "Lite": 19,
-            "Standard": 22,
-            "Pro": 40,
-            "Studio": 17
+            "Lite": 17.2,
+            "Standard": 26.7,
+            "Pro": 32.1,
+            "Studio": 17.5
           },
           "on": {
-            "Lite": 22,
-            "Standard": 20,
-            "Pro": 21,
-            "Studio": 18
+            "Lite": 20.7,
+            "Standard": 23.0,
+            "Pro": 19.7,
+            "Studio": 17.7
           },
-          "model_before": {
-            "Lite": 31,
-            "Standard": 40,
-            "Pro": 61,
-            "Studio": 42
-          },
-          "model_after": {
-            "Lite": 25,
-            "Standard": 25,
-            "Pro": 25,
-            "Studio": 25
-          },
-          "downgraded": {
-            "Lite": 18,
-            "Standard": 42,
-            "Pro": 9,
-            "Studio": 28
+          "degraded": {
+            "Lite": 0,
+            "Standard": 3,
+            "Pro": 0,
+            "Studio": 0
           },
           "bypassed": {
             "Lite": 0,
-            "Standard": 6,
-            "Pro": 55,
+            "Standard": 29,
+            "Pro": 56,
             "Studio": 0
           }
         },
         "96k": {
           "off": {
-            "Lite": 34,
-            "Standard": 50,
-            "Pro": 70,
-            "Studio": 46
+            "Lite": 27.9,
+            "Standard": 44.6,
+            "Pro": 67.2,
+            "Studio": 35.4
           },
           "on": {
-            "Lite": 24,
-            "Standard": 32,
-            "Pro": 42,
-            "Studio": 36
+            "Lite": 19.3,
+            "Standard": 25.9,
+            "Pro": 34.5,
+            "Studio": 24.3
           },
-          "model_before": {
-            "Lite": 60,
-            "Standard": 79,
-            "Pro": 151,
-            "Studio": 78
-          },
-          "model_after": {
-            "Lite": 25,
-            "Standard": 29,
-            "Pro": 48,
-            "Studio": 27
-          },
-          "downgraded": {
-            "Lite": 9,
+          "degraded": {
+            "Lite": 1,
             "Standard": 0,
             "Pro": 0,
             "Studio": 0
@@ -633,6 +577,14 @@
             "Studio": 32
           }
         }
+      },
+      "trigger": {
+        "realtime": "measured",
+        "offline": "model_only",
+        "ema_seconds": 0.2,
+        "degrade_above": 0.25,
+        "restore_below": 0.2,
+        "_note": "DSP ccd289f (2026-09-30): real-time hosts trigger on a 0.2 s EMA of measured process() time plus the model's predicted change (catches note-on bursts); restore one step per block while prediction stays under 20%. The cost model only picks victims. Offline renders use the deterministic model-only trigger so training stays reproducible. Model rescaled per rate (0.955 at 48k, 0.942 at 96k) with a 1.2 margin."
       }
     },
     "voice_dsp_cap_flops_per_sample": 1800,
@@ -800,72 +752,48 @@
         "Studio"
       ],
       "measured": {
-        "_note": "DSP thread, 2026-09-30, dsp/primitives cea4ff2. Worst case = every primitive plus NONLINEAR in every voice slot. Percent of block; +/-20% noise. Model = guard's own estimate (worst-case params, over-estimates ~1.5-2x). At 96 kHz Standard/Pro/Studio stay over 25% even with every voice slot bypassed because primitives alone exceed the budget.",
+        "_note": "DSP thread, 2026-09-30, dsp/primitives ccd289f, measured trigger. Worst case = every primitive plus NONLINEAR in every voice slot. % of block, +/-20% noise.",
         "48k": {
           "off": {
-            "Lite": 19,
-            "Standard": 22,
-            "Pro": 40,
-            "Studio": 17
+            "Lite": 17.2,
+            "Standard": 26.7,
+            "Pro": 32.1,
+            "Studio": 17.5
           },
           "on": {
-            "Lite": 22,
-            "Standard": 20,
-            "Pro": 21,
-            "Studio": 18
+            "Lite": 20.7,
+            "Standard": 23.0,
+            "Pro": 19.7,
+            "Studio": 17.7
           },
-          "model_before": {
-            "Lite": 31,
-            "Standard": 40,
-            "Pro": 61,
-            "Studio": 42
-          },
-          "model_after": {
-            "Lite": 25,
-            "Standard": 25,
-            "Pro": 25,
-            "Studio": 25
-          },
-          "downgraded": {
-            "Lite": 18,
-            "Standard": 42,
-            "Pro": 9,
-            "Studio": 28
+          "degraded": {
+            "Lite": 0,
+            "Standard": 3,
+            "Pro": 0,
+            "Studio": 0
           },
           "bypassed": {
             "Lite": 0,
-            "Standard": 6,
-            "Pro": 55,
+            "Standard": 29,
+            "Pro": 56,
             "Studio": 0
           }
         },
         "96k": {
           "off": {
-            "Lite": 34,
-            "Standard": 50,
-            "Pro": 70,
-            "Studio": 46
+            "Lite": 27.9,
+            "Standard": 44.6,
+            "Pro": 67.2,
+            "Studio": 35.4
           },
           "on": {
-            "Lite": 24,
-            "Standard": 32,
-            "Pro": 42,
-            "Studio": 36
+            "Lite": 19.3,
+            "Standard": 25.9,
+            "Pro": 34.5,
+            "Studio": 24.3
           },
-          "model_before": {
-            "Lite": 60,
-            "Standard": 79,
-            "Pro": 151,
-            "Studio": 78
-          },
-          "model_after": {
-            "Lite": 25,
-            "Standard": 29,
-            "Pro": 48,
-            "Studio": 27
-          },
-          "downgraded": {
-            "Lite": 9,
+          "degraded": {
+            "Lite": 1,
             "Standard": 0,
             "Pro": 0,
             "Studio": 0
@@ -877,6 +805,14 @@
             "Studio": 32
           }
         }
+      },
+      "trigger": {
+        "realtime": "measured",
+        "offline": "model_only",
+        "ema_seconds": 0.2,
+        "degrade_above": 0.25,
+        "restore_below": 0.2,
+        "_note": "DSP ccd289f (2026-09-30): real-time hosts trigger on a 0.2 s EMA of measured process() time plus the model's predicted change (catches note-on bursts); restore one step per block while prediction stays under 20%. The cost model only picks victims. Offline renders use the deterministic model-only trigger so training stays reproducible. Model rescaled per rate (0.955 at 48k, 0.942 at 96k) with a 1.2 margin."
       }
     },
     "voice_dsp_cap_flops_per_sample": 4000,
