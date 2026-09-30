@@ -332,31 +332,36 @@ def _hann(n, dev):
 
 
 def _ola(frames, S, first=0):
-    """Overlap-add [B,T',2*HOP] frames; frame i starts at (i + first) * HOP."""
+    """Overlap-add [B,T',n] frames (n >= 2*HOP); frame i starts at (i + first) * HOP."""
     B, Tp, n = frames.shape
-    y = F.fold(frames.transpose(1, 2), output_size=(1, (Tp + 1) * HOP), kernel_size=(1, n),
+    y = F.fold(frames.transpose(1, 2), output_size=(1, (Tp - 1) * HOP + n), kernel_size=(1, n),
                stride=(1, HOP)).view(B, -1)
     return y[:, -first * HOP:][:, :S] if first < 0 else y[:, :S]
 
 
-def _band_gain(frames, bands, dc_zero):
+EQ_FFT = 512                    # nextPowerOfTwo(2 * hop) at 48 kHz, as the C++ primitives use
+
+
+def _band_gain(frames, bands, dc_zero, n_fft=None):
     """Multiply the spectrum of [B,T',2*HOP] frames by the band curve. NOISE zeroes the DC bin;
-    the SAMPLER EQ keeps it so unity bands stay transparent (the DC bin spans 0-62 Hz here)."""
-    n = frames.shape[-1]
+    the SAMPLER EQ keeps it so unity bands stay transparent. With n_fft the frames are zero-padded
+    to n_fft first and the whole n_fft result is returned (the filter's spill is kept, as in C++)."""
+    n = n_fft or frames.shape[-1]
     fb = torch.fft.rfftfreq(n, 1.0 / SR).to(frames.device)
     curve = band_interp(bands, fb.expand(*bands.shape[:-1], fb.shape[0]))
     if dc_zero:
         curve = curve * (fb > 0).float()
-    return torch.fft.irfft(torch.fft.rfft(frames) * curve, n=n)
+    return torch.fft.irfft(torch.fft.rfft(frames, n=n) * curve, n=n)
 
 
 def noise_render(bands, gen=None):
-    """NOISE: each hop j starts a 2-hop grain of uniform noise in [-1,1), shaped by frame j's band
-    curve, then Hann-windowed and overlap-added."""
+    """NOISE: each hop j starts a 2-hop grain: 512 samples of uniform noise in [-1,1) shaped by
+    frame j's band curve in a 512-point FFT (DC zeroed), of which the first 2 hops are
+    Hann-windowed and overlap-added. Same spectrum statistics as Noise.cpp, not the same noise."""
     B, T, _ = bands.shape
     n = 2 * HOP
-    noise = torch.rand(B, T, n, device=bands.device, generator=gen) * 2 - 1
-    return _ola(_band_gain(noise, bands, True) * _hann(n, bands.device), T * HOP)
+    noise = torch.rand(B, T, EQ_FFT, device=bands.device, generator=gen) * 2 - 1
+    return _ola(_band_gain(noise, bands, True)[..., :n] * _hann(n, bands.device), T * HOP)
 
 
 def eq_apply(x, bands):
@@ -367,7 +372,7 @@ def eq_apply(x, bands):
     n = 2 * HOP
     fr = F.pad(x, (HOP, HOP)).unfold(-1, n, HOP)[:, :T + 1]     # frame i starts at (i-1)*HOP
     bi = torch.cat([bands[:, :1], bands], 1)[:, :T + 1]
-    return _ola(_band_gain(fr * _hann(n, x.device), bi, False), S, first=-1)
+    return _ola(_band_gain(fr * _hann(n, x.device), bi, False, EQ_FFT), S, first=-1)
 
 
 def grain_render(bank, source, weight, position, rate, gain):
@@ -398,20 +403,27 @@ def grain_render(bank, source, weight, position, rate, gain):
 
 
 def sampler_render(sample, root_hz, f0, rate, start, gain, eq, on_frame):
-    """SAMPLER: reads sample [B,Ls] at (f0/root) * rate (f0 linear, rate held per hop) from
-    start * Ls (start from the note-on frame), then EQ, then gain (linear)."""
+    """SAMPLER: reads sample [B,Ls] from start * (Ls - 1) (start from the note-on frame), then EQ
+    (512-point FFT of each zero-padded 2-hop frame), then gain (linear). The read runs one hop
+    ahead of the output, as in Sampler.cpp: output hops 0 and 1 after note-on advance at
+    f0[on] / root * rate[on], and output hop k >= 2 at frame (k - 1)'s f0 and rate. The sample
+    ends silently at its last sample (the interpolation reads 0 past it)."""
     B, T = f0.shape
     S = T * HOP
     Ls = sample.shape[1]
-    r = frame_interp(f0, S) / root_hz.view(B, 1) * frame_hold(rate, S)
+    inc = f0 / root_hz.view(B, 1) * rate                          # per frame, held per hop
+    k = torch.arange(T + 1, device=f0.device)                     # one hop past the clip: the EQ
+    src = torch.where(k <= on_frame + 1, torch.full_like(k, on_frame), k - 1)   # frame of the last
+    r = frame_hold(inc[:, src], S + HOP)                          # hop reads it, as in C++
     on = on_frame * HOP
-    active = (torch.arange(S, device=f0.device) >= on).float().view(1, S)
-    p = torch.cumsum(r * active, 1) - r * active + start[:, on_frame].view(B, 1) * Ls
-    i0 = p.floor().long().clamp(0, Ls - 2)
+    active = (torch.arange(S + HOP, device=f0.device) >= on).float().view(1, S + HOP)
+    p = torch.cumsum(r * active, 1) - r * active + start[:, on_frame].view(B, 1) * (Ls - 1)
+    padded = F.pad(sample, (0, 1))
+    i0 = p.floor().long().clamp(0, Ls - 1)
     fr = (p - p.floor()).detach()   # as in grain_render
-    x = torch.gather(sample, 1, i0) * (1 - fr) + torch.gather(sample, 1, i0 + 1) * fr
-    x = x * active * (p < Ls - 1).float()
-    return eq_apply(x, eq) * frame_interp(gain, S)
+    x = torch.gather(padded, 1, i0) * (1 - fr) + torch.gather(padded, 1, i0 + 1) * fr
+    x = x * active * (p < Ls).float()
+    return eq_apply(x, eq)[:, :S] * frame_interp(gain, S)
 
 
 def attack_env(tau, on_frame, S):
@@ -674,6 +686,51 @@ def check_layout(path):
             if lim.get(k) != v:
                 bad.append(f"tiers.{name}.{k}: DSP {lim.get(k)}, training {v}")
     return bad
+
+
+NOISY = {"subtractive", "spectral", "physical", "hybrid"}          # methods that can play NOISE
+
+
+def dsp_parity(lib=None, tier="standard", seed=7):
+    """Render every golden case through this file's DSP and through the C++ Synth (the ctypes
+    binding in src/dsp/tools/alfa_dsp_py, built with --target alfa_dsp_c) and compare. Methods
+    that may play NOISE are compared by log-spectral distance, since the noise differs."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, os.path.join(here, "..", "src", "dsp", "tools", "alfa_dsp_py"))
+    import alfa_dsp
+    t = TIERS[tier]
+    te = Teachers(t, torch.device("cpu"), seed)
+    syn = alfa_dsp.Synth(SR, tier, lib_path=lib)
+    syn.set_grain_bank(te.grain_bank.numpy())
+    rows, worst = [], 0.0
+    for name in METHODS + ["unison"]:
+        m = "wavetable" if name == "unison" else name
+        k = torch.rand(1, N_KNOBS, generator=torch.Generator().manual_seed(11))
+        if name == "unison":
+            k[:, 22], k[:, 23] = 1.0, 0.7
+        b = te.batch(m, 1, 80, ["wavetable", "physical"] if m == "hybrid" else None, k=k)
+        cut = tree_map(lambda x: x[:, ON_FRAME:] if x.dim() >= 2 and x.shape[:2] == b["perf"]["f0"].shape else x, b["ctrl"])
+        f0 = b["perf"]["f0"][:, ON_FRAME:]
+        if m == "sampling":
+            syn.set_sample(b["ctx"]["sample"][0].numpy(), SR, SAMPLE_ROOT_HZ)
+        with torch.no_grad():
+            y = render(cut, f0, 0, dict(b["ctx"], gen=torch.Generator().manual_seed(3)))[0].numpy()
+        note = int(round(69 + 12 * math.log2(float(f0[0, 0]) / 440)))
+        c, _ = syn.render(to_voiceframe(cut)[0].numpy(), None, f0[0].numpy(), note=note)
+        n = min(len(y), len(c))
+        spec = lambda x: np.log(np.abs(np.fft.rfft(np.lib.stride_tricks.sliding_window_view(x, 2048)[::512]
+                                                  * np.hanning(2048))) ** 2 + 1e-8).mean(0)
+        sd = float(np.abs(spec(y[:n]) - spec(c[:n])).mean() * 10 / math.log(10))
+        d = float(np.abs(y[:n] - c[:n]).max() / (np.abs(c[:n]).max() + 1e-9))
+        if m in NOISY:
+            rows.append(f"{name:12s} mean spectral difference {sd:.2f} dB (noise differs)")
+        elif m == "fm":        # deep operator chains amplify float32 rounding (about index^depth)
+            worst = max(worst, sd / 1000)
+            rows.append(f"{name:12s} max error {d:.1e} of peak, mean spectral difference {sd:.2f} dB")
+        else:
+            worst = max(worst, d)
+            rows.append(f"{name:12s} max error {d:.1e} of peak")
+    return rows, worst
 
 
 # ================================================================ control distance (METHOD.md s5)
@@ -1947,6 +2004,9 @@ def main(argv=None):
     lc = sub.add_parser("layout", help="check the frame layout against the DSP's layout.json")
     lc.add_argument("path", nargs="?", default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                                          "..", "src", "dsp", "layout.json"))
+    pc = sub.add_parser("parity", help="compare this file's DSP with the C++ Synth (needs alfa_dsp_c)")
+    pc.add_argument("--lib", default=None, help="path to libalfa_dsp_c (or set ALFA_DSP_LIB)")
+    pc.add_argument("--tier", default="standard", choices=list(TIERS))
     tr = sub.add_parser("train")
     tr.add_argument("--tier", default="lite", choices=list(TIERS))
     tr.add_argument("--stage", default="pretrain", choices=["pretrain", "polish", "finetune", "distill"])
@@ -1980,6 +2040,10 @@ def main(argv=None):
         bad = check_layout(args.path)
         print("\n".join(bad) if bad else f"layout v{LAYOUT_VERSION} matches {args.path}")
         sys.exit(1 if bad else 0)
+    elif args.cmd == "parity":
+        rows, worst = dsp_parity(args.lib, args.tier)
+        print("\n".join(rows))
+        sys.exit(0 if worst < 1e-3 else 1)
     elif args.cmd == "train":
         if args.stage == "distill" and not args.teacher:
             ap.error("--stage distill needs --teacher")

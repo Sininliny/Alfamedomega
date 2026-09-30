@@ -60,9 +60,9 @@ note-on, and f0 ramps the same way.
 | **OSC** | `osc.re`, `osc.im`: 1024 harmonics; `osc.detune_ratio`, `osc.detune_level`: 7 unison reads | frame j's wave is Σ re cos(2π(k+1)φ) − im sin(2π(k+1)φ), stored as a 2048-point table read with linear interpolation, and hop j crossfades from table j−1 to table j. Table j drops harmonics at or above Nyquist for the f0 at the start of hop j times the largest ratio of any unison read sounding in frame j−1 or j (at least 1). Unison read r (the first oscUnison − 1 of 7 run) has its own phase, starting at (r+1)/8 on note-on and advancing at f0·ratio_r (both linear across the hop, so the frequency is quadratic within a hop), reads the same crossfaded tables, and adds level_r times the result |
 | **PARTIALS** | `partials.ratio`, `partials.amp` (M used) | sinusoids at f0·ratio with amplitude amp, both linear. A partial at or above Nyquist is silent |
 | **FM** | `fm.ratio`, `fm.level` (N used), `fm.index` (8×8 row-major, j>i) | y_i = sin(θ_i + Σ_{j>i} index[i][j]·y_j), evaluated from the last operator to the first, with output Σ level_i·y_i. There is no feedback |
-| **NOISE** | `noise.band`: 64 gains | each hop starts a 2-hop grain: uniform noise in [−1, 1), shaped by frame j's band curve with DC zeroed, then Hann-windowed and overlap-added |
+| **NOISE** | `noise.band`: 64 gains | each hop starts a 2-hop grain: noise shaped by frame j's band curve in a 512-point FFT with DC zeroed (variance 1/3 at unity gain), of which the first 2 hops are Hann-windowed and overlap-added. Training matches the C++ spectrum statistics, not its random numbers |
 | **GRAIN** | per layer: `grain.source` (2 bank indices as floats), `grain.weight` (2), `grain.position`, `grain.rate`, `grain.gain` | each hop starts a 2-hop Hann grain per layer reading w0·bank[s0] + w1·bank[s1] from position·8192, advancing rate per sample and wrapping. All values are held |
-| **SAMPLER** | `sampler.rate` (held), `sampler.start` (note-on frame), `sampler.gain`, `sampler.eq` (64) | reads the sample at (f0/root)·rate from start·length, applies a short-time EQ (2-hop Hann frames, the frame starting at hop j using frame j's curve), then applies gain |
+| **SAMPLER** | `sampler.rate` (held), `sampler.start` (note-on frame), `sampler.gain`, `sampler.eq` (64) | reads the sample from start·(length − 1), one hop ahead of the output: output hops 0 and 1 advance at f0/root·rate of the note-on frame, and hop k ≥ 2 at frame k−1's. It ends silently at the last sample. Then a short-time EQ (2-hop Hann frames zero-padded to a 512-point FFT, the frame starting at hop j using frame j's curve, the filter's spill kept), then gain |
 
 The dry voice is `attack(t) · Σ_p mix[p] · primitive_p`, with `mix` = 6 linear gains in the order
 [osc, partials, fm, noise, grain, sampler], and `attack(t) = 1 − exp(−t/attack_tau)`, with
@@ -274,6 +274,14 @@ example, wavetable ignores f0), and `export_info.json` lists each graph's real i
 So a frame costs 2 + (number of active methods) `Run()` calls, with all voices of a method
 batched. That answers ADR 0001 open question 3 (separate files per method, not one graph per
 patch), and it keeps the tier spec's "one batched Run per frame" assumption, per method.
+
+**C++ parity.** `python alfamedomega_train.py parity --lib <libalfa_dsp_c>` renders every
+golden case through this script's DSP and through the real `Synth` (the DSP's ctypes binding,
+`cmake --build <dir> --target alfa_dsp_c`), and fails above 1e-3 of peak. Last run, on all four
+tiers: OSC, unison, PARTIALS, GRAIN and SAMPLER within 5e-4 of peak. FM matches to about 1e-6 at
+low index, but deep 8-operator stacks amplify float32 rounding (about index^depth), so FM is
+held to its spectrum (0.04 dB on Studio). Methods that play NOISE are compared by spectrum (NOISE
+within 0.5 dB per octave band).
 
 Checks the export runs, and fails on:
 1. **Streaming parity:** the step graphs' torch code, frame by frame, matches the whole-clip
