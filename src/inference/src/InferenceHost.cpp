@@ -5,9 +5,11 @@
 #include <anira/anira.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <stdexcept>
+#include <thread>
 
 namespace alfa::inference
 {
@@ -22,10 +24,11 @@ class PipelineBackend final : public anira::BackendBase
 {
 public:
     PipelineBackend(anira::InferenceConfig& config, FramePipeline& pipeline,
-                    std::atomic<bool>& resetRequested)
+                    std::atomic<bool>& resetRequested, std::atomic<std::uint64_t>& framesInferred)
         : anira::BackendBase(config)
         , pipeline_(pipeline)
         , resetRequested_(resetRequested)
+        , framesInferred_(framesInferred)
     {
     }
 
@@ -35,11 +38,13 @@ public:
         if (resetRequested_.exchange(false, std::memory_order_acq_rel))
             pipeline_.resetState();
         pipeline_.runFrame(input[0].get_read_pointer(0), output[0].get_write_pointer(0));
+        framesInferred_.fetch_add(1, std::memory_order_release);
     }
 
 private:
     FramePipeline& pipeline_;
     std::atomic<bool>& resetRequested_;
+    std::atomic<std::uint64_t>& framesInferred_;
 };
 
 anira::InferenceConfig makeConfig(const ModelEntry& model)
@@ -68,7 +73,7 @@ struct InferenceHost::Engine
         , pipeline(m)
         , config(makeConfig(m))
         , pp(config)
-        , backend(config, pipeline, resetRequested)
+        , backend(config, pipeline, resetRequested, framesInferred)
         , handler(pp, config, backend, anira::ContextConfig(spec(m.tier).inferenceThreads))
     {
         handler.set_inference_backend(anira::InferenceBackend::CUSTOM);
@@ -95,11 +100,15 @@ struct InferenceHost::Engine
 
         latencySamples = latencyFrames * clock.hop();
         pipeline.resetState(); // prepare() drained all work, including the warm-up inferences
+        framesInferred.store(0, std::memory_order_relaxed);
+        framesPushed = 0;
         prepared = true;
     }
 
     ModelEntry model;
     std::atomic<bool> resetRequested{false};
+    std::atomic<std::uint64_t> framesInferred{0}; // counted by the backend since prepare()
+    std::uint64_t framesPushed = 0;               // audio thread
     FramePipeline pipeline;
     anira::InferenceConfig config;
     anira::PrePostProcessor pp;
@@ -373,6 +382,7 @@ std::span<const FrameEvent> InferenceHost::process(int numSamples) noexcept
                        {
                            const float* in = inputFrame_.data();
                            engine->handler.push_data(&in, kInputSize, 0);
+                           ++engine->framesPushed;
                            if (engine->handler.pop_data(&out, kOutputSize, 0) == kOutputSize)
                            {
                                heldFrame_ = slot;
@@ -397,6 +407,21 @@ std::span<const FrameEvent> InferenceHost::process(int numSamples) noexcept
                    });
 
     return {events_.data(), count};
+}
+
+bool InferenceHost::waitForInference(std::chrono::milliseconds timeout) const
+{
+    const Engine* engine = active_;
+    if (engine == nullptr)
+        return true;
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (engine->framesInferred.load(std::memory_order_acquire) < engine->framesPushed)
+    {
+        if (std::chrono::steady_clock::now() >= deadline)
+            return false;
+        std::this_thread::sleep_for(std::chrono::microseconds(50));
+    }
+    return true;
 }
 
 void InferenceHost::reset() noexcept
