@@ -7,9 +7,11 @@ and CI use to stay out of the real system folders.
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
@@ -58,6 +60,18 @@ def find_in_checkout(*rel: str, repo: str = "") -> str:
         if candidate.is_file():
             return str(candidate)
     return ""
+
+
+def split_command(command: str) -> list:
+    """A command-line setting as an argv list.
+
+    Windows commands keep their backslashes (non-POSIX split), and the quotes around a path
+    with spaces are dropped so the token names the file itself.
+    """
+    if os.name != "nt":
+        return shlex.split(command)
+    return [t[1:-1] if len(t) >= 2 and t[0] == t[-1] == '"' else t
+            for t in shlex.split(command, posix=False)]
 
 
 def _venv_python(repo: str) -> str:
@@ -137,6 +151,17 @@ def save_settings(home: Path, settings: Settings) -> None:
     write_json_atomic(home / "settings.json", asdict(settings))
 
 
+def read_json(path: Path):
+    """Read a file written by write_json_atomic, riding out the moment a Windows rename holds it."""
+    for attempt in range(50):
+        try:
+            return json.loads(Path(path).read_text(encoding="utf-8"))
+        except PermissionError:
+            if attempt == 49:
+                raise
+            time.sleep(0.01)
+
+
 def write_json_atomic(path: Path, data) -> None:
     """Write JSON so a reader (the plugin, another window) never sees a half-written file."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -146,4 +171,12 @@ def write_json_atomic(path: Path, data) -> None:
         f.write("\n")
         f.flush()
         os.fsync(f.fileno())
-    os.replace(tmp, path)
+    # On Windows the rename is refused while a reader has the target open; readers are brief.
+    for attempt in range(50):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == 49:
+                raise
+            time.sleep(0.01)
