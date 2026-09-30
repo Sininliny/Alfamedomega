@@ -1,4 +1,4 @@
-# Alfamedomega model size tiers (draft v5.4, 2026-09-29)
+# Alfamedomega model size tiers (draft v5.5, 2026-09-30)
 
 Four tiers. Every number is a planning estimate from `tier_budget.py` (same folder); change an
 assumption there and re-run. Nothing here is measured yet. v2 rebases the budgets on the stack in
@@ -191,6 +191,27 @@ slots and mod routes are v2 limits; mod routes can go to 16 and resonator modes 
 | mod_routes | 4 | 6 | 8 | 8 | 8 |
 | resonator_modes | 8 | 16 | 24 | 32 | 64 |
 | osc_unison | 2 | 4 | 6 | 8 | 8 |
+
+## Measured DSP cost (DSP thread, 2026-09-30)
+
+Release build, 48 kHz, 128-sample blocks, every voice of the tier playing; shared machine, about
+±20% noise. Microseconds per 2,667 µs block, with share of block. Full table, including every
+family, is in `allocation.json` under `measured_dsp`; it replaces the FLOP estimates below as
+the reference.
+
+| Scenario | Lite | Standard | Pro | Studio |
+|---|---|---|---|---|
+| Oscillator + noise | 122 (4.6%) | 150 (5.6%) | 143 (5.4%) | 62 (2.3%) |
+| Heaviest single family (body) | 296 (11%) | 412 (15%) | 526 (20%) | 250 (9.4%) |
+| Everything | 258 (9.7%) | 372 (14%) | 479 (18%) | 278 (10%) |
+| Everything at 96 kHz | 19% | 28% | 34% | 22% |
+
+Typical patches sit inside the 2 to 8% range the spec assumed. The exceptions are all Pro, the
+tier with the most voices × slots (16 × 4): full voice slots of body or 2x-oversampled
+nonlinear reach about 20%, and everything plus four heavy voice slots reaches about 30%, over the
+25% audio-thread cap. At 96 kHz Standard (28%) and Pro (34%) are also over, which is why the caps
+are counted per second. Memory: each instance slot pre-allocates about 11 MB at 48 kHz (6 s
+convolution state, 2 s delay), so 44 MB per plugin instance in Pro and Studio.
 
 ## DSP cost check
 

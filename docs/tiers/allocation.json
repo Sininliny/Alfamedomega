@@ -529,5 +529,147 @@
         "wavetable": 0.4
       }
     }
-  ]
+  ],
+  "measured_dsp": {
+    "_note": "Measured by the DSP thread, 2026-09-30. Release build, 48 kHz, 128-sample blocks (2667 us), every voice of the tier playing, frames rewritten every hop, shared machine (about +/-20% noise). Values are us per block. per_family rows are osc+noise voices plus that family in every slot the tier allows (voice families in voice slots, others in instance slots); subtract the osc+noise scenario for the family's own cost. At 96 kHz 'everything' is 19/28/34/22% of the block. Each instance slot pre-allocates about 11 MB at 48 kHz.",
+    "block_us": 2667,
+    "scenarios_us": {
+      "osc+noise": {
+        "Lite": 122,
+        "Standard": 150,
+        "Pro": 143,
+        "Studio": 62
+      },
+      "fm": {
+        "Lite": 79,
+        "Standard": 121,
+        "Pro": 165,
+        "Studio": 101
+      },
+      "modal": {
+        "Lite": 125,
+        "Standard": 174,
+        "Pro": 270,
+        "Studio": 120
+      },
+      "grain": {
+        "Lite": 68,
+        "Standard": 97,
+        "Pro": 155,
+        "Studio": 87
+      },
+      "sampler": {
+        "Lite": 102,
+        "Standard": 103,
+        "Pro": 106,
+        "Studio": 49
+      },
+      "everything": {
+        "Lite": 258,
+        "Standard": 372,
+        "Pro": 479,
+        "Studio": 278
+      }
+    },
+    "per_family_us": {
+      "filter": {
+        "Lite": 187,
+        "Standard": 287,
+        "Pro": 331,
+        "Studio": 148
+      },
+      "comb": {
+        "Lite": 205,
+        "Standard": 313,
+        "Pro": 359,
+        "Studio": 153
+      },
+      "formant": {
+        "Lite": 222,
+        "Standard": 309,
+        "Pro": 360,
+        "Studio": 175
+      },
+      "resonator": {
+        "Lite": 177,
+        "Standard": 199,
+        "Pro": 261,
+        "Studio": 145
+      },
+      "nonlinear_2x_os": {
+        "Lite": 291,
+        "Standard": 438,
+        "Pro": 489,
+        "Studio": 231
+      },
+      "waveguide": {
+        "Lite": 225,
+        "Standard": 229,
+        "Pro": 242,
+        "Studio": 124
+      },
+      "mod_delay": {
+        "Lite": 274,
+        "Standard": 276,
+        "Pro": 310,
+        "Studio": 144
+      },
+      "phaser": {
+        "Lite": 189,
+        "Standard": 266,
+        "Pro": 322,
+        "Studio": 155
+      },
+      "body": {
+        "Lite": 296,
+        "Standard": 412,
+        "Pro": 526,
+        "Studio": 250
+      },
+      "delay": {
+        "Lite": 119,
+        "Standard": 137,
+        "Pro": 160,
+        "Studio": 83
+      },
+      "reverb": {
+        "Lite": 191,
+        "Standard": 259,
+        "Pro": 322,
+        "Studio": 217
+      },
+      "convolution": {
+        "Lite": 175,
+        "Standard": 212,
+        "Pro": 250,
+        "Studio": 157
+      },
+      "spectral": {
+        "Lite": 120,
+        "Standard": 130,
+        "Pro": 155,
+        "Studio": 75
+      },
+      "pitch_shift": {
+        "Lite": 143,
+        "Standard": 187,
+        "Pro": 218,
+        "Studio": 150
+      },
+      "spatial": {
+        "Lite": 120,
+        "Standard": 131,
+        "Pro": 151,
+        "Studio": 76
+      }
+    },
+    "everything_pct_96k": {
+      "Lite": 19,
+      "Standard": 28,
+      "Pro": 34,
+      "Studio": 22
+    },
+    "pro_worst_case_pct_48k": 30,
+    "instance_slot_prealloc_mb_48k": 11
+  }
 }
