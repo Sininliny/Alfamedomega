@@ -209,7 +209,7 @@ constexpr std::size_t cutoff = 0, res = 1, mode = 2, slope = 3, drive = 4, key =
 }
 namespace cp
 {
-constexpr std::size_t freq = 0, key = 1, fb = 2, damp = 3, balance = 4, mix = 5;
+constexpr std::size_t freq = 0, key = 1, fb = 2, damp = 3, balance = 4;
 }
 
 Params filterParams(float cutoffHz, float res = 0.0f, float mode = 0.0f, bool slope24 = false)

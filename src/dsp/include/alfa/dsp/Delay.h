@@ -90,7 +90,6 @@ private:
     float pp_ = 0.0f, ppTarget_ = 0.0f;
     float mix_ = 1.0f, mixTarget_ = 1.0f;
     float depth_ = 0.0f, depthTarget_ = 0.0f; // samples
-    float apGain_ = 0.0f;
     bool first_ = true;
 };
 
