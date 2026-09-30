@@ -59,6 +59,15 @@ public:
     [[nodiscard]] std::int64_t samplesSinceNoteOn() const noexcept { return age_; }
     [[nodiscard]] std::int64_t samplesSinceRelease() const noexcept { return releaseAge_; }
 
+    // For the audio budget guard (BudgetGuard.h).
+    /// True if primitive p renders this hop or would next hop (latest frame).
+    [[nodiscard]] bool primitiveActive(int p) const noexcept;
+    /// The family slot k runs next hop per the latest frame, before the guard.
+    [[nodiscard]] Family requestedFamily(int slot) const noexcept;
+    [[nodiscard]] int slotCount() const noexcept { return slots_.slotCount(); }
+    void setSlotGuard(int slot, int level) noexcept { slots_.setGuardLevel(slot, level); }
+    [[nodiscard]] int slotGuard(int slot) const noexcept { return slots_.guardLevel(slot); }
+
 private:
     void beginHop() noexcept;
     void renderBlock(float* left, float* right, int n) noexcept;

@@ -422,6 +422,14 @@ struct TierLimits
     int oscUnison; ///< total OSC reads including the main one (1 .. kMaxOscDetune + 1)
 };
 
+/// The tier spec's audio budget guard (allocation_by_tier.json audio_budget_guard), see
+/// BudgetGuard.h. familyWeightPct is indexed by Family (Family.h).
+struct BudgetGuardSpec
+{
+    float maxShare; ///< of real time (per-second basis, so it holds at any sample rate)
+    float familyWeightPct[16];
+};
+
 } // namespace alfa::dsp
 
 #include "alfa/dsp/TierLimitsGenerated.h"
@@ -434,6 +442,13 @@ namespace alfa::dsp
 {
     const auto i = static_cast<int>(tier);
     return generated::kTierLimits[i >= 0 && i < 4 ? i : 3];
+}
+
+/// The tier's audio budget guard settings, generated like limitsFor().
+[[nodiscard]] constexpr const BudgetGuardSpec& budgetGuardFor(Tier tier) noexcept
+{
+    const auto i = static_cast<int>(tier);
+    return generated::kBudgetGuard[i >= 0 && i < 4 ? i : 3];
 }
 
 } // namespace alfa::dsp

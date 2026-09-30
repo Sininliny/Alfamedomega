@@ -54,6 +54,11 @@ add_executable(alfa_dsp_bench EXCLUDE_FROM_ALL bench/Bench.cpp)
 target_link_libraries(alfa_dsp_bench PRIVATE Alfa::dsp)
 alfa_set_compile_options(alfa_dsp_bench)
 
+# Measures the budget guard's cost table: alfa_dsp_calibrate > include/alfa/dsp/CostTableGenerated.h
+add_executable(alfa_dsp_calibrate EXCLUDE_FROM_ALL tools/Calibrate.cpp)
+target_link_libraries(alfa_dsp_calibrate PRIVATE Alfa::dsp)
+alfa_set_compile_options(alfa_dsp_calibrate)
+
 if(ALFA_BUILD_TESTS)
     add_subdirectory(tests)
 endif()

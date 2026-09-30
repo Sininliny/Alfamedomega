@@ -18,6 +18,7 @@
 // with width applied as mid/side (side *= width), then a safety stage that is linear to +6 dBFS
 // and never exceeds +12 dBFS. setInstanceFrame() feeds that chain.
 
+#include "alfa/dsp/BudgetGuard.h"
 #include "alfa/dsp/ControlFrame.h"
 #include "alfa/dsp/Modulation.h"
 #include "alfa/dsp/Primitive.h"
@@ -89,6 +90,11 @@ public:
     /// the mono sum (L + R) / 2.
     void process(float* left, float* right, int n) noexcept;
 
+    /// Audio budget guard (BudgetGuard.h), on by default. The report is from the last block.
+    void setBudgetGuardEnabled(bool enabled) noexcept { guard_.setEnabled(enabled); }
+    void setCostScale(float scale) noexcept { guard_.setCostScale(scale); }
+    [[nodiscard]] const GuardReport& guardReport() const noexcept { return guardReport_; }
+
     [[nodiscard]] int voiceCount() const noexcept { return static_cast<int>(voices_.size()); }
     [[nodiscard]] VoiceInfo voiceInfo(int voice) const noexcept;
     [[nodiscard]] int hop() const noexcept { return spec_.hop; }
@@ -103,6 +109,9 @@ private:
     PrepareSpec spec_;
     int maxBlock_ = 0;
     std::vector<std::unique_ptr<Voice>> voices_;
+    std::vector<Voice*> voicePtrs_;
+    BudgetGuard guard_;
+    GuardReport guardReport_;
     std::vector<std::uint64_t> startOrder_;
     std::uint64_t counter_ = 0;
     float bendSemitones_ = 0.0f;

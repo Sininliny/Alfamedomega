@@ -138,3 +138,18 @@ module (`alfa_dsp.py`, needs numpy). `Synth(sr, tier).render(voice_frames[T, 262
 instance_frames[T, 164] | None, f0[T] | None, note, velocity, note_off_frame)` returns stereo
 float32 of T·hop samples. Each call resets the synth, so renders are deterministic and can be
 batched with one `Synth` per worker. Build it with `cmake --build <dir> --target alfa_dsp_c`.
+
+## Audio budget guard
+
+`BudgetGuard.h`. The user chose it on 2026-09-30, and the tier spec's `audio_budget_guard` configures it. Before each block, `Synth` sums a modelled CPU cost for everything that will run:
+- the voice base, the active primitives and the voice slots of every active voice;
+- the instance slots and the instance base.
+
+If the total exceeds the tier's `max_block_share` of real time, the guard degrades voice slots for their next hop:
+- it takes the heaviest slot first, then the lowest family capacity weight (generated from `family_share_pct`), then the newest note;
+- it first moves a slot to reduced quality, where the family has a cheaper mode (`Processor::hasReducedQuality`: NONLINEAR drops to 1× oversampling, RESONATOR halves its modes);
+- after that it bypasses the slot, which crossfades out like switching to Off.
+
+Instance slots and primitives are never degraded. The cost is modelled per second of audio, so the budget holds at every sample rate.
+
+The cost table, `CostTableGenerated.h`, is written by `alfa_dsp_calibrate`. It holds the ns per sample measured at 48 and 96 kHz on the calibration machine. Slot costs are the worst of several param sets, so the model is conservative. Hosts can rescale the model with `Synth::setCostScale`. The guard never reads a clock on the audio thread, so a given input always gets the same decisions.

@@ -48,6 +48,17 @@ public:
     /// Hop boundary: a family change starts a crossfade from the old family across this hop.
     void beginHop(const SlotControls* current) noexcept;
 
+    /// Audio budget guard (BudgetGuard.h): 0 as requested, 1 reduced quality, 2 bypassed (the
+    /// slot runs as Off, crossfading out). Applied at the next beginHop().
+    void setGuardLevel(int slot, int level) noexcept { slots_[static_cast<std::size_t>(slot)].guard = level; }
+    [[nodiscard]] int guardLevel(int slot) const noexcept
+    {
+        return slots_[static_cast<std::size_t>(slot)].guard;
+    }
+
+    /// The family a slot would run for these controls (Off if not allowed here), ignoring the guard.
+    [[nodiscard]] Family resolveFamily(int slot, const SlotControls& controls) const noexcept;
+
     /// Processes n samples. sources[s * channels + c] points at n samples of source s, channel c.
     /// blocks[k] holds slot k's resolved values. Returns true if any slot ran.
     bool process(const float* const* sources, const SlotBlock* blocks, const ControlContext& ctx,
@@ -76,6 +87,7 @@ private:
         Family family = Family::Off;
         Family fadingOut = Family::Off;
         int fadePos = 0;
+        int guard = 0;
         std::vector<float> out; // channels * kControlBlock
         std::vector<float> in;  // channels * kControlBlock
         std::vector<float> old; // channels * kControlBlock, crossfade scratch

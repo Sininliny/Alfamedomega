@@ -39,6 +39,10 @@ void Synth::prepare(double sampleRate, int maxBlock, Tier tier)
     }
     startOrder_.assign(voices_.size(), 0);
     counter_ = 0;
+    voicePtrs_.clear();
+    for (auto& v : voices_)
+        voicePtrs_.push_back(v.get());
+    guard_.prepare(sampleRate, tier);
 
     maxBlock_ = std::max(1, maxBlock);
     busL_.assign(static_cast<std::size_t>(maxBlock_), 0.0f);
@@ -205,6 +209,15 @@ void Synth::renderChunk(float* left, float* right, int n) noexcept
 {
     std::fill_n(busL_.data(), n, 0.0f);
     std::fill_n(busR_.data(), n, 0.0f);
+
+    std::array<Family, kMaxInstanceSlots> instFamilies{};
+    const int instCount = instSlots_.slotCount();
+    for (int k = 0; k < instCount; ++k)
+        instFamilies[static_cast<std::size_t>(k)] =
+            instSlots_.resolveFamily(k, latestI_->slots[static_cast<std::size_t>(k)]);
+    guardReport_ = guard_.run(voicePtrs_.data(), startOrder_.data(), static_cast<int>(voicePtrs_.size()),
+                              instFamilies.data(), instCount);
+
     for (auto& v : voices_)
         v->process(busL_.data(), busR_.data(), n);
 

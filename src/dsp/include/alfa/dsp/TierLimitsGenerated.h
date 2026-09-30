@@ -15,5 +15,14 @@ inline constexpr TierLimits kTierLimits[4] = {
     {64, 8, 8, 8, 4, 4, 8, 32, 8}, // Studio
 };
 
+// Audio budget guard: max share of real time, then each Family's capacity share (percent;
+// the guard degrades the lowest first among equally heavy slots).
+inline constexpr BudgetGuardSpec kBudgetGuard[4] = {
+    {0.25f, {0.0f, 13.89f, 13.89f, 13.89f, 13.89f, 5.08f, 2.06f, 3.0f, 3.0f, 2.06f, 3.0f, 3.0f, 0.71f, 2.21f, 0.71f, 0.71f}}, // Lite
+    {0.25f, {0.0f, 13.0f, 13.0f, 13.0f, 13.0f, 6.0f, 3.0f, 4.0f, 4.0f, 3.0f, 4.0f, 4.0f, 1.0f, 3.2f, 0.54f, 1.0f}}, // Standard
+    {0.25f, {0.0f, 12.12f, 12.12f, 12.12f, 12.12f, 6.53f, 3.75f, 4.72f, 4.72f, 3.75f, 4.72f, 4.72f, 1.56f, 2.64f, 0.89f, 1.56f}}, // Pro
+    {0.25f, {0.0f, 11.08f, 11.08f, 11.08f, 11.08f, 6.97f, 4.6f, 5.46f, 5.46f, 4.6f, 5.46f, 5.46f, 2.38f, 2.34f, 1.57f, 2.38f}}, // Studio
+};
+
 } // namespace alfa::dsp::generated
 // clang-format on

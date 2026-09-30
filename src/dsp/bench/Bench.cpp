@@ -97,6 +97,8 @@ struct SlotSetup
 {
     Family family = Family::Off;
     bool instance = false;
+    bool guard = false;            ///< the audio budget guard (off: raw cost)
+    GuardReport* report = nullptr; ///< receives the guard's last report
 };
 
 void fillSlot(SlotControls& slot, Family family, int inputIndex)
@@ -113,6 +115,7 @@ double measure(Tier tier, const Scenario& s, double sampleRate, int block, SlotS
 {
     Synth synth;
     synth.prepare(sampleRate, block, tier);
+    synth.setBudgetGuardEnabled(slots.guard);
 
     std::vector<float> bankData(4 * kGrainSourceLength);
     for (std::size_t i = 0; i < bankData.size(); ++i)
@@ -179,6 +182,8 @@ double measure(Tier tier, const Scenario& s, double sampleRate, int block, SlotS
     }
     const auto t1 = std::chrono::steady_clock::now();
     const double us = std::chrono::duration<double, std::micro>(t1 - t0).count() / blocks;
+    if (slots.report != nullptr)
+        *slots.report = synth.guardReport();
     return us;
 }
 } // namespace
@@ -235,6 +240,26 @@ int main()
             std::printf("%10.1f (%4.1f%%)", us, 100.0 * us / blockUs);
         }
         std::printf("\n");
+    }
+
+    // Worst case: every primitive plus NONLINEAR (the heaviest voice family) in every voice slot.
+    std::printf("\nWorst case (everything + nonlinear in every voice slot), guard off vs on: us per block "
+                "(%% of block), guard model estimate -> after, slots downgraded/bypassed\n");
+    for (const double rate : {48000.0, 96000.0})
+    {
+        const double us0 = block / rate * 1e6;
+        for (int t = 0; t < 4; ++t)
+        {
+            GuardReport rep;
+            const double off =
+                measure(static_cast<Tier>(t), scenarios[5], rate, block, {Family::Nonlinear, false});
+            const double on = measure(static_cast<Tier>(t), scenarios[5], rate, block,
+                                      {Family::Nonlinear, false, true, &rep});
+            std::printf(
+                "%3.0f kHz %-9s off %7.1f (%4.1f%%)  on %7.1f (%4.1f%%)  model %4.1f%% -> %4.1f%%  %d/%d\n",
+                rate / 1000.0, tierNames[t], off, 100.0 * off / us0, on, 100.0 * on / us0,
+                100.0 * rep.estimatedShare, 100.0 * rep.finalShare, rep.downgraded, rep.bypassed);
+        }
     }
     return 0;
 }

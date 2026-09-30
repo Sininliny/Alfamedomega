@@ -331,6 +331,17 @@ void Voice::renderBlock(float* left, float* right, int n) noexcept
     mod_.advance(dry_.data(), n);
 }
 
+bool Voice::primitiveActive(int p) const noexcept
+{
+    const auto i = static_cast<std::size_t>(p);
+    return rendering_[i] || latest_->mix[i] != 0.0f;
+}
+
+Family Voice::requestedFamily(int slot) const noexcept
+{
+    return slots_.resolveFamily(slot, latest_->slots[static_cast<std::size_t>(slot)]);
+}
+
 bool Voice::finished() const noexcept
 {
     const auto zero = [](float g)

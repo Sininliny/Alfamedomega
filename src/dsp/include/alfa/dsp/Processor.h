@@ -75,6 +75,11 @@ public:
     virtual void setParams(const float* normalised, const ControlContext& ctx) noexcept = 0;
     virtual void process(float* const* channels, int n) noexcept = 0;
     [[nodiscard]] virtual int tailSamples() const noexcept { return 0; }
+    /// Quality the audio budget guard asks for: 0 full, 1 reduced (cheaper, audibly close).
+    /// Takes effect from the next setParams(). Families without a cheaper mode ignore it; the
+    /// guard's cost table (CostModel.h) knows which ones save anything.
+    virtual void setQuality(int level) noexcept { (void)level; }
+    [[nodiscard]] virtual bool hasReducedQuality() const noexcept { return false; }
 };
 
 } // namespace alfa::dsp

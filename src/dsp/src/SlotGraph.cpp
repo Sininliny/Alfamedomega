@@ -51,6 +51,7 @@ void SlotGraph::reset() noexcept
         slot.fadingOut = Family::Off;
         slot.fadePos = 0;
         slot.ran = false;
+        slot.guard = 0;
         std::fill(slot.out.begin(), slot.out.end(), 0.0f);
     }
 }
@@ -60,9 +61,9 @@ void SlotGraph::beginHop(const SlotControls* current) noexcept
     for (std::size_t k = 0; k < slots_.size(); ++k)
     {
         auto& slot = slots_[k];
-        Family next = familyFromFloat(current[k].family);
-        if (slot.processors[static_cast<std::size_t>(next)] == nullptr)
-            next = Family::Off; // not allowed here (or Off)
+        Family next = slot.guard >= 2 ? Family::Off : resolveFamily(static_cast<int>(k), current[k]);
+        if (next != Family::Off)
+            slot.processors[static_cast<std::size_t>(next)]->setQuality(slot.guard);
         if (next == slot.family)
             continue;
         // Start the new family clean and fade the old one out across this hop. A change during
@@ -73,6 +74,14 @@ void SlotGraph::beginHop(const SlotControls* current) noexcept
         if (auto& p = slot.processors[static_cast<std::size_t>(next)]; p != nullptr)
             p->reset();
     }
+}
+
+Family SlotGraph::resolveFamily(int slot, const SlotControls& controls) const noexcept
+{
+    const Family f = familyFromFloat(controls.family);
+    return slots_[static_cast<std::size_t>(slot)].processors[static_cast<std::size_t>(f)] != nullptr
+               ? f
+               : Family::Off;
 }
 
 void SlotGraph::runFamily(Slot& slot, Family f, const float* params, const ControlContext& ctx, float* buffer,

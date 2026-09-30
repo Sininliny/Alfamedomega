@@ -176,6 +176,9 @@ public:
     void setParams(const float* normalised, const ControlContext& ctx) noexcept override;
     void process(float* const* channels, int n) noexcept override;
     [[nodiscard]] int tailSamples() const noexcept override;
+    /// Reduced quality halves the mode limit.
+    void setQuality(int level) noexcept override { quality_ = level; }
+    [[nodiscard]] bool hasReducedQuality() const noexcept override { return true; }
 
     /// Frequency of mode k in Hz as last set (0 for skipped or unused modes), for tests.
     [[nodiscard]] float modeHz(int k) const noexcept;
@@ -186,6 +189,7 @@ private:
     double sampleRate_ = 48000.0;
     int channels_ = 1;
     int limit_ = detail::kPhysicalMaxModes;
+    int quality_ = 0;
     const detail::PhysicalModeTables* tables_ = nullptr;
     std::array<float, detail::kPhysicalMaxModes> detune_{}; // fixed -1..1 per mode
 

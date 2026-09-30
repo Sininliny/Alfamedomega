@@ -62,6 +62,9 @@ public:
     void setParams(const float* normalised, const ControlContext& ctx) noexcept override;
     void process(float* const* channels, int n) noexcept override;
     [[nodiscard]] int tailSamples() const noexcept override;
+    /// Reduced quality caps oversampling at 1x (switching fades, as a param change does).
+    void setQuality(int level) noexcept override { quality_ = level; }
+    [[nodiscard]] bool hasReducedQuality() const noexcept override { return true; }
 
     /// Base-rate latency of the current oversampling factor (0, 23 or 29 samples).
     [[nodiscard]] int latencySamples() const noexcept;
@@ -130,6 +133,7 @@ private:
     float holdIncrement_ = 1.0f;
     int factor_ = 1;
     int pendingFactor_ = 1;
+    int quality_ = 0;
     float fade_ = 1.0f; // output fade while switching the oversampling factor
     int mute_ = 0;      // samples to stay silent after a switch while the new filters fill
     bool first_ = true;

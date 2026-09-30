@@ -609,8 +609,9 @@ void ResonatorProcessor::setParams(const float* p, const ControlContext& ctx) no
     const float gainExp = map(kBrightness) / 6.0206f; // dB/octave -> exponent of the ratio
     const float position = map(kPosition);
     const float detune = map(kSpread) / 1200.0f;
+    const int limit = quality_ > 0 ? std::max(1, limit_ / 2) : limit_;
     const auto count =
-        std::clamp(static_cast<int>(std::lround(map(kModeCount) * static_cast<float>(limit_))), 1, limit_);
+        std::clamp(static_cast<int>(std::lround(map(kModeCount) * static_cast<float>(limit))), 1, limit);
     const auto cyclesPerSample = static_cast<float>(static_cast<double>(hz) / sampleRate_);
 
     float* freq = freq_.data();

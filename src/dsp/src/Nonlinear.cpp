@@ -221,7 +221,7 @@ void NonlinearProcessor::setParams(const float* p, const ControlContext&) noexce
 
     bits_ = mapParam(t[kBits], p[kBits]);
     holdIncrement_ = 1.0f / mapParam(t[kDownsample], p[kDownsample]);
-    pendingFactor_ = 1 << static_cast<int>(mapParam(t[kOversampling], p[kOversampling]));
+    pendingFactor_ = quality_ > 0 ? 1 : 1 << static_cast<int>(mapParam(t[kOversampling], p[kOversampling]));
 
     if (first_)
     {
