@@ -616,8 +616,11 @@ double measureRt60(const Buffers& io, double sr)
             ++count;
         }
     }
-    const double slope = (count * sxy - sx * sy) / (count * sxx - sx * sx);
-    return -60.0 / slope;
+    const double denom = count * sxx - sx * sx;
+    if (count < 2 || denom == 0.0)
+        return 0.0; // no usable decay: callers' RT60 checks fail rather than divide by zero
+    const double slope = (count * sxy - sx * sy) / denom;
+    return slope < 0.0 ? -60.0 / slope : 0.0;
 }
 } // namespace
 
