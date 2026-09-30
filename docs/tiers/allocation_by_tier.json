@@ -1,0 +1,915 @@
+{
+  "_generated_by": "tier_budget.py from allocation.json; do not edit by hand",
+  "Lite": {
+    "dsp_limits": {
+      "partials": 16,
+      "fm_operators": 2,
+      "grain_layers": 2,
+      "polyphony": 16,
+      "voice_slots": 2,
+      "instance_slots": 2,
+      "mod_routes": 4,
+      "resonator_modes": 8,
+      "osc_unison": 2
+    },
+    "total_params": 4000000.0,
+    "trunk_params": 1200000.0,
+    "family_params": {
+      "sampling": 680682,
+      "osc_subtractive": 468300,
+      "filter_resonator": 388805,
+      "wavetable": 242843,
+      "fm": 206834,
+      "modulation": 206834,
+      "nonlinear": 142299,
+      "granular": 112271,
+      "spectral": 61871,
+      "delay_diffusion": 84001,
+      "physical_modal": 57791,
+      "noise": 23471,
+      "convolution_spatial": 20000,
+      "pitch_time": 20000,
+      "additive": 84000
+    },
+    "family_share_pct": {
+      "sampling": 24.31,
+      "osc_subtractive": 16.72,
+      "filter_resonator": 13.89,
+      "wavetable": 8.67,
+      "fm": 7.39,
+      "modulation": 7.39,
+      "nonlinear": 5.08,
+      "granular": 4.01,
+      "spectral": 2.21,
+      "delay_diffusion": 3.0,
+      "physical_modal": 2.06,
+      "noise": 0.84,
+      "convolution_spatial": 0.71,
+      "pitch_time": 0.71,
+      "additive": 3.0
+    },
+    "active_per_voice": 120000.0,
+    "per_instance": 100000.0,
+    "frame_hz": 250,
+    "polyphony": 16,
+    "audio_budget_guard": {
+      "_note": "Chosen by Sinin, 2026-09-30, instead of cutting Pro to 12 voices or 3 slots. dsp_limits stay as they are. Before each block the DSP sums the measured cost of the active modules; if the total would exceed max_block_share of the block (budgeted per second, so it holds at 96 kHz too), it downgrades, then bypasses, the heaviest voice slots first, lowest-weighted families first, until it fits. Per-module costs come from the DSP thread's measurements (measured_dsp). Applies to every tier; measured today it only engages in Pro worst cases and at 96 kHz in Standard and Pro.",
+      "max_block_share": 0.25,
+      "budget_basis": "per_second",
+      "order": [
+        "downgrade_quality",
+        "bypass_slot"
+      ],
+      "victim_priority": "heaviest_voice_slot_first_then_lowest_family_weight",
+      "applies_to": [
+        "Lite",
+        "Standard",
+        "Pro",
+        "Studio"
+      ],
+      "measured": {
+        "_note": "DSP thread, 2026-09-30, dsp/primitives ccd289f, measured trigger. Worst case = every primitive plus NONLINEAR in every voice slot. % of block, +/-20% noise.",
+        "48k": {
+          "off": {
+            "Lite": 17.2,
+            "Standard": 26.7,
+            "Pro": 32.1,
+            "Studio": 17.5
+          },
+          "on": {
+            "Lite": 20.7,
+            "Standard": 23.0,
+            "Pro": 19.7,
+            "Studio": 17.7
+          },
+          "degraded": {
+            "Lite": 0,
+            "Standard": 3,
+            "Pro": 0,
+            "Studio": 0
+          },
+          "bypassed": {
+            "Lite": 0,
+            "Standard": 29,
+            "Pro": 56,
+            "Studio": 0
+          }
+        },
+        "96k": {
+          "off": {
+            "Lite": 27.9,
+            "Standard": 44.6,
+            "Pro": 67.2,
+            "Studio": 35.4
+          },
+          "on": {
+            "Lite": 19.3,
+            "Standard": 25.9,
+            "Pro": 34.5,
+            "Studio": 24.3
+          },
+          "degraded": {
+            "Lite": 1,
+            "Standard": 0,
+            "Pro": 0,
+            "Studio": 0
+          },
+          "bypassed": {
+            "Lite": 23,
+            "Standard": 48,
+            "Pro": 64,
+            "Studio": 32
+          }
+        }
+      },
+      "trigger": {
+        "realtime": "measured",
+        "offline": "model_only",
+        "ema_seconds": 0.2,
+        "degrade_above": 0.25,
+        "restore_below": 0.2,
+        "_note": "DSP ccd289f (2026-09-30): real-time hosts trigger on a 0.2 s EMA of measured process() time plus the model's predicted change (catches note-on bursts); restore one step per block while prediction stays under 20%. The cost model only picks victims. Offline renders use the deterministic model-only trigger so training stays reproducible. Model rescaled per rate (0.955 at 48k, 0.942 at 96k) with a 1.2 margin."
+      }
+    },
+    "voice_dsp_cap_flops_per_sample": 400,
+    "instance_dsp_cap_flops_per_sample": 1500,
+    "module_quality": {
+      "osc": {
+        "cost": 40,
+        "quality": "polyBLEP osc, unison = dsp_limits.osc_unison"
+      },
+      "partials": {
+        "cost": 64,
+        "quality": "dsp_limits.partials partials x ~4 FLOPs, recursive sine"
+      },
+      "wavetable": {
+        "cost": 30,
+        "quality": "mip-mapped, linear/cubic frame interp, unison 1/2/4/8"
+      },
+      "fm": {
+        "cost": 24,
+        "quality": "dsp_limits.fm_operators operators"
+      },
+      "sampler": {
+        "cost": 12,
+        "quality": "cubic / 16 / 32 / 64-tap windowed sinc"
+      },
+      "grain": {
+        "cost": 80,
+        "quality": "dsp_limits.grain_layers layers, 4/4/5/8 grains each"
+      },
+      "noise": {
+        "cost": 5,
+        "quality": "white/pink/filtered, S&H noise"
+      },
+      "filter": {
+        "cost": 25,
+        "quality": "SVF/ladder, 1/2/2/4 stages, 1x/1x/2x/2x oversampled nonlinear"
+      },
+      "comb_formant": {
+        "cost": 15,
+        "quality": "comb + 0/3/5/5 formant bands"
+      },
+      "modal_bank": {
+        "cost": 48,
+        "quality": "dsp_limits.resonator_modes two-pole modes"
+      },
+      "modulation": {
+        "cost": 12,
+        "quality": "envs, LFOs, S&H, random, follower; dsp_limits.mod_routes routes at 32-sample sub-blocks + per-sample smoothing"
+      },
+      "nonlinear": {
+        "cost": 40,
+        "quality": "shaper/folder/clip/rectify/bitcrush, 2x/2x/4x/8x oversampling"
+      },
+      "voice_delay": {
+        "cost": 15,
+        "quality": "chorus/flanger/comb, 1/2/3/4 fractional taps"
+      },
+      "waveguide": {
+        "cost": 25,
+        "quality": "Karplus-Strong/waveguide, 1/1/2/3 strings, allpass tuning"
+      },
+      "spectral_voice": {
+        "cost": null,
+        "quality": "per-voice STFT 1024/hop 256 (Pro), 2x overlap more (Studio)"
+      },
+      "resampler": {
+        "cost": 0,
+        "quality": "counted in sampler/grain"
+      },
+      "pan_width": {
+        "cost": 6,
+        "quality": "constant-power pan, width"
+      },
+      "spectral_fx": {
+        "cost": 500,
+        "quality": "stereo STFT 1024/2048/2048/2048-4x overlap, bin masking/shaping"
+      },
+      "delay_fx": {
+        "cost": 30,
+        "quality": "stereo feedback delay, phaser allpass chains"
+      },
+      "diffusion": {
+        "cost": 120,
+        "quality": "FDN 4/8/8/16 lines + input allpass diffusers"
+      },
+      "pitch_time_fx": {
+        "cost": 100,
+        "quality": "Lite: granular/resample stretch; others: phase-vocoder pitch/time (Studio: formant-preserving)"
+      },
+      "spatial_fx": {
+        "cost": 10,
+        "quality": "M/S width, channel mix, routing matrix"
+      },
+      "convolution": {
+        "cost": 1144.0,
+        "quality": "non-uniform partitioned FFT convolution; Studio true-stereo (4 paths)"
+      }
+    }
+  },
+  "Standard": {
+    "dsp_limits": {
+      "partials": 32,
+      "fm_operators": 4,
+      "grain_layers": 4,
+      "polyphony": 16,
+      "voice_slots": 3,
+      "instance_slots": 3,
+      "mod_routes": 6,
+      "resonator_modes": 16,
+      "osc_unison": 4
+    },
+    "total_params": 16000000.0,
+    "trunk_params": 4800000.0,
+    "family_params": {
+      "sampling": 2239196,
+      "osc_subtractive": 1679397,
+      "filter_resonator": 1455477,
+      "wavetable": 985198,
+      "fm": 895678,
+      "modulation": 895678,
+      "nonlinear": 671759,
+      "granular": 559799,
+      "spectral": 358199,
+      "delay_diffusion": 447839,
+      "physical_modal": 335879,
+      "noise": 167940,
+      "convolution_spatial": 111960,
+      "pitch_time": 60000,
+      "additive": 336000
+    },
+    "family_share_pct": {
+      "sampling": 19.99,
+      "osc_subtractive": 14.99,
+      "filter_resonator": 13.0,
+      "wavetable": 8.8,
+      "fm": 8.0,
+      "modulation": 8.0,
+      "nonlinear": 6.0,
+      "granular": 5.0,
+      "spectral": 3.2,
+      "delay_diffusion": 4.0,
+      "physical_modal": 3.0,
+      "noise": 1.5,
+      "convolution_spatial": 1.0,
+      "pitch_time": 0.54,
+      "additive": 3.0
+    },
+    "active_per_voice": 350000.0,
+    "per_instance": 500000.0,
+    "frame_hz": 250,
+    "polyphony": 16,
+    "audio_budget_guard": {
+      "_note": "Chosen by Sinin, 2026-09-30, instead of cutting Pro to 12 voices or 3 slots. dsp_limits stay as they are. Before each block the DSP sums the measured cost of the active modules; if the total would exceed max_block_share of the block (budgeted per second, so it holds at 96 kHz too), it downgrades, then bypasses, the heaviest voice slots first, lowest-weighted families first, until it fits. Per-module costs come from the DSP thread's measurements (measured_dsp). Applies to every tier; measured today it only engages in Pro worst cases and at 96 kHz in Standard and Pro.",
+      "max_block_share": 0.25,
+      "budget_basis": "per_second",
+      "order": [
+        "downgrade_quality",
+        "bypass_slot"
+      ],
+      "victim_priority": "heaviest_voice_slot_first_then_lowest_family_weight",
+      "applies_to": [
+        "Lite",
+        "Standard",
+        "Pro",
+        "Studio"
+      ],
+      "measured": {
+        "_note": "DSP thread, 2026-09-30, dsp/primitives ccd289f, measured trigger. Worst case = every primitive plus NONLINEAR in every voice slot. % of block, +/-20% noise.",
+        "48k": {
+          "off": {
+            "Lite": 17.2,
+            "Standard": 26.7,
+            "Pro": 32.1,
+            "Studio": 17.5
+          },
+          "on": {
+            "Lite": 20.7,
+            "Standard": 23.0,
+            "Pro": 19.7,
+            "Studio": 17.7
+          },
+          "degraded": {
+            "Lite": 0,
+            "Standard": 3,
+            "Pro": 0,
+            "Studio": 0
+          },
+          "bypassed": {
+            "Lite": 0,
+            "Standard": 29,
+            "Pro": 56,
+            "Studio": 0
+          }
+        },
+        "96k": {
+          "off": {
+            "Lite": 27.9,
+            "Standard": 44.6,
+            "Pro": 67.2,
+            "Studio": 35.4
+          },
+          "on": {
+            "Lite": 19.3,
+            "Standard": 25.9,
+            "Pro": 34.5,
+            "Studio": 24.3
+          },
+          "degraded": {
+            "Lite": 1,
+            "Standard": 0,
+            "Pro": 0,
+            "Studio": 0
+          },
+          "bypassed": {
+            "Lite": 23,
+            "Standard": 48,
+            "Pro": 64,
+            "Studio": 32
+          }
+        }
+      },
+      "trigger": {
+        "realtime": "measured",
+        "offline": "model_only",
+        "ema_seconds": 0.2,
+        "degrade_above": 0.25,
+        "restore_below": 0.2,
+        "_note": "DSP ccd289f (2026-09-30): real-time hosts trigger on a 0.2 s EMA of measured process() time plus the model's predicted change (catches note-on bursts); restore one step per block while prediction stays under 20%. The cost model only picks victims. Offline renders use the deterministic model-only trigger so training stays reproducible. Model rescaled per rate (0.955 at 48k, 0.942 at 96k) with a 1.2 margin."
+      }
+    },
+    "voice_dsp_cap_flops_per_sample": 900,
+    "instance_dsp_cap_flops_per_sample": 3500,
+    "module_quality": {
+      "osc": {
+        "cost": 90,
+        "quality": "polyBLEP osc, unison = dsp_limits.osc_unison"
+      },
+      "partials": {
+        "cost": 128,
+        "quality": "dsp_limits.partials partials x ~4 FLOPs, recursive sine"
+      },
+      "wavetable": {
+        "cost": 60,
+        "quality": "mip-mapped, linear/cubic frame interp, unison 1/2/4/8"
+      },
+      "fm": {
+        "cost": 48,
+        "quality": "dsp_limits.fm_operators operators"
+      },
+      "sampler": {
+        "cost": 32,
+        "quality": "cubic / 16 / 32 / 64-tap windowed sinc"
+      },
+      "grain": {
+        "cost": 160,
+        "quality": "dsp_limits.grain_layers layers, 4/4/5/8 grains each"
+      },
+      "noise": {
+        "cost": 5,
+        "quality": "white/pink/filtered, S&H noise"
+      },
+      "filter": {
+        "cost": 50,
+        "quality": "SVF/ladder, 1/2/2/4 stages, 1x/1x/2x/2x oversampled nonlinear"
+      },
+      "comb_formant": {
+        "cost": 30,
+        "quality": "comb + 0/3/5/5 formant bands"
+      },
+      "modal_bank": {
+        "cost": 96,
+        "quality": "dsp_limits.resonator_modes two-pole modes"
+      },
+      "modulation": {
+        "cost": 18,
+        "quality": "envs, LFOs, S&H, random, follower; dsp_limits.mod_routes routes at 32-sample sub-blocks + per-sample smoothing"
+      },
+      "nonlinear": {
+        "cost": 60,
+        "quality": "shaper/folder/clip/rectify/bitcrush, 2x/2x/4x/8x oversampling"
+      },
+      "voice_delay": {
+        "cost": 30,
+        "quality": "chorus/flanger/comb, 1/2/3/4 fractional taps"
+      },
+      "waveguide": {
+        "cost": 40,
+        "quality": "Karplus-Strong/waveguide, 1/1/2/3 strings, allpass tuning"
+      },
+      "spectral_voice": {
+        "cost": null,
+        "quality": "per-voice STFT 1024/hop 256 (Pro), 2x overlap more (Studio)"
+      },
+      "resampler": {
+        "cost": 0,
+        "quality": "counted in sampler/grain"
+      },
+      "pan_width": {
+        "cost": 6,
+        "quality": "constant-power pan, width"
+      },
+      "spectral_fx": {
+        "cost": 960,
+        "quality": "stereo STFT 1024/2048/2048/2048-4x overlap, bin masking/shaping"
+      },
+      "delay_fx": {
+        "cost": 40,
+        "quality": "stereo feedback delay, phaser allpass chains"
+      },
+      "diffusion": {
+        "cost": 250,
+        "quality": "FDN 4/8/8/16 lines + input allpass diffusers"
+      },
+      "pitch_time_fx": {
+        "cost": 1000,
+        "quality": "Lite: granular/resample stretch; others: phase-vocoder pitch/time (Studio: formant-preserving)"
+      },
+      "spatial_fx": {
+        "cost": 10,
+        "quality": "M/S width, channel mix, routing matrix"
+      },
+      "convolution": {
+        "cost": 2080.0,
+        "quality": "non-uniform partitioned FFT convolution; Studio true-stereo (4 paths)"
+      }
+    }
+  },
+  "Pro": {
+    "dsp_limits": {
+      "partials": 48,
+      "fm_operators": 6,
+      "grain_layers": 6,
+      "polyphony": 16,
+      "voice_slots": 4,
+      "instance_slots": 4,
+      "mod_routes": 8,
+      "resonator_modes": 24,
+      "osc_unison": 6
+    },
+    "total_params": 64000000.0,
+    "trunk_params": 19200000.0,
+    "family_params": {
+      "sampling": 7666031,
+      "osc_subtractive": 6090032,
+      "filter_resonator": 5431268,
+      "wavetable": 3506979,
+      "fm": 3683143,
+      "modulation": 3683143,
+      "nonlinear": 2925955,
+      "granular": 2528847,
+      "spectral": 1184847,
+      "delay_diffusion": 2115410,
+      "physical_modal": 1680520,
+      "noise": 965205,
+      "convolution_spatial": 697825,
+      "pitch_time": 400795,
+      "additive": 2240000
+    },
+    "family_share_pct": {
+      "sampling": 17.11,
+      "osc_subtractive": 13.59,
+      "filter_resonator": 12.12,
+      "wavetable": 7.83,
+      "fm": 8.22,
+      "modulation": 8.22,
+      "nonlinear": 6.53,
+      "granular": 5.64,
+      "spectral": 2.64,
+      "delay_diffusion": 4.72,
+      "physical_modal": 3.75,
+      "noise": 2.15,
+      "convolution_spatial": 1.56,
+      "pitch_time": 0.89,
+      "additive": 5.0
+    },
+    "active_per_voice": 650000.0,
+    "per_instance": 1200000.0,
+    "frame_hz": 250,
+    "polyphony": 16,
+    "audio_budget_guard": {
+      "_note": "Chosen by Sinin, 2026-09-30, instead of cutting Pro to 12 voices or 3 slots. dsp_limits stay as they are. Before each block the DSP sums the measured cost of the active modules; if the total would exceed max_block_share of the block (budgeted per second, so it holds at 96 kHz too), it downgrades, then bypasses, the heaviest voice slots first, lowest-weighted families first, until it fits. Per-module costs come from the DSP thread's measurements (measured_dsp). Applies to every tier; measured today it only engages in Pro worst cases and at 96 kHz in Standard and Pro.",
+      "max_block_share": 0.25,
+      "budget_basis": "per_second",
+      "order": [
+        "downgrade_quality",
+        "bypass_slot"
+      ],
+      "victim_priority": "heaviest_voice_slot_first_then_lowest_family_weight",
+      "applies_to": [
+        "Lite",
+        "Standard",
+        "Pro",
+        "Studio"
+      ],
+      "measured": {
+        "_note": "DSP thread, 2026-09-30, dsp/primitives ccd289f, measured trigger. Worst case = every primitive plus NONLINEAR in every voice slot. % of block, +/-20% noise.",
+        "48k": {
+          "off": {
+            "Lite": 17.2,
+            "Standard": 26.7,
+            "Pro": 32.1,
+            "Studio": 17.5
+          },
+          "on": {
+            "Lite": 20.7,
+            "Standard": 23.0,
+            "Pro": 19.7,
+            "Studio": 17.7
+          },
+          "degraded": {
+            "Lite": 0,
+            "Standard": 3,
+            "Pro": 0,
+            "Studio": 0
+          },
+          "bypassed": {
+            "Lite": 0,
+            "Standard": 29,
+            "Pro": 56,
+            "Studio": 0
+          }
+        },
+        "96k": {
+          "off": {
+            "Lite": 27.9,
+            "Standard": 44.6,
+            "Pro": 67.2,
+            "Studio": 35.4
+          },
+          "on": {
+            "Lite": 19.3,
+            "Standard": 25.9,
+            "Pro": 34.5,
+            "Studio": 24.3
+          },
+          "degraded": {
+            "Lite": 1,
+            "Standard": 0,
+            "Pro": 0,
+            "Studio": 0
+          },
+          "bypassed": {
+            "Lite": 23,
+            "Standard": 48,
+            "Pro": 64,
+            "Studio": 32
+          }
+        }
+      },
+      "trigger": {
+        "realtime": "measured",
+        "offline": "model_only",
+        "ema_seconds": 0.2,
+        "degrade_above": 0.25,
+        "restore_below": 0.2,
+        "_note": "DSP ccd289f (2026-09-30): real-time hosts trigger on a 0.2 s EMA of measured process() time plus the model's predicted change (catches note-on bursts); restore one step per block while prediction stays under 20%. The cost model only picks victims. Offline renders use the deterministic model-only trigger so training stays reproducible. Model rescaled per rate (0.955 at 48k, 0.942 at 96k) with a 1.2 margin."
+      }
+    },
+    "voice_dsp_cap_flops_per_sample": 1800,
+    "instance_dsp_cap_flops_per_sample": 7000,
+    "module_quality": {
+      "osc": {
+        "cost": 155,
+        "quality": "polyBLEP osc, unison = dsp_limits.osc_unison"
+      },
+      "partials": {
+        "cost": 192,
+        "quality": "dsp_limits.partials partials x ~4 FLOPs, recursive sine"
+      },
+      "wavetable": {
+        "cost": 120,
+        "quality": "mip-mapped, linear/cubic frame interp, unison 1/2/4/8"
+      },
+      "fm": {
+        "cost": 72,
+        "quality": "dsp_limits.fm_operators operators"
+      },
+      "sampler": {
+        "cost": 64,
+        "quality": "cubic / 16 / 32 / 64-tap windowed sinc"
+      },
+      "grain": {
+        "cost": 320,
+        "quality": "dsp_limits.grain_layers layers, 4/4/5/8 grains each"
+      },
+      "noise": {
+        "cost": 10,
+        "quality": "white/pink/filtered, S&H noise"
+      },
+      "filter": {
+        "cost": 120,
+        "quality": "SVF/ladder, 1/2/2/4 stages, 1x/1x/2x/2x oversampled nonlinear"
+      },
+      "comb_formant": {
+        "cost": 60,
+        "quality": "comb + 0/3/5/5 formant bands"
+      },
+      "modal_bank": {
+        "cost": 144,
+        "quality": "dsp_limits.resonator_modes two-pole modes"
+      },
+      "modulation": {
+        "cost": 24,
+        "quality": "envs, LFOs, S&H, random, follower; dsp_limits.mod_routes routes at 32-sample sub-blocks + per-sample smoothing"
+      },
+      "nonlinear": {
+        "cost": 140,
+        "quality": "shaper/folder/clip/rectify/bitcrush, 2x/2x/4x/8x oversampling"
+      },
+      "voice_delay": {
+        "cost": 45,
+        "quality": "chorus/flanger/comb, 1/2/3/4 fractional taps"
+      },
+      "waveguide": {
+        "cost": 80,
+        "quality": "Karplus-Strong/waveguide, 1/1/2/3 strings, allpass tuning"
+      },
+      "spectral_voice": {
+        "cost": 450,
+        "quality": "per-voice STFT 1024/hop 256 (Pro), 2x overlap more (Studio)"
+      },
+      "resampler": {
+        "cost": 0,
+        "quality": "counted in sampler/grain"
+      },
+      "pan_width": {
+        "cost": 10,
+        "quality": "constant-power pan, width"
+      },
+      "spectral_fx": {
+        "cost": 960,
+        "quality": "stereo STFT 1024/2048/2048/2048-4x overlap, bin masking/shaping"
+      },
+      "delay_fx": {
+        "cost": 60,
+        "quality": "stereo feedback delay, phaser allpass chains"
+      },
+      "diffusion": {
+        "cost": 300,
+        "quality": "FDN 4/8/8/16 lines + input allpass diffusers"
+      },
+      "pitch_time_fx": {
+        "cost": 1000,
+        "quality": "Lite: granular/resample stretch; others: phase-vocoder pitch/time (Studio: formant-preserving)"
+      },
+      "spatial_fx": {
+        "cost": 20,
+        "quality": "M/S width, channel mix, routing matrix"
+      },
+      "convolution": {
+        "cost": 2804.0,
+        "quality": "non-uniform partitioned FFT convolution; Studio true-stereo (4 paths)"
+      }
+    }
+  },
+  "Studio": {
+    "dsp_limits": {
+      "partials": 64,
+      "fm_operators": 8,
+      "grain_layers": 8,
+      "polyphony": 8,
+      "voice_slots": 4,
+      "instance_slots": 4,
+      "mod_routes": 8,
+      "resonator_modes": 32,
+      "osc_unison": 8
+    },
+    "total_params": 256000000.0,
+    "trunk_params": 76800000.0,
+    "family_params": {
+      "sampling": 25705447,
+      "osc_subtractive": 21630269,
+      "filter_resonator": 19850579,
+      "wavetable": 12300070,
+      "fm": 14834098,
+      "modulation": 14834098,
+      "nonlinear": 12482395,
+      "granular": 11188946,
+      "spectral": 4200146,
+      "delay_diffusion": 9786855,
+      "physical_modal": 8235309,
+      "noise": 5433278,
+      "convolution_spatial": 4259976,
+      "pitch_time": 2810536,
+      "additive": 11648000
+    },
+    "family_share_pct": {
+      "sampling": 14.34,
+      "osc_subtractive": 12.07,
+      "filter_resonator": 11.08,
+      "wavetable": 6.86,
+      "fm": 8.28,
+      "modulation": 8.28,
+      "nonlinear": 6.97,
+      "granular": 6.24,
+      "spectral": 2.34,
+      "delay_diffusion": 5.46,
+      "physical_modal": 4.6,
+      "noise": 3.03,
+      "convolution_spatial": 2.38,
+      "pitch_time": 1.57,
+      "additive": 6.5
+    },
+    "active_per_voice": 2800000.0,
+    "per_instance": 5000000.0,
+    "frame_hz": 250,
+    "polyphony": 8,
+    "audio_budget_guard": {
+      "_note": "Chosen by Sinin, 2026-09-30, instead of cutting Pro to 12 voices or 3 slots. dsp_limits stay as they are. Before each block the DSP sums the measured cost of the active modules; if the total would exceed max_block_share of the block (budgeted per second, so it holds at 96 kHz too), it downgrades, then bypasses, the heaviest voice slots first, lowest-weighted families first, until it fits. Per-module costs come from the DSP thread's measurements (measured_dsp). Applies to every tier; measured today it only engages in Pro worst cases and at 96 kHz in Standard and Pro.",
+      "max_block_share": 0.25,
+      "budget_basis": "per_second",
+      "order": [
+        "downgrade_quality",
+        "bypass_slot"
+      ],
+      "victim_priority": "heaviest_voice_slot_first_then_lowest_family_weight",
+      "applies_to": [
+        "Lite",
+        "Standard",
+        "Pro",
+        "Studio"
+      ],
+      "measured": {
+        "_note": "DSP thread, 2026-09-30, dsp/primitives ccd289f, measured trigger. Worst case = every primitive plus NONLINEAR in every voice slot. % of block, +/-20% noise.",
+        "48k": {
+          "off": {
+            "Lite": 17.2,
+            "Standard": 26.7,
+            "Pro": 32.1,
+            "Studio": 17.5
+          },
+          "on": {
+            "Lite": 20.7,
+            "Standard": 23.0,
+            "Pro": 19.7,
+            "Studio": 17.7
+          },
+          "degraded": {
+            "Lite": 0,
+            "Standard": 3,
+            "Pro": 0,
+            "Studio": 0
+          },
+          "bypassed": {
+            "Lite": 0,
+            "Standard": 29,
+            "Pro": 56,
+            "Studio": 0
+          }
+        },
+        "96k": {
+          "off": {
+            "Lite": 27.9,
+            "Standard": 44.6,
+            "Pro": 67.2,
+            "Studio": 35.4
+          },
+          "on": {
+            "Lite": 19.3,
+            "Standard": 25.9,
+            "Pro": 34.5,
+            "Studio": 24.3
+          },
+          "degraded": {
+            "Lite": 1,
+            "Standard": 0,
+            "Pro": 0,
+            "Studio": 0
+          },
+          "bypassed": {
+            "Lite": 23,
+            "Standard": 48,
+            "Pro": 64,
+            "Studio": 32
+          }
+        }
+      },
+      "trigger": {
+        "realtime": "measured",
+        "offline": "model_only",
+        "ema_seconds": 0.2,
+        "degrade_above": 0.25,
+        "restore_below": 0.2,
+        "_note": "DSP ccd289f (2026-09-30): real-time hosts trigger on a 0.2 s EMA of measured process() time plus the model's predicted change (catches note-on bursts); restore one step per block while prediction stays under 20%. The cost model only picks victims. Offline renders use the deterministic model-only trigger so training stays reproducible. Model rescaled per rate (0.955 at 48k, 0.942 at 96k) with a 1.2 margin."
+      }
+    },
+    "voice_dsp_cap_flops_per_sample": 4000,
+    "instance_dsp_cap_flops_per_sample": 14000,
+    "module_quality": {
+      "osc": {
+        "cost": 280,
+        "quality": "polyBLEP osc, unison = dsp_limits.osc_unison"
+      },
+      "partials": {
+        "cost": 256,
+        "quality": "dsp_limits.partials partials x ~4 FLOPs, recursive sine"
+      },
+      "wavetable": {
+        "cost": 240,
+        "quality": "mip-mapped, linear/cubic frame interp, unison 1/2/4/8"
+      },
+      "fm": {
+        "cost": 96,
+        "quality": "dsp_limits.fm_operators operators"
+      },
+      "sampler": {
+        "cost": 128,
+        "quality": "cubic / 16 / 32 / 64-tap windowed sinc"
+      },
+      "grain": {
+        "cost": 640,
+        "quality": "dsp_limits.grain_layers layers, 4/4/5/8 grains each"
+      },
+      "noise": {
+        "cost": 10,
+        "quality": "white/pink/filtered, S&H noise"
+      },
+      "filter": {
+        "cost": 240,
+        "quality": "SVF/ladder, 1/2/2/4 stages, 1x/1x/2x/2x oversampled nonlinear"
+      },
+      "comb_formant": {
+        "cost": 90,
+        "quality": "comb + 0/3/5/5 formant bands"
+      },
+      "modal_bank": {
+        "cost": 192,
+        "quality": "dsp_limits.resonator_modes two-pole modes"
+      },
+      "modulation": {
+        "cost": 24,
+        "quality": "envs, LFOs, S&H, random, follower; dsp_limits.mod_routes routes at 32-sample sub-blocks + per-sample smoothing"
+      },
+      "nonlinear": {
+        "cost": 260,
+        "quality": "shaper/folder/clip/rectify/bitcrush, 2x/2x/4x/8x oversampling"
+      },
+      "voice_delay": {
+        "cost": 60,
+        "quality": "chorus/flanger/comb, 1/2/3/4 fractional taps"
+      },
+      "waveguide": {
+        "cost": 120,
+        "quality": "Karplus-Strong/waveguide, 1/1/2/3 strings, allpass tuning"
+      },
+      "spectral_voice": {
+        "cost": 900,
+        "quality": "per-voice STFT 1024/hop 256 (Pro), 2x overlap more (Studio)"
+      },
+      "resampler": {
+        "cost": 0,
+        "quality": "counted in sampler/grain"
+      },
+      "pan_width": {
+        "cost": 10,
+        "quality": "constant-power pan, width"
+      },
+      "spectral_fx": {
+        "cost": 1920,
+        "quality": "stereo STFT 1024/2048/2048/2048-4x overlap, bin masking/shaping"
+      },
+      "delay_fx": {
+        "cost": 80,
+        "quality": "stereo feedback delay, phaser allpass chains"
+      },
+      "diffusion": {
+        "cost": 600,
+        "quality": "FDN 4/8/8/16 lines + input allpass diffusers"
+      },
+      "pitch_time_fx": {
+        "cost": 2000,
+        "quality": "Lite: granular/resample stretch; others: phase-vocoder pitch/time (Studio: formant-preserving)"
+      },
+      "spatial_fx": {
+        "cost": 40,
+        "quality": "M/S width, channel mix, routing matrix"
+      },
+      "convolution": {
+        "cost": 6392.0,
+        "quality": "non-uniform partitioned FFT convolution; Studio true-stereo (4 paths)"
+      }
+    }
+  }
+}
