@@ -6,6 +6,10 @@
 #include <cstdlib>
 #include <new>
 
+#if defined(_WIN32)
+#include <malloc.h>
+#endif
+
 namespace
 {
 thread_local int tGuardDepth = 0;
@@ -26,9 +30,23 @@ void* allocateAligned(std::size_t size, std::align_val_t align)
         ++tAllocations;
     const auto a = static_cast<std::size_t>(align);
     const std::size_t rounded = (size + a - 1) / a * a;
-    if (void* p = std::aligned_alloc(a, rounded != 0 ? rounded : a))
+#if defined(_WIN32)
+    void* p = _aligned_malloc(rounded != 0 ? rounded : a, a); // MSVC has no std::aligned_alloc
+#else
+    void* p = std::aligned_alloc(a, rounded != 0 ? rounded : a);
+#endif
+    if (p != nullptr)
         return p;
     throw std::bad_alloc();
+}
+
+void freeAligned(void* p) noexcept
+{
+#if defined(_WIN32)
+    _aligned_free(p);
+#else
+    std::free(p);
+#endif
 }
 } // namespace
 
@@ -66,19 +84,19 @@ void operator delete[](void* p, std::size_t) noexcept
 }
 void operator delete(void* p, std::align_val_t) noexcept
 {
-    std::free(p);
+    freeAligned(p);
 }
 void operator delete[](void* p, std::align_val_t) noexcept
 {
-    std::free(p);
+    freeAligned(p);
 }
 void operator delete(void* p, std::size_t, std::align_val_t) noexcept
 {
-    std::free(p);
+    freeAligned(p);
 }
 void operator delete[](void* p, std::size_t, std::align_val_t) noexcept
 {
-    std::free(p);
+    freeAligned(p);
 }
 
 namespace alfa::dsp::test

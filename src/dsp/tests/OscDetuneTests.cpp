@@ -37,8 +37,8 @@ TEST_CASE("OSC detuned read adds a second copy at f0 * ratio", "[dsp][osc]")
     osc.reset();
     auto frame = std::make_unique<VoiceFrame>();
     frame->osc.re[0] = 1.0f;
-    frame->oscDetuneRatio = 1.5f;
-    frame->oscDetuneLevel = 0.5f;
+    frame->oscDetuneRatio[0] = 1.5f;
+    frame->oscDetuneLevel[0] = 0.5f;
     const auto out = renderOsc(osc, *frame, 250, 440.0f);
     REQUIRE(std::abs(toneAmplitude(out, 440.0, 48000.0) - 1.0) < 0.01);
     REQUIRE(std::abs(toneAmplitude(out, 660.0, 48000.0) - 0.5) < 0.01);
@@ -55,7 +55,7 @@ TEST_CASE("OSC detune at level 0 changes nothing", "[dsp][osc]")
     plain->osc.re[0] = 1.0f;
     plain->osc.re[3] = 0.25f;
     auto detuned = std::make_unique<VoiceFrame>(*plain);
-    detuned->oscDetuneRatio = 3.0f; // must not tighten the Nyquist cut while silent
+    detuned->oscDetuneRatio[0] = 3.0f; // must not tighten the Nyquist cut while silent
     const auto x = renderOsc(a, *plain, 20, 5500.0f);
     const auto y = renderOsc(b, *detuned, 20, 5500.0f);
     REQUIRE(x == y);
@@ -68,8 +68,35 @@ TEST_CASE("OSC detune tightens the Nyquist cut to the higher read", "[dsp][osc]"
     osc.reset();
     auto frame = std::make_unique<VoiceFrame>();
     frame->osc.re[2] = 1.0f; // harmonic 3 at 5 kHz: 15 kHz, detuned x2 would be 30 kHz
-    frame->oscDetuneRatio = 2.0f;
-    frame->oscDetuneLevel = 1.0f;
+    frame->oscDetuneRatio[0] = 2.0f;
+    frame->oscDetuneLevel[0] = 1.0f;
     const auto out = renderOsc(osc, *frame, 50, 5000.0f);
     REQUIRE(rms(out) < 1e-6);
+}
+
+TEST_CASE("OSC unison reads are limited by the tier", "[dsp][osc]")
+{
+    auto frame = std::make_unique<VoiceFrame>();
+    frame->osc.re[0] = 1.0f;
+    for (int r = 0; r < kMaxOscDetune; ++r)
+    {
+        frame->oscDetuneRatio[static_cast<std::size_t>(r)] = 1.0f + 0.25f * static_cast<float>(r + 1);
+        frame->oscDetuneLevel[static_cast<std::size_t>(r)] = 0.5f;
+    }
+    for (const Tier tier : {Tier::Lite, Tier::Standard, Tier::Pro, Tier::Studio})
+    {
+        PrepareSpec spec;
+        spec.limits = limitsFor(tier);
+        OscPrimitive osc;
+        osc.prepare(spec);
+        osc.reset();
+        const auto out = renderOsc(osc, *frame, 250, 440.0f);
+        for (int r = 0; r < kMaxOscDetune; ++r)
+        {
+            const double hz = 440.0 * (1.0 + 0.25 * (r + 1));
+            const double expected = r < spec.limits.oscUnison - 1 ? 0.5 : 0.0;
+            INFO("tier " << static_cast<int>(tier) << " read " << r);
+            REQUIRE(std::abs(toneAmplitude(out, hz, 48000.0) - expected) < 0.02);
+        }
+    }
 }

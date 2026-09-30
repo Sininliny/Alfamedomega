@@ -2,6 +2,8 @@
 // Build Release: cmake --build <dir> --target alfa_dsp_bench, then run <dir>/src/dsp/alfa_dsp_bench.
 // Every voice of the tier's polyphony plays; frames are rewritten every hop as the network would.
 
+#include "alfa/dsp/Convolution.h"
+#include "alfa/dsp/Family.h"
 #include "alfa/dsp/Synth.h"
 
 #include <chrono>
@@ -89,7 +91,25 @@ void everything(VoiceFrame& f) // hybrid worst case
     sampler(f);
 }
 
-double measure(Tier tier, const Scenario& s, double sampleRate, int block)
+/// Slot setup for the family benchmarks: `family` in every voice slot (voice families) or every
+/// instance slot (instance families), at its default params, fed by the OSC primitive or the bus.
+struct SlotSetup
+{
+    Family family = Family::Off;
+    bool instance = false;
+};
+
+void fillSlot(SlotControls& slot, Family family, int inputIndex)
+{
+    slot.family = static_cast<float>(family);
+    slot.outGain = 0.5f;
+    slot.input[static_cast<std::size_t>(inputIndex)] = 1.0f;
+    const auto& table = paramTable(family);
+    for (int i = 0; i < kSlotParams; ++i)
+        slot.params[static_cast<std::size_t>(i)] = table[static_cast<std::size_t>(i)].defaultNorm;
+}
+
+double measure(Tier tier, const Scenario& s, double sampleRate, int block, SlotSetup slots = {})
 {
     Synth synth;
     synth.prepare(sampleRate, block, tier);
@@ -113,6 +133,28 @@ double measure(Tier tier, const Scenario& s, double sampleRate, int block)
     auto frame = std::make_unique<VoiceFrame>();
     frame->attackTau = 0.002f;
     s.fill(*frame);
+    IrBank irs;
+    if (slots.family != Family::Off)
+    {
+        if (slots.instance)
+        {
+            InstanceFrame inst;
+            for (auto& slot : inst.slots)
+                fillSlot(slot, slots.family, 0);
+            synth.setInstanceFrame(inst);
+            irs.setHostRate(sampleRate);
+            SyntheticIrSpec ir;
+            ir.sampleRate = sampleRate;
+            ir.rt60 = 2.0;
+            (void)irs.add(makeSyntheticIr(ir));
+            synth.publishIrs(irs);
+        }
+        else
+        {
+            for (auto& slot : frame->slots)
+                fillSlot(slot, slots.family, static_cast<int>(Primitive::Osc));
+        }
+    }
     for (int v = 0; v < synth.voiceCount(); ++v)
         synth.noteOn(40 + 2 * v, 0.8f, frame.get());
 
@@ -169,6 +211,30 @@ int main()
             }
             std::printf("\n");
         }
+    }
+
+    // Per family: osc+noise voices plus that family in every slot the tier allows. The cost of
+    // the family alone is the row minus the osc+noise row above.
+    const double sr = 48000.0;
+    const double blockUs = block / sr * 1e6;
+    std::printf("\nPer family at 48 kHz: osc+noise voices + family in every allowed slot (voice families in "
+                "each voice's slots, others in the instance slots); us per block (%% of block)\n");
+    std::printf("%-12s", "family");
+    for (const char* t : tierNames)
+        std::printf("%18s", t);
+    std::printf("\n");
+    for (int f = 1; f < kFamilyCount; ++f)
+    {
+        const auto family = static_cast<Family>(f);
+        const auto name = familyName(family);
+        std::printf("%-12.*s", static_cast<int>(name.size()), name.data());
+        for (int t = 0; t < 4; ++t)
+        {
+            const double us =
+                measure(static_cast<Tier>(t), scenarios[0], sr, block, {family, !allowedInVoice(family)});
+            std::printf("%10.1f (%4.1f%%)", us, 100.0 * us / blockUs);
+        }
+        std::printf("\n");
     }
     return 0;
 }

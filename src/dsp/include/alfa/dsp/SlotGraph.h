@@ -56,6 +56,13 @@ public:
     /// Output of slot k, channel c, from the last process() call (n samples, zeros if it was off).
     [[nodiscard]] const float* output(int slot, int channel) const noexcept;
 
+    /// The slot's instance of a family (null if not allowed here). For host-side setup such as
+    /// handing an IrBank to a ConvolutionProcessor; not for the audio thread.
+    [[nodiscard]] Processor* processor(int slot, Family family) const noexcept
+    {
+        return slots_[static_cast<std::size_t>(slot)].processors[static_cast<std::size_t>(family)].get();
+    }
+
     /// True if slot k produced output in the last process() call.
     [[nodiscard]] bool ran(int slot) const noexcept { return slots_[static_cast<std::size_t>(slot)].ran; }
 

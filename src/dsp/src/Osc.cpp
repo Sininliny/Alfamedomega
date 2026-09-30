@@ -25,6 +25,7 @@ void OscPrimitive::prepare(const PrepareSpec& spec)
     invSampleRate_ = 1.0 / spec.sampleRate;
     hop_ = spec.hop > 0 ? spec.hop : 1;
     invHop_ = 1.0f / static_cast<float>(hop_);
+    reads_ = std::clamp(spec.limits.oscUnison - 1, 0, kMaxOscDetune);
 
     if (fft_.size() != kOscTableSize)
         fft_.prepare(kOscTableSize);
@@ -44,8 +45,10 @@ void OscPrimitive::reset() noexcept
     curValid_ = false;
     started_ = false;
     phase_ = 0.0;
-    phase2_ = 0.0;
-    detune_ = false;
+    readOn_.fill(false);
+    for (int r = 0; r < kMaxOscDetune; ++r)
+        readPhase_[static_cast<std::size_t>(r)] =
+            static_cast<double>(r + 1) / static_cast<double>(kMaxOscDetune + 1);
     pos_ = 0;
 }
 
@@ -110,23 +113,28 @@ void OscPrimitive::rotate(const HopContext& ctx) noexcept
         cur_ = prev_ == tableA_.data() ? tableB_.data() : tableA_.data();
         curValid_ = false;
     }
-    // Detuned second read: its ratio and level ramp like every other control. While it sounds,
-    // the Nyquist cut must hold for the higher of the two reads.
+    // Unison reads: ratios and levels ramp like every other control. While a read sounds, the
+    // Nyquist cut must hold for the highest ratio in use.
     const VoiceFrame* prevFrame = ctx.prev != nullptr ? ctx.prev : ctx.cur;
-    if (ctx.cur != nullptr && prevFrame != nullptr)
+    float cutScale = 1.0f;
+    for (int r = 0; r < reads_; ++r)
     {
-        ratioStart_ = prevFrame->oscDetuneRatio;
-        ratioDelta_ = ctx.cur->oscDetuneRatio - ratioStart_;
-        levelStart_ = prevFrame->oscDetuneLevel;
-        levelDelta_ = ctx.cur->oscDetuneLevel - levelStart_;
+        const auto u = static_cast<std::size_t>(r);
+        if (ctx.cur == nullptr || prevFrame == nullptr)
+        {
+            readOn_[u] = false;
+            continue;
+        }
+        ratioStart_[u] = prevFrame->oscDetuneRatio[u];
+        ratioDelta_[u] = ctx.cur->oscDetuneRatio[u] - ratioStart_[u];
+        levelStart_[u] = prevFrame->oscDetuneLevel[u];
+        levelDelta_[u] = ctx.cur->oscDetuneLevel[u] - levelStart_[u];
+        readOn_[u] = levelStart_[u] != 0.0f || levelStart_[u] + levelDelta_[u] != 0.0f;
+        if (readOn_[u])
+        {
+            cutScale = std::max(cutScale, std::max(ratioStart_[u], ratioStart_[u] + ratioDelta_[u]));
+        }
     }
-    else
-    {
-        ratioStart_ = 1.0f;
-        ratioDelta_ = levelStart_ = levelDelta_ = 0.0f;
-    }
-    detune_ = levelStart_ != 0.0f || levelStart_ + levelDelta_ != 0.0f;
-    const float cutScale = detune_ ? std::max(1.0f, std::max(ratioStart_, ratioStart_ + ratioDelta_)) : 1.0f;
     curF0_ = ctx.f0Start * cutScale;
     f0Start_ = ctx.f0Start;
     f0Delta_ = ctx.f0End - ctx.f0Start;
@@ -181,44 +189,47 @@ void OscPrimitive::render(float* out, int n) noexcept
     }
     phase_ = phase;
 
-    if (detune_)
+    for (int r = 0; r < reads_; ++r)
     {
-        double phase2 = phase2_;
+        const auto u = static_cast<std::size_t>(r);
+        if (!readOn_[u])
+        {
+            advanceRead(r, n);
+            continue;
+        }
+        double ph = readPhase_[u];
         int p2 = pos_;
+        const float ls = levelStart_[u], ld = levelDelta_[u], rs = ratioStart_[u], rd = ratioDelta_[u];
         for (int i = 0; i < n; ++i, ++p2)
         {
             const float t = static_cast<float>(p2) * invHop_;
-            const double x = phase2 * kSize;
+            const double x = ph * kSize;
             const int idx = static_cast<int>(x);
             const float frac = static_cast<float>(x - static_cast<double>(idx));
-            const auto u = static_cast<std::size_t>(idx);
-            const float va = a[u] + frac * (a[u + 1] - a[u]);
-            const float vb = b[u] + frac * (b[u + 1] - b[u]);
-            out[i] += (levelStart_ + levelDelta_ * t) * (va + t * (vb - va));
-
-            const float f = (f0Start_ + f0Delta_ * t) * (ratioStart_ + ratioDelta_ * t);
-            phase2 = wrap01(phase2 + static_cast<double>(f) * invSr);
+            const auto k = static_cast<std::size_t>(idx);
+            const float va = a[k] + frac * (a[k + 1] - a[k]);
+            const float vb = b[k] + frac * (b[k + 1] - b[k]);
+            out[i] += (ls + ld * t) * (va + t * (vb - va));
+            const float f = (f0Start_ + f0Delta_ * t) * (rs + rd * t);
+            ph = wrap01(ph + static_cast<double>(f) * invSr);
         }
-        phase2_ = phase2;
-    }
-    else
-    {
-        advanceDetuned(n);
+        readPhase_[u] = ph;
     }
     pos_ = pos;
 }
 
-void OscPrimitive::advanceDetuned(int n) noexcept
+void OscPrimitive::advanceRead(int r, int n) noexcept
 {
-    // Keep the detuned phase running while silent so it comes back where a continuous
-    // render would have it (sum of per-sample steps, ratio and f0 both linear in t).
+    // Keep a silent read's phase running so it comes back where a continuous render would have
+    // it (sum of per-sample steps, ratio and f0 both linear in t).
+    const auto u = static_cast<std::size_t>(r);
     double cycles = 0.0;
     for (int i = 0; i < n; ++i)
     {
         const float t = static_cast<float>(pos_ + i) * invHop_;
-        cycles += static_cast<double>((f0Start_ + f0Delta_ * t) * (ratioStart_ + ratioDelta_ * t));
+        cycles += static_cast<double>((f0Start_ + f0Delta_ * t) * (ratioStart_[u] + ratioDelta_[u] * t));
     }
-    phase2_ = wrap01(phase2_ + cycles * invSampleRate_);
+    readPhase_[u] = wrap01(readPhase_[u] + cycles * invSampleRate_);
 }
 
 void OscPrimitive::skipHop(const HopContext& ctx) noexcept
@@ -233,7 +244,8 @@ void OscPrimitive::skipHop(const HopContext& ctx) noexcept
                           invSampleRate_;
     phase_ = wrap01(phase_ + cycles);
     pos_ = 0;
-    advanceDetuned(hop_);
+    for (int r = 0; r < reads_; ++r)
+        advanceRead(r, hop_);
     pos_ = 0;
 }
 
