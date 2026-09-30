@@ -156,6 +156,7 @@ def report(name, i):
         "family_share_pct": {k: round(v / (t["total_params"] * (1 - t["trunk_share"])) * 100, 2)
                              for k, v in expert_params(name).items()},
         "active_per_voice": act, "per_instance": inst, "frame_hz": hz, "polyphony": poly,
+        "audio_budget_guard": CFG["audio_budget_guard"],
         "voice_dsp_cap_flops_per_sample": vcap, "instance_dsp_cap_flops_per_sample": icap,
         "module_quality": {m: {"cost": module_cost(m, i), "quality": v["quality"]}
                            for m, v in CFG["module_cost"].items() if not m.startswith("_")},

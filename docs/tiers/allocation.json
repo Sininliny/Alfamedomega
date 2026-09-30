@@ -671,5 +671,21 @@
     },
     "pro_worst_case_pct_48k": 30,
     "instance_slot_prealloc_mb_48k": 11
+  },
+  "audio_budget_guard": {
+    "_note": "Chosen by Sinin, 2026-09-30, instead of cutting Pro to 12 voices or 3 slots. dsp_limits stay as they are. Before each block the DSP sums the measured cost of the active modules; if the total would exceed max_block_share of the block (budgeted per second, so it holds at 96 kHz too), it downgrades, then bypasses, the heaviest voice slots first, lowest-weighted families first, until it fits. Per-module costs come from the DSP thread's measurements (measured_dsp). Applies to every tier; measured today it only engages in Pro worst cases and at 96 kHz in Standard and Pro.",
+    "max_block_share": 0.25,
+    "budget_basis": "per_second",
+    "order": [
+      "downgrade_quality",
+      "bypass_slot"
+    ],
+    "victim_priority": "heaviest_voice_slot_first_then_lowest_family_weight",
+    "applies_to": [
+      "Lite",
+      "Standard",
+      "Pro",
+      "Studio"
+    ]
   }
 }

@@ -1,4 +1,4 @@
-# Alfamedomega model size tiers (draft v5.5, 2026-09-30)
+# Alfamedomega model size tiers (draft v5.6, 2026-09-30)
 
 Four tiers. Every number is a planning estimate from `tier_budget.py` (same folder); change an
 assumption there and re-run. Nothing here is measured yet. v2 rebases the budgets on the stack in
@@ -212,6 +212,15 @@ nonlinear reach about 20%, and everything plus four heavy voice slots reaches ab
 25% audio-thread cap. At 96 kHz Standard (28%) and Pro (34%) are also over, which is why the caps
 are counted per second. Memory: each instance slot pre-allocates about 11 MB at 48 kHz (6 s
 convolution state, 2 s delay), so 44 MB per plugin instance in Pro and Studio.
+
+**Audio budget guard (Sinin, 2026-09-30).** Instead of cutting Pro to 12 voices or 3 slots, every
+tier keeps its `dsp_limits` and the DSP enforces the 25% audio-thread cap itself. Before each
+block it sums the measured cost of the active modules. If the total would pass 25% of the block,
+counted per second so the same rule covers 96 kHz, it first downgrades and then bypasses the
+heaviest voice slots, lowest-weighted families first, until the total fits. With today's
+measurements this only engages in Pro worst cases and at 96 kHz in Standard and Pro; typical
+patches are never touched. Configuration is `audio_budget_guard` in `allocation.json`, also
+copied into each tier in `allocation_by_tier.json`.
 
 ## DSP cost check
 
