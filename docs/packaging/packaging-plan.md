@@ -220,7 +220,7 @@ for `repo_dir` if it is empty.
 **Signing:**
 - macOS: PyInstaller's `--codesign-identity "Developer ID Application: …"` with hardened
   runtime signs every bundled `.so`, `.dylib` and Qt framework inside-out, then the `.app`.
-  Start with no entitlements and add one only if a notarized build fails at launch. CPython
+  Start with no entitlements on the app itself and add one only if a notarized build fails at launch (the render host, below, is the exception). CPython
   does not JIT, and every library is signed with our own identity, so neither `allow-jit`
   nor `disable-library-validation` should be needed. The app is notarized as part of the
   same `.pkg` as the plugins.
@@ -229,6 +229,28 @@ for `repo_dir` if it is empty.
   bootloaders are a common antivirus false positive even when signed. If one is reported,
   submit the build to Microsoft's malware analysis portal, and consider rebuilding the
   bootloader from source.
+
+**Plugin assimilation additions** (branch `control-center/plugin-assimilation`,
+`docs/control-center/plugin-assimilation.md` section 10):
+- Bundle the `alfa-render-host` binary (built from `apps/control-center/render-host/` with
+  CMake) next to the frozen executable. The app looks for it in `sys._MEIPASS` or in the
+  executable's own folder. Use PyInstaller's `binaries=` so the host is signed with everything else.
+- Include `alfacc/assimilate/analyze_worker.py` as a PyInstaller data file. It runs under
+  the training Python, not inside the frozen app.
+- **The render host is the one signing exception on macOS.** It loads other vendors'
+  plugins, so it is signed with our identity and hardened runtime plus the
+  `com.apple.security.cs.disable-library-validation` entitlement. Without that
+  entitlement, macOS refuses to load any plugin signed by another team. Some older plugins also
+  need `com.apple.security.cs.allow-unsigned-executable-memory`. Add it only if a real
+  plugin fails to load, and keep both entitlements on the render host only, never on the app or
+  the plugins.
+- A universal render host runs natively on Apple Silicon and cannot load Intel-only plugins.
+  To render those, launch it under Rosetta (`arch -x86_64`). Decide when the assimilation
+  thread settles which plugins it supports. **(verify with a real Intel-only plugin)**
+- Windows: sign `alfa-render-host.exe` like the other binaries. Third-party VST3s it
+  loads keep their own signatures (or none), which does not affect ours.
+- The render host builds in the same CI job as the plugins, and is frozen into the app
+  afterwards, so the app job depends on it.
 
 **CI:** add a job to the same workflow on both runners that runs the app's `pytest`
 suite, freezes the app, and launches the frozen app once with `alfa-cc info` as a smoke test.
