@@ -63,6 +63,8 @@ class Tokens(unittest.TestCase):
     def test_notes_with_octave_and_plural_rule(self):
         self.assertEqual(T.words("Pad_F#1_Chorus"), ["pad", "chorus"])
         self.assertEqual(T.words("C-1 Eb3 bass"), ["bass"])
+        self.assertEqual(T.words("Pads Leads Keys"), ["pad", "lead", "key"])
+        self.assertNotIn("key", T.words("Pluck_Key_Am"))
         self.assertEqual(T.words("Pads Bells Glass Analysis"), ["pad", "bell", "glass", "analysis"])
 
     def test_query(self):

@@ -10,8 +10,9 @@ FILLER = {
     "aiff", "flac", "mp3", "ogg", "final", "copy", "new", "old", "take", "version", "ver", "edit",
     "export", "bounce", "render", "print", "untitled", "audio", "file", "files", "the", "and", "of",
     "a", "an", "my", "kit", "pack", "vol", "part", "mix", "stem", "stems", "wet", "dry", "real",
-    "preset", "presets", "patch", "patches", "sound", "sounds", "user", "bpm", "key",
+    "preset", "presets", "patch", "patches", "sound", "sounds", "user", "bpm",
 }
+KEY_LABEL = "key"            # "Key_Am" is a key label, but "Keys" is the instrument family
 NEGATIONS = {"not", "no", "non", "without", "-"}
 
 _KEY = re.compile(r"^[a-g](#|b|sharp|flat)?(m|min|maj|minor|major)?$")
@@ -44,7 +45,7 @@ def words(text):
                 if len(lw) < 2 and lw != "#":
                     continue
                 n = normalise(w)
-                if n in FILLER or lw in FILLER or n == "#":
+                if n in FILLER or lw in FILLER or lw == KEY_LABEL or n == "#":
                     continue
                 out.append(n)
     return out
