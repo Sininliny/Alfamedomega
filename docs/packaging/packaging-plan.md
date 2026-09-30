@@ -244,9 +244,10 @@ for `repo_dir` if it is empty.
   need `com.apple.security.cs.allow-unsigned-executable-memory`. Add it only if a real
   plugin fails to load, and keep both entitlements on the render host only, never on the app or
   the plugins.
-- A universal render host runs natively on Apple Silicon and cannot load Intel-only plugins.
-  To render those, launch it under Rosetta (`arch -x86_64`). Decide when the assimilation
-  thread settles which plugins it supports. **(verify with a real Intel-only plugin)**
+- Ship the render host as a universal binary and **keep its x86_64 slice**. On Apple
+  Silicon, when a plugin fails to scan, the control center retries it under Rosetta
+  (`arch -x86_64 alfa-render-host ...`) and remembers that for the plugin. Stripping the host
+  to arm64 only would break Intel-only plugins.
 - Windows: sign `alfa-render-host.exe` like the other binaries. Third-party VST3s it
   loads keep their own signatures (or none), which does not affect ours.
 - The render host builds in the same CI job as the plugins, and is frozen into the app
