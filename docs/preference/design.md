@@ -95,6 +95,10 @@ compares sounds under the same context and mood:
 - **Replacements.** If patch A is replaced by B in the same instance, A's exposure is negative and
   B's is positive, then "B ≻ A", weighted by the smaller of the two.
 
+The plugin's `init` source (the default patch of a new instance) never gets a quick-replace
+penalty: replacing it says nothing about it. Which of these signals are used at all is the user's
+choice (section 7.1).
+
 ### 3.2 Explicit library
 
 Every audio file in a folder the user picks is a positive example (weight 1.0) with no patch, only
@@ -157,8 +161,23 @@ So each word is a direction `d_t`, and "warm" means "what separates this user's 
 rest of their library". A text query is a sum of word scores (a naive-Bayes composition):
 "warm airy pad" scores `LLR_warm + LLR_airy + LLR_pad`, and `not`/`no`/`-` negate the next word.
 Words the user has never used are reported back as unknown rather than guessed; there is no
-remote text model. Words whose directions have cosine above 0.8 are shown as related, which gives
+remote or bundled text model (section 5.4). Words whose directions have cosine above 0.8 are shown as related, which gives
 the user a view of their own vocabulary ("warm" ≈ "analog" ≈ "soft").
+
+**Where the words come from** (Sinin, 2026-09-30: only the user's own vocabulary and examples).
+Every word is one the user wrote or chose: file and folder names (1.0 and 0.5), tags on a file or
+preset (1.0), free-text descriptions (0.75), and hand labels on an audio example (2.0, the
+strongest, because the user attached the word on purpose). The user's own Alfamedomega presets
+count like library files, rendered at middle C, with words from their name, category, tags and
+description. A word keeps its largest weight per example. The user can see every word and delete
+any of them (`forget-word`). No meaning comes from an external dataset: "lonely" means whatever
+this user's lonely sounds have in common.
+
+**5.4 Optional general text model (not included).** `alfapref/textprior.py` defines the hook: an
+object with `score(word, descriptor)`, run locally. If one is attached later, it scores only words
+the user has never used, at half weight, and the UI marks those results as guessed; a word the
+user has used is scored by their own map alone, so the personal vocabulary stays the final
+authority. This version ships no such model (no 100 MB download).
 
 The UI's Timbre space pad (`ui-design.md`, warm to bright, stable to evolving) can use two of the
 user's own words as its axes, projecting patches onto `d_t`.
@@ -188,6 +207,30 @@ q(x | c, text) ∝ p_prior(x) · exp( β · [ s(x, c) + γ · Σ_t LLR_t(z(x)) ]
    the spec, black-box, so it works with the real C++ engine.
 
 Exploration uses Thompson sampling: one θ is drawn from the Laplace posterior per batch.
+Every taste term is multiplied by the user's personalization strength (section 7.1), so at 0 the
+generator is the plain model plus the text query.
+
+### 6.5 Randomize nearby (implemented)
+
+Sinin, 2026-09-30: "randomize nearby" uses the learned taste by default. From the current patch it
+draws 64 neighbours with the same method (Gaussian knob steps), scores them and keeps 8 with
+probability ∝ exp(β · score). In My Taste mode a quarter of the neighbours also step part of the
+way (up to half) toward one of the user's liked patches of the same method, so variations lean
+toward regions the user has kept before without jumping there.
+
+| Mode | Knob step σ | β | Pull toward liked | Scored by |
+|---|---|---|---|---|
+| My Taste (default) | 0.08 | 1.0 × personalization | 25% | the personal scorer |
+| Model Space | 0.08 | 0 | none | nothing: uniform neighbours under the model's own prior |
+| Community Space | 0.08 | 1.0 | none | a community profile, when the user has one |
+| Wild | 0.25 | 0.15 × personalization | none | the personal scorer, barely |
+
+My Taste falls back to Model Space while nothing has been learned or personalization is 0, and
+says so. Community Space needs a community profile: a profile fitted on aggregated, opted-in data
+from many users, downloaded by the user. No such data or service exists yet, so this mode falls
+back to Model Space and reports it; the learner only needs the profile folder
+(`nearby --mode community --community DIR`). Building the aggregation is a separate decision, since
+it is the one part that would involve data leaving users' machines.
 
 ### 6.3 Cost
 
@@ -217,7 +260,43 @@ Everything runs on the user's machine. Nothing is uploaded, and there is no tele
 The salt is random per profile and never leaves it, so hashes cannot be matched across users.
 The profile is one folder (`profile.json`, `events.jsonl`, `library.jsonl`) in the app's data
 directory. Deleting it resets everything; "forget this folder" deletes the entries of one library
-root. Behaviour learning is **off until the user turns it on** (open question 1).
+root.
+
+### 7.1 Consent (Sinin, 2026-09-30: strictly opt-in)
+
+Learning from behaviour is **off** until the user turns it on, and each kind of data has its own
+switch. The design principle is Sinin's: Alfamedomega learns *from* the user; it does not silently
+learn the user. The switches live in `<home>/preference/plugin.json`, the file the plugin already
+reads for "Learn from how I play" (`alfapref/consent.py`):
+
+```json
+{"learn": true,
+ "categories": {"performance": true, "parameters": true, "suggestions": true, "workflow": true},
+ "personalization": 1.0}
+```
+
+| Category | What it covers | Events it controls |
+|---|---|---|
+| performance | notes played: pitch range, note lengths, velocity, expression | the note fields of `play` |
+| parameters | knob and parameter movements after a load | `edit` |
+| suggestions | which generated or suggested sounds are kept, liked or rejected | `rate`, labels for `generate` loads |
+| workflow | loads, play time, presets saved, sounds kept, reuse, quick replacements | `save_preset`, `project_save`, `play` seconds, `project`, skip penalties |
+
+- `learn` is the master switch. Without it the learner ignores the event log completely. A missing
+  or unreadable file means off. `{"learn": true}` alone turns every category on, which is what the
+  plugin writes today.
+- The learner applies the switches itself at every fit, so turning a category off also stops old
+  data of that kind from counting, even if the log still holds it. The plugin should also stop
+  writing a category that is off (section 8.1).
+- `personalization` (0 to 1) is how strongly taste steers Generate and Randomize nearby.
+- The library, labels and presets the user picks are explicit choices, so they count whether or not
+  behaviour learning is on.
+- **What is learned is visible.** `explain` (and `summary.json`'s `learned` and `explain` fields)
+  lists the switches, how many sounds were heard, liked and disliked, how many comparisons, which
+  examples came from where, and the user's words.
+- **The user can remove it.** `reset` forgets the learned model; `reset --all` also drops every
+  example; `forget` removes one folder, `forget-word` one word. Deleting the profile folder and the
+  event folder removes everything.
 
 Reproducibility: the profile is a deterministic function of the event log, the library index and
 the seed, and generation takes a seed, so the same profile and seed give the same proposals.
@@ -238,6 +317,14 @@ the seed, and generation takes a seed, so the same profile and seed give the sam
 - **UI.** A "Learn from how I play" switch (off by default), a library folder picker with "forget
   this folder", a Generate button with the Familiar ↔ Surprising control and a words box, an
   optional like/dislike on the preset bar, and a "why this sound" readout listing its top words.
+- **Consent and modes (2026-09-30 decisions).** The plugin already writes `{"learn": bool}` and
+  logs only while it is on (branch plugin/preference-ui). Proposed next: per-category switches
+  under "Learn from how I play" writing `categories` and `personalization` into the same
+  `plugin.json` (section 7.1), with the plugin not writing a category that is off; a "What
+  Alfamedomega has learned" panel showing the `explain` lines, with Reset; and a mode menu on
+  Randomize nearby (My Taste default, Model Space, Community Space, Wild; section 6.5). Until the
+  C++ scorer exists, Randomize nearby in the plugin stays the plain knob nudge, which is Model
+  Space.
 
 ### 8.2 Training (`training/`)
 
@@ -263,8 +350,15 @@ The control center (`docs/control-center/preference-batch.md` on its branch) run
 `profile.json`, `library.jsonl` and `summary.json` (counts and the learned vocabulary) to `--out`.
 Words are recomputed from each record's `rel` with `alfapref/tokens.py`, so the index's own labels
 are for display only. The events folder holds `<date>.jsonl` files in the schema of
-`alfapref/events.py`; the plugin should only write it when behaviour learning is on, so the
-learner treats a present log as consent.
+`alfapref/events.py`. The learner no longer treats a present log as consent: it reads the switches
+from `--consent FILE`, or from `plugin.json` next to the events folder, and learns nothing from
+behaviour without them (section 7.1).
+
+Records may also carry `tags` (list), `description` (text) and `labels` (the user's hand labels),
+all used as words (section 5). `--labels FILE` reads hand-labelled examples
+(`{"path": ..., "labels": [...]}` per line) and `--presets FILE` the user's own presets
+(`{"name", "category", "tags", "description", "patch"}` per line). The control center should show
+the switches and the `explain` lines, offer Reset, and let the user tag, describe and label files.
 
 The index keeps absolute paths and file names, which section 7 keeps out of the profile. That is
 acceptable because the index is a local cache the control center rebuilds and "Forget everything"
@@ -325,9 +419,11 @@ exploration slot in section 6.2 provides for free.
   and the user can see and delete any word.
 - **Small data.** Everything shrinks to "no preference" when evidence is thin.
 
-## 11. Open questions for Sinin
+## 11. Decisions (Sinin, 2026-09-30)
 
-1. Should behaviour learning be opt-in (recommended) or on by default?
-2. Should words map only to the user's own vocabulary (v1, recommended), or should a bundled
-   offline text–audio model (~100 MB or more) let unseen words work too?
-3. Should "randomize nearby" in the Perform view use the user's taste by default?
+1. Behaviour learning is strictly opt-in, off by default, with the data visible and removable
+   (section 7.1).
+2. Text search uses only the user's own words and examples; no bundled general text-audio model
+   yet, but a hook for one, with the user's words as the final authority (section 5.4).
+3. Randomize nearby uses the user's taste by default, with Model Space, Community Space and Wild
+   modes (section 6.5).

@@ -11,6 +11,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from alfapref import consent as C                         # noqa: E402
 from alfapref import descriptor as D                      # noqa: E402
 from alfapref import events as E                          # noqa: E402
 from alfapref import generate as G                        # noqa: E402
@@ -166,6 +167,138 @@ class Events(unittest.TestCase):
         self.assertLess(ex[0].reward()[1], ex[2].reward()[1])
 
 
+    def test_init_replacement_is_not_a_judgement(self):
+        log = [{"t": 0, "type": "load", "inst": "i", "patch": _patch(0.1), "source": "init"},
+               {"t": 3, "type": "load", "inst": "i", "patch": _patch(0.2), "source": "user"}]
+        self.assertEqual(E.exposures(log)[0].reward()[1], 0.0)
+
+
+class Consent(unittest.TestCase):
+    def test_default_is_off(self):
+        self.assertFalse(C.normalise(None)["learn"])
+        self.assertFalse(C.read("/does/not/exist")["learn"])
+        self.assertEqual(C.filter_events(Events().log(), None), [])
+        self.assertFalse(any(C.normalise({"categories": {"workflow": True}})["categories"].values()))
+
+    def test_plugin_switch_means_every_category(self):
+        c = C.normalise({"learn": True})
+        self.assertTrue(all(c["categories"].values()))
+
+    def test_categories_filter_what_counts(self):
+        log = Events().log()
+        full = E.labels(E.exposures(C.filter_events(log, {"learn": True})))
+        self.assertTrue(full[0])
+        c = {"learn": True, "categories": {"performance": False, "parameters": False,
+                                           "suggestions": False, "workflow": True}}
+        evs = C.filter_events(log, c)
+        self.assertFalse(any(e["type"] == "edit" for e in evs))
+        self.assertFalse(any("pitch_mean" in e for e in evs))
+        ex = E.exposures(evs)
+        self.assertTrue(ex[0].unlabelled)                  # a is from Generate
+        self.assertEqual(ex[1].context(), [0.0] * 4)
+        points, pairs = E.labels(ex)
+        self.assertNotIn(E.fingerprint(_patch(0.1)), {E.fingerprint(p) for p, _, _, _ in points})
+        # workflow off: play time, keeps, saves, reuse and skips give nothing
+        c = {"learn": True, "categories": {"performance": True, "parameters": True,
+                                           "suggestions": True, "workflow": False}}
+        ex = E.exposures(C.filter_events(log, c))
+        self.assertTrue(all(e.reward() == (0.0, 0.0) for e in ex))
+
+    def test_profile_respects_consent_and_resets(self):
+        R = SketchRenderer()
+        with tempfile.TemporaryDirectory() as d:
+            prof = Profile.create(os.path.join(d, "p"))
+            prof.settings["n_background"] = 16
+            st = prof.fit(R, Events().log())
+            self.assertEqual(st["points"], 0)
+            st = prof.fit(R, Events().log(), consent={"learn": True})
+            self.assertGreater(st["points"], 0)
+            self.assertTrue(prof.liked)
+            prof.save()
+            prof = Profile.load(prof.path)
+            self.assertTrue(prof.consent["learn"])
+            self.assertIn("From behaviour", "\n".join(prof.explain()))
+            prof.reset()
+            self.assertIsNone(prof.model)
+            self.assertEqual(prof.liked, [])
+
+
+class OwnWords(unittest.TestCase):
+    def test_record_words_weights(self):
+        w = T.record_words("Pads/Big_Pad.wav", tags=["Cinematic"], description="a lonely, cold texture",
+                           labels=["warm"])
+        self.assertEqual(w["pad"], 1.0)
+        self.assertEqual(w["cinematic"], T.TAG_WEIGHT)
+        self.assertEqual(w["lonely"], T.DESCRIPTION_WEIGHT)
+        self.assertEqual(w["warm"], T.LABEL_WEIGHT)
+
+    def test_labels_teach_words_and_unknown_words_are_ignored(self):
+        R = SketchRenderer()
+        with tempfile.TemporaryDirectory() as d:
+            prof = Profile.create(os.path.join(d, "p"))
+            prof.settings["n_background"] = 16
+            for i in range(4):
+                path = os.path.join(d, "x%d.wav" % i)
+                write_wav(path, tone(220, 0.9 if i < 2 else 0.1))
+                prof.label(path, ["lonely"] if i < 2 else ["cold"])
+            prof.fit(R)
+            self.assertEqual(set(prof.words.words), {"lonely", "cold"})
+            known, unknown = prof.parse_text("lonely shimmer")
+            self.assertEqual(known, [("lonely", 1.0)])
+            self.assertEqual(unknown, [("shimmer", 1.0)])
+            p = G.sample_prior(np.random.default_rng(0), 1)[0]
+            base = prof.score_fn(R)([p])[0]
+            self.assertAlmostEqual(prof.score_fn(R, text="shimmer")([p])[0], base)
+
+            class Guess:
+                def score(self, word, descriptor):
+                    return 10.0 if word == "shimmer" else -10.0
+            prof.general_text = Guess()
+            self.assertGreater(prof.score_fn(R, text="shimmer")([p])[0], base)
+            # a word the user has used is never overridden by the general model
+            self.assertAlmostEqual(prof.score_fn(R, text="lonely")([p])[0],
+                                   base + prof.words.query_score(prof.z(p, [0.0] * 4, R), [("lonely", 1.0)]))
+            prof.forget_word("cold")
+            self.assertNotIn("cold", prof.words.words)
+
+
+class Nearby(unittest.TestCase):
+    def test_modes(self):
+        R = SketchRenderer()
+        with tempfile.TemporaryDirectory() as d:
+            prof = Profile.create(os.path.join(d, "p"))
+            prof.settings["n_background"] = 16
+            start = {"method": "subtractive", "pair": None, "knobs": [0.5] * 32}
+            out, used = prof.randomize_nearby(start, R)
+            self.assertEqual(used, "model")                # nothing learned yet
+            prof.fit(R, Events().log(), consent={"learn": True})
+            out, used = prof.randomize_nearby(start, R, k=4, n=24)
+            self.assertEqual(used, "my_taste")
+            self.assertEqual(len(out), 4)
+            self.assertTrue(all(o["patch"]["method"] == "subtractive" for o in out))
+            dist = lambda o: np.abs(np.array(o["patch"]["knobs"]) - 0.5).mean()
+            wild, _ = prof.randomize_nearby(start, R, "wild", k=4, n=24)
+            self.assertGreater(np.mean([dist(o) for o in wild]), np.mean([dist(o) for o in out]))
+            _, used = prof.randomize_nearby(start, R, "community")
+            self.assertEqual(used, "model")                # no community profile
+            _, used = prof.randomize_nearby(start, R, "community", community=prof)
+            self.assertEqual(used, "community")
+            with self.assertRaises(ValueError):
+                prof.randomize_nearby(start, R, "loud")
+            prof.consent["personalization"] = 0.0
+            self.assertEqual(prof.randomize_nearby(start, R)[1], "model")
+
+    def test_taste_pulls_toward_liked(self):
+        rng = np.random.default_rng(0)
+        start = {"method": "fm", "pair": None, "knobs": [0.2] * 32}
+        liked = [{"method": "fm", "pair": None, "knobs": [0.9] * 32}]
+        fn = lambda ps: [float(np.mean(p["knobs"])) * 20 for p in ps]
+        taste = G.nearby(start, fn, rng, k=8, n=64, beta=1.0, pull=0.25, liked=liked)
+        plain = G.nearby(start, None, rng, k=8, n=64, beta=0.0)
+        self.assertGreater(np.mean([np.mean(p["knobs"]) for p, _, _ in taste]),
+                           np.mean([np.mean(p["knobs"]) for p, _, _ in plain]))
+
+
 class Models(unittest.TestCase):
     def test_scorer_recovers_taste(self):
         rng = np.random.default_rng(0)
@@ -302,17 +435,27 @@ class Batch(unittest.TestCase):
                 with open(os.path.join(home, "events", day + ".jsonl"), "w") as f:
                     f.writelines(json.dumps(e) + "\n" for e in chunk)
                     f.write('{"t": 9, "type": "pla')              # torn last line is skipped
+            args = ["batch", "--index", os.path.join(home, "library_index.jsonl"),
+                    "--events", os.path.join(home, "events"), "--background", "16"]
+            off = os.path.join(home, "profiles", "off")
+            with contextlib.redirect_stdout(io.StringIO()):
+                cli.main(args + ["--out", off])
+            summ = json.loads(Path(off, "summary.json").read_text())
+            self.assertEqual(summ["fit"]["points"], 0)          # no plugin.json: learning is off
+            self.assertFalse(summ["learned"]["consent"]["learn"])
+            with open(os.path.join(home, "plugin.json"), "w") as f:
+                json.dump({"learn": True}, f)
             out = os.path.join(home, "profiles", "20260929T2000")
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
-                cli.main(["batch", "--index", os.path.join(home, "library_index.jsonl"),
-                          "--events", os.path.join(home, "events"), "--out", out, "--background", "16"])
+                cli.main(args + ["--out", out])
             lines = [l for l in buf.getvalue().splitlines() if l.startswith("progress")]
             self.assertEqual(lines[-1], "progress %d/%d" % (4 + 16 + 1, 4 + 16 + 1))
             summ = json.loads(Path(out, "summary.json").read_text())
             self.assertEqual(summ["files"]["added"], 3)
             self.assertEqual(summ["files"]["skipped_format"], 1)
             self.assertGreater(summ["fit"]["points"], 0)
+            self.assertGreater(summ["learned"]["behaviour"]["sounds_heard"], 0)
             self.assertIn("warm", summ["words"])
             for fn in os.listdir(out):
                 text = Path(out, fn).read_text()

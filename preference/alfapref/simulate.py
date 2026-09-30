@@ -8,6 +8,7 @@ the profile's own proposals.
 """
 import numpy as np
 
+from . import consent
 from . import generate as gen
 from .model import Basis
 from .profile import Profile
@@ -31,7 +32,8 @@ def run(n_exposures=300, eval_every=50, seed=0, renderer=None, n_background=256,
     rng = np.random.default_rng(seed)
     R = renderer or SketchRenderer()
     prof = Profile(None)
-    prof.settings.update(n_background=n_background, learn_from_behaviour=True)
+    prof.settings.update(n_background=n_background)
+    prof.consent = consent.normalise({"learn": True})       # the simulated user opted in
     prof.ensure_background(R, seed=seed)
     b0 = Basis.fit(prof.background, None, 24)
     u = rng.standard_normal(b0.dim)
