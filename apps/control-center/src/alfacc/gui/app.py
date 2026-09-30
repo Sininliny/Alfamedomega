@@ -11,10 +11,10 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QFont, QKeySequence
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox,
-                               QDoubleSpinBox, QFileDialog, QFormLayout, QFrame, QGridLayout,
+                               QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame, QGridLayout,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit,
-                               QProgressBar, QPushButton, QScrollArea, QSpinBox, QStackedWidget,
+                               QProgressBar, QPushButton, QScrollArea, QSlider, QSpinBox, QStackedWidget,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from .. import __version__, jobs
@@ -22,7 +22,7 @@ from ..assimilate.harvest import create_assimilation_job, create_scan_job, host_
 from ..assimilate.plans import DENSITIES, estimate
 from ..context import Context
 from ..models import BUNDLE_SUFFIX, ModelStoreError, model_bytes
-from ..preference import create_batch_job
+from ..preference import CATEGORIES, create_batch_job, reset_learning
 from ..tiers import DEFAULT_TIER, STAGES, TIERS
 from ..training import (TrainSpec, check_environment, create_export_job, create_training_job,
                         write_colab_notebook)
@@ -524,6 +524,53 @@ class PreferencePage(Page):
         lay.addWidget(self.labels)
         self.learner = label("", "muted", wrap=True)
         lay.addWidget(self.learner)
+        head = QHBoxLayout()
+        head.addStretch(1)
+        head.addWidget(button("Tag or label files…", self.annotate,
+                              tip="Add your own tags, a description or hand labels to sound files"))
+        lay.addLayout(head)
+        self.lay.addWidget(f)
+
+        # Behaviour learning: strictly opt-in, per kind of data (preference design, section 7.1).
+        f, lay = card()
+        lay.addWidget(label("Learn from how I play", "h2"))
+        lay.addWidget(label("Off unless you turn it on. The plugin reads these switches too, and the "
+                            "learner stops using a kind of data the moment it is off, including what "
+                            "was recorded before.", "muted", wrap=True))
+        self.learn = QCheckBox("Learn from how I play")
+        self.learn.toggled.connect(self.consent_changed)
+        lay.addWidget(self.learn)
+        self.cats = {}
+        sub = QVBoxLayout()
+        sub.setContentsMargins(26, 0, 0, 0)
+        for name, text in CATEGORIES.items():
+            cb = QCheckBox(f"{name.capitalize()}: {text}")
+            cb.toggled.connect(self.consent_changed)
+            sub.addWidget(cb)
+            self.cats[name] = cb
+        lay.addLayout(sub)
+        row = QHBoxLayout()
+        row.addWidget(label("Personalization"))
+        self.personal = QSlider(Qt.Horizontal)
+        self.personal.setRange(0, 100)
+        self.personal.setToolTip("How strongly your taste steers Generate and Randomize nearby")
+        self.personal.sliderReleased.connect(self.consent_changed)
+        row.addWidget(self.personal, 1)
+        self.personal_val = label("", "muted")
+        self.personal.valueChanged.connect(lambda v: self.personal_val.setText(f"{v}%"))
+        row.addWidget(self.personal_val)
+        lay.addLayout(row)
+        self.lay.addWidget(f)
+
+        f, lay = card()
+        head = QHBoxLayout()
+        head.addWidget(label("What's learned", "h2"))
+        head.addStretch(1)
+        head.addWidget(button("Reset learning…", self.reset, "danger",
+                              "Forget the learned model and the behaviour log; your libraries stay"))
+        lay.addLayout(head)
+        self.explain = label("", "", wrap=True)
+        lay.addWidget(self.explain)
         self.lay.addWidget(f)
         self.lay.addStretch(1)
         self._filling = False
@@ -533,6 +580,17 @@ class PreferencePage(Page):
         p = self.ctx.prefs
         libs = p.libraries()
         self._filling = True
+        c = p.consent()
+        self.learn.setChecked(c["learn"])
+        for name, cb in self.cats.items():
+            cb.setChecked(c["categories"][name])
+            cb.setEnabled(c["learn"])
+        self.personal.setValue(round(c["personalization"] * 100))
+        self.personal_val.setText(f"{self.personal.value()}%")
+        lines = p.explain()
+        self.explain.setText("\n".join(lines) if lines else
+                             "Nothing learned yet. Run a batch to see what the learner takes from "
+                             "your libraries and, if you allow it, from how you play.")
         self.libs.setRowCount(len(libs))
         for r, lib in enumerate(libs):
             use = QTableWidgetItem()
@@ -595,6 +653,65 @@ class PreferencePage(Page):
         except ValueError as e:
             return self.win.error(str(e))
         self.start(job)
+
+    def consent_changed(self, *_):
+        if self._filling:
+            return
+        learn = self.learn.isChecked()
+        was = self.ctx.prefs.consent()["learn"]
+        cats = None if learn and not was else {n: cb.isChecked() for n, cb in self.cats.items()}
+        self.ctx.prefs.set_consent(learn, cats, self.personal.value() / 100)
+        self.refresh()
+
+    def reset(self):
+        box = QMessageBox(QMessageBox.Warning, "Reset learning",
+                          "Forget the learned model and delete the behaviour log? Your libraries, "
+                          "their index and your own tags and labels stay.", parent=self)
+        box.addButton("Reset", QMessageBox.DestructiveRole)
+        drop_all = box.addButton("Reset and drop examples", QMessageBox.DestructiveRole)
+        box.addButton(QMessageBox.Cancel)
+        box.exec()
+        if box.buttonRole(box.clickedButton()) != QMessageBox.DestructiveRole:
+            return
+        try:
+            msg = reset_learning(self.ctx.prefs, self.ctx.settings.resolved_preference_learner(),
+                                 box.clickedButton() is drop_all)
+        except (RuntimeError, OSError) as e:
+            return self.win.error(str(e))
+        self.win.statusBar().showMessage(msg, 6000)
+        self.refresh()
+
+    def annotate(self):
+        paths, _ = QFileDialog.getOpenFileNames(self, "Choose sound files", str(Path.home()),
+                                                "Audio (*.wav *.aif *.aiff *.flac *.mp3 *.ogg)")
+        if not paths:
+            return
+        notes = self.ctx.prefs.annotations()
+        first = notes.get(str(Path(paths[0]).resolve()), {})
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Tag or label files")
+        form = QFormLayout(dlg)
+        form.addRow(label(f"{len(paths)} file{'s' if len(paths) > 1 else ''}: "
+                          + ", ".join(Path(x).name for x in paths[:3]) + ("…" if len(paths) > 3 else ""),
+                          "muted", wrap=True))
+        tags = QLineEdit(", ".join(first.get("tags", [])))
+        tags.setPlaceholderText("e.g. pad, evolving, 90s")
+        labels_ = QLineEdit(", ".join(first.get("labels", [])))
+        labels_.setPlaceholderText("words you'd search for: warm, airy, dark")
+        desc = QLineEdit(first.get("description", ""))
+        form.addRow("Tags", tags)
+        form.addRow("Hand labels", labels_)
+        form.addRow("Description", desc)
+        btns = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        form.addRow(btns)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        split = (lambda t: [w for w in t.split(",")])
+        for path in paths:
+            self.ctx.prefs.annotate(Path(path), split(tags.text()), desc.text(), split(labels_.text()))
+        self.win.statusBar().showMessage("Saved. The next batch uses these words.", 5000)
 
     def forget(self):
         if QMessageBox.question(self, "Forget everything",
