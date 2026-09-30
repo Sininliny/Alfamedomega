@@ -28,7 +28,7 @@ python -m alfapref fit --profile ~/amo-profile                     # add --event
 python -m alfapref words --profile ~/amo-profile                   # the vocabulary it learned
 python -m alfapref generate --profile ~/amo-profile --text "warm not dark" --context bass -k 8
 python -m alfapref simulate                                         # learning curve, ~1 min
-python learner.py batch --index IDX.jsonl --events EVENTS_DIR --out OUT   # control-center batch
+python learner.py batch --index IDX.jsonl --events EVENTS_DIR [--assimilation ASSIM_DIR] --out OUT
 ```
 
 `learner.py` runs the same commands from any working directory; it is the command the control

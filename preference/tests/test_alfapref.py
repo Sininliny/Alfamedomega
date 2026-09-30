@@ -322,6 +322,56 @@ class Batch(unittest.TestCase):
             self.assertEqual(len(prof.generate(R, k=3, n=12)), 3)
 
 
+class Assimilation(unittest.TestCase):
+    def test_batch_reads_plugin_features(self):
+        import contextlib
+        import io
+        from alfapref import cli
+        with tempfile.TemporaryDirectory() as d:
+            home = os.path.join(d, "home")
+            pdir = os.path.join(home, "assimilation", "Vendor-SuperSynth-vst3")
+            os.makedirs(pdir)
+            os.makedirs(os.path.join(home, "preference"))
+            presets = [{"key": "p0000", "kind": "program", "name": "Dark Bass Growl", "category": ""},
+                       {"key": "f00000", "kind": "vstpreset", "name": "Glass Bells", "category": "Mallets/Bells"},
+                       {"key": "default", "kind": "default", "name": "default", "category": ""}]
+            with open(os.path.join(pdir, "plugin.json"), "w") as f:
+                json.dump({"name": "SuperSynth", "vendor": "Vendor", "presets": presets}, f)
+            with open(os.path.join(pdir, "presets.json"), "w") as f:
+                json.dump({p["key"]: {"name": p["name"], "status": "ranged"} for p in presets}, f)
+            with open(os.path.join(pdir, "features.jsonl"), "w") as f:
+                for key, f0, bright, notes in (("p0000", 55, 0.1, 6), ("f00000", 880, 1.0, 2), ("default", 220, 0.5, 1)):
+                    for n in range(notes):
+                        f.write(json.dumps({"preset": key, "note": "x", "midi": 40 + n, "velocity": 100,
+                                            "dur_s": 1.0, "descriptor_id": D.DESCRIPTOR_ID,
+                                            "descriptor": D.descriptor(tone(f0 * (1 + n / 12), bright)).tolist()}) + "\n")
+                f.write(json.dumps({"preset": "p0000", "midi": 99, "descriptor_id": "other-v9",
+                                    "descriptor": [0.0] * 5}) + "\n")
+                f.write('{"preset": "p00')
+            idx = os.path.join(home, "preference", "library_index.jsonl")
+            open(idx, "w").close()
+            out = os.path.join(home, "preference", "profiles", "t")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                cli.main(["batch", "--index", idx, "--assimilation", os.path.join(home, "assimilation"),
+                          "--out", out, "--background", "16"])
+            progress = [l for l in buf.getvalue().splitlines() if l.startswith("progress")]
+            self.assertEqual(progress[-1], "progress %d/%d" % (9 + 16 + 1, 9 + 16 + 1))
+            summ = json.loads(Path(out, "summary.json").read_text())
+            self.assertEqual(summ["files"]["assimilation"], {"notes": 9, "presets": 3, "plugins": 1})
+            self.assertEqual(summ["words"]["dark"], 0.5)       # six notes of one preset count once
+            self.assertEqual(summ["words"]["bell"], 0.5)
+            self.assertEqual(summ["words"]["mallet"], 0.25)       # category folder words weigh half
+            self.assertNotIn("default", summ["words"])
+            for fn in os.listdir(out):
+                self.assertNotIn("SuperSynth", Path(out, fn).read_text())
+            prof = Profile.load(out)
+            self.assertAlmostEqual(sum(e["weight"] for e in prof.index), 1.5)
+
+    def test_missing_folder_is_empty(self):
+        self.assertEqual(L.from_assimilation(None, "s"), ([], {"notes": 0, "presets": 0, "plugins": 0}))
+
+
 @unittest.skipUnless(os.environ.get("ALFA_SLOW"), "set ALFA_SLOW=1 to run the simulated user")
 class Simulation(unittest.TestCase):
     def test_simulated_user(self):

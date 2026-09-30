@@ -7,10 +7,10 @@
     words     --profile DIR [WORD]             list learned words, or one word's related words
     generate  --profile DIR [--text "warm pad"] [--context bass|mid|high[,sustained]] [-k 8]
     simulate  [--exposures 300]                simulated user, prints learning curve
-    batch     --index FILE [--events DIR|FILE] --out DIR
+    batch     --index FILE [--events DIR|FILE] [--assimilation DIR] --out DIR
               control-center batch (docs/control-center/preference-batch.md): reads its library
-              index, learns from the behaviour log if one is given, writes a fresh profile to
-              --out and prints "progress N/M" lines
+              index, the plugin-assimilation features if given, learns from the behaviour log if
+              one is given, writes a fresh profile to --out and prints "progress N/M" lines
 
 --renderer MODULE:CALLABLE picks the preview renderer (default: the sketch renderer). A callable
 must take (patch, pitch=60, velocity=0.8, seconds=1.0) and return 48 kHz mono audio.
@@ -41,6 +41,7 @@ def main(argv=None):
     ap.add_argument("--renderer")
     ap.add_argument("--events")
     ap.add_argument("--index")
+    ap.add_argument("--assimilation", help="control center's <home>/assimilation folder")
     ap.add_argument("--background", type=int, default=512, help="prior renders for the background set")
     ap.add_argument("--out")
     ap.add_argument("--behaviour", choices=["on", "off"])
@@ -61,7 +62,7 @@ def main(argv=None):
     if a.command == "batch":
         if not a.index or not a.out:
             ap.error("batch needs --index and --out")
-        return batch(a.index, a.events, a.out, _renderer(a.renderer), a.seed, a.background)
+        return batch(a.index, a.events, a.out, _renderer(a.renderer), a.seed, a.background, a.assimilation)
     if not a.profile:
         ap.error("--profile is required")
     if a.command == "init":
@@ -106,7 +107,7 @@ def main(argv=None):
         print(json.dumps(out, indent=1))
 
 
-def batch(index_path, events_path, out, renderer, seed=0, n_background=512):
+def batch(index_path, events_path, out, renderer, seed=0, n_background=512, assimilation=None):
     """Fresh profile from the control center's index and the behaviour log. The log exists only
     if the user turned behaviour learning on, so its presence is the consent."""
     from . import library
@@ -115,7 +116,8 @@ def batch(index_path, events_path, out, renderer, seed=0, n_background=512):
     prof = Profile.create(out)
     prof.settings["n_background"] = n_background
     n_bg = prof.settings["n_background"]
-    total = len(records) + n_bg + 1
+    n_assim = len(library.assimilation_lines(assimilation))
+    total = len(records) + n_assim + n_bg + 1
     done = [0]
 
     def tick(_=None):
@@ -123,6 +125,8 @@ def batch(index_path, events_path, out, renderer, seed=0, n_background=512):
         print("progress %d/%d" % (done[0], total), flush=True)
 
     prof.index, report = library.from_records(records, prof.salt, tick)
+    assim, report["assimilation"] = library.from_assimilation(assimilation, prof.salt, tick)
+    prof.index += assim
     prof.ensure_background(renderer, seed, tick)
     has_events = bool(events_path) and os.path.exists(events_path)
     prof.settings["learn_from_behaviour"] = has_events
