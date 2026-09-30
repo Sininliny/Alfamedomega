@@ -3,7 +3,7 @@
 
 Implements training/METHOD.md: a frame-rate (250 Hz) control network with a shared trunk and
 per-method routed experts, differentiable reference DSP primitives that follow the plugin's
-control-frame contract (src/dsp/include/alfa/dsp/ControlFrame.h, layout version 1), procedural
+control-frame contract (src/dsp/include/alfa/dsp/ControlFrame.h, layout version 2), procedural
 teacher programs, multi-resolution spectral loss, Studio -> smaller-tier distillation, and
 multi-graph ONNX export.
 
@@ -21,6 +21,7 @@ import json
 import math
 import os
 import random
+import sys
 import time
 import wave
 from dataclasses import dataclass, asdict
@@ -31,7 +32,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # ---------------------------------------------------------------- constants (METHOD.md s1, s2, s6)
-LAYOUT_VERSION = 1              # must equal kLayoutVersion in ControlFrame.h
+LAYOUT_VERSION = 2              # must equal kLayoutVersion in ControlFrame.h (src/dsp/layout.json)
 SR = 48000
 FRAME_HZ = 250
 HOP = int(SR / FRAME_HZ + 0.5)  # 192 samples per control frame (hopSamples)
@@ -52,13 +53,26 @@ VF_FIELDS = [("mix", 6), ("attack_tau", 1), ("reserved", 1), ("osc.re", 1024), (
              ("partials.ratio", 64), ("partials.amp", 64), ("fm.ratio", 8), ("fm.level", 8),
              ("fm.index", 64), ("noise.band", 64), ("grain.source", 16), ("grain.weight", 16),
              ("grain.position", 8), ("grain.rate", 8), ("grain.gain", 8), ("sampler.rate", 1),
-             ("sampler.start", 1), ("sampler.gain", 1), ("sampler.eq", 64)]
+             ("sampler.start", 1), ("sampler.gain", 1), ("sampler.eq", 64),
+             # layout v2 (appended): pan, dry gain, OSC unison reads, processing slots, modulation
+             ("pan", 1), ("dry_gain", 1), ("osc.detune_ratio", 7), ("osc.detune_level", 7),
+             ("slots", 112), ("mod", 48)]
 VF_OFFSET = {}
 _o = 0
 for _n, _c in VF_FIELDS:
     VF_OFFSET[_n] = (_o, _c)
     _o += _c
 VF_FLOATS = _o
+assert VF_FLOATS == 2627
+# Non-zero defaults of a default-constructed VoiceFrame. A producer that leaves them at 0 silences
+# the voice (dry_gain) or detunes silent reads to 0 Hz.
+VF_DEFAULTS = {"dry_gain": 1.0, "osc.detune_ratio": 1.0}
+MAX_DETUNE = 7                  # kMaxOscDetune: extra OSC table reads
+SAFETY_KNEE = 2.0               # Synth output safety: linear to +6 dBFS, tanh to +12 dBFS
+# InstanceFrame (instance_step's frame for the stereo instance chain), layout order
+IF_FIELDS = [("dry_gain", 1), ("master_gain", 1), ("width", 1), ("reserved", 1), ("slots", 112), ("mod", 48)]
+IF_FLOATS = sum(c for _, c in IF_FIELDS)
+assert IF_FLOATS == 164
 
 METHODS = ["subtractive", "wavetable", "additive", "spectral", "fm", "physical", "granular",
            "sampling", "hybrid"]
@@ -108,6 +122,7 @@ class Tier:
     n_ops: int          # FM operators (TierLimits.fmOperators)
     n_modes: int        # partials (TierLimits.partials)
     n_grains: int       # grain layers (TierLimits.grainLayers)
+    unison: int         # OSC unison reads including the main read (TierLimits.oscUnison)
     Hv: int             # voice width
     Hs: int             # routed sub-expert hidden width
     E: int              # patch embedding
@@ -118,10 +133,10 @@ class Tier:
 
 
 TIERS = {
-    "lite":     Tier("lite",     4e6,   0.12e6, 0.10e6, 32,  2, 16, 2, 96,  96,   128, 112,  256,  128, 3e-4),
-    "standard": Tier("standard", 16e6,  0.35e6, 0.50e6, 64,  4, 32, 4, 160, 192,  256, 288,  512,  192, 3e-4),
-    "pro":      Tier("pro",      64e6,  0.65e6, 1.50e6, 128, 6, 48, 6, 224, 256,  384, 512,  1024, 256, 2e-4),
-    "studio":   Tier("studio",   256e6, 2.8e6,  6.0e6,  256, 8, 64, 8, 416, 768,  512, 1100, 2048, 384, 1.5e-4),
+    "lite":     Tier("lite",     4e6,   0.12e6, 0.10e6, 32,  2, 16, 2, 2, 96,  96,   128, 112,  256,  128, 3e-4),
+    "standard": Tier("standard", 16e6,  0.35e6, 0.50e6, 64,  4, 32, 4, 4, 160, 192,  256, 288,  512,  192, 3e-4),
+    "pro":      Tier("pro",      64e6,  0.65e6, 1.50e6, 128, 6, 48, 6, 6, 224, 256,  384, 512,  1024, 256, 2e-4),
+    "studio":   Tier("studio",   256e6, 2.8e6,  6.0e6,  256, 8, 64, 8, 8, 416, 768,  512, 1100, 2048, 384, 1.5e-4),
 }
 
 # ---------------------------------------------------------------- small helpers
@@ -217,31 +232,50 @@ def frame_hold(x, S):
     return x[:, _hop_index(S, T, x.device)[1]]
 
 
-def phase_cycles(freq):
-    """Phase accumulator phi[n+1] = phi[n] + f[n]/SR, phi[0] = 0, with f ramping linearly across
-    each hop. Returns frac(phi) [B,S,...] from per-frame frequency in Hz [B,T,...]. Hop starts are
-    accumulated in float64 so long notes stay exact."""
+def phase_cycles(freq, ratio=None, phase0=0.0):
+    """Phase accumulator phi[n+1] = phi[n] + f[n]/SR, phi[0] = phase0, with f ramping linearly
+    across each hop. Returns frac(phi) [B,S,...] from per-frame frequency in Hz [B,T,...]. With
+    `ratio` [B,T,...] the frequency is f * ratio, both ramping linearly (so quadratic within a
+    hop), as the OSC unison reads run. Hop starts are accumulated in float64 so long notes stay
+    exact."""
     B, T = freq.shape[:2]
-    prev = torch.cat([freq[:, :1], freq[:, :-1]], 1)
-    d = freq - prev
-    inc = (prev.double() * HOP + d.double() * (HOP - 1) / 2) / SR       # phase advance over a hop
-    start = torch.cumsum(inc, 1) - inc
+    if ratio is None:
+        ratio = torch.ones_like(freq)
+    sh = lambda x: torch.cat([x[:, :1], x[:, :-1]], 1)
+    f_p, r_p = sh(freq), sh(ratio)
+    df, dr = freq - f_p, ratio - r_p
+    a, b, c = f_p * r_p, (f_p * dr + df * r_p) / HOP, df * dr / HOP ** 2   # f(i) = a + b i + c i^2
+    H = float(HOP)
+    inc = (a.double() * H + b.double() * H * (H - 1) / 2 + c.double() * (H - 1) * H * (2 * H - 1) / 6) / SR
+    start = torch.cumsum(inc, 1) - inc + phase0
     start = (start - start.floor()).float()
     i = torch.arange(HOP, device=freq.device, dtype=torch.float32).view(1, 1, HOP, *([1] * (freq.dim() - 2)))
-    within = (prev.unsqueeze(2) * i + d.unsqueeze(2) * i * (i - 1) / (2 * HOP)) / SR
+    within = (a.unsqueeze(2) * i + b.unsqueeze(2) * i * (i - 1) / 2
+              + c.unsqueeze(2) * (i - 1) * i * (2 * i - 1) / 6) / SR
     ph = start.unsqueeze(2) + within
     ph = ph - ph.detach().floor()
     return ph.reshape(B, T * HOP, *freq.shape[2:])
 
 
-def osc_render(re, im, f0):
+def osc_render(re, im, f0, det_ratio=None, det_level=None):
     """OSC: re/im [B,T,N_HARM], f0 [B,T]. Frame j's wave is sum_k re cos(2pi(k+1)phi) -
-    im sin(2pi(k+1)phi), harmonics >= Nyquist zeroed using frame j's f0, stored as a 2048-point
-    table read with linear interpolation; hop j crossfades table j-1 -> table j."""
+    im sin(2pi(k+1)phi), stored as a 2048-point table read with linear interpolation; hop j
+    crossfades table j-1 -> table j. Table j drops harmonics at or above Nyquist for the f0 at the
+    start of hop j (frame j-1's; frame j's on the first hop) times the largest ratio of any unison
+    read sounding in frame j-1 or j (at least 1).
+    Unison (layout v2): det_ratio/det_level [B,T,R], R <= 7. Read r runs its own phase at
+    f0 * ratio_r (both linear across the hop) from phase (r+1)/8 at sample 0, reads the same
+    crossfaded tables, and adds level_r (linear) times the result."""
     B, T, H = re.shape
     S = T * HOP
     k = harm_k(re.device, H)
-    mask = (k * f0.unsqueeze(-1) < SR / 2).float()
+    sh = lambda x: torch.cat([x[:, :1], x[:, :-1]], 1)
+    scale = torch.ones_like(f0)
+    if det_level is not None:
+        on = ((sh(det_level) != 0) | (det_level != 0)).float()
+        top = (torch.maximum(sh(det_ratio), det_ratio) * on).amax(-1)
+        scale = torch.maximum(scale, top.detach())
+    mask = (k * (sh(f0) * scale).unsqueeze(-1) < SR / 2).float()
     Z = F.pad(torch.complex(re * mask, im * mask), (1, N_CYC // 2 + 1 - H - 1))
     cyc = (torch.fft.irfft(Z, n=N_CYC) * (N_CYC / 2)).reshape(B, T * N_CYC)
     pos = phase_cycles(f0) * N_CYC                                # [B,S]
@@ -250,13 +284,22 @@ def osc_render(re, im, f0):
     fr = pos - pos.floor()
     jp, j, a = _hop_index(S, T, re.device)
 
-    def read(t):
+    def read(t, i0, i1, fr):
         base = (t * N_CYC).view(1, S)
         g0 = torch.gather(cyc, 1, base + i0)
         g1 = torch.gather(cyc, 1, base + i1)
         return g0 + (g1 - g0) * fr
 
-    return read(jp) * (1 - a) + read(j) * a
+    y = read(jp, i0, i1, fr) * (1 - a) + read(j, i0, i1, fr) * a
+    if det_level is not None:
+        lv = frame_interp(det_level, S)
+        for r in range(det_level.shape[-1]):
+            pos = phase_cycles(f0, det_ratio[..., r], (r + 1) / (MAX_DETUNE + 1)) * N_CYC
+            q0 = pos.floor().long() % N_CYC
+            q1 = (q0 + 1) % N_CYC
+            qf = pos - pos.floor()
+            y = y + lv[..., r] * (read(jp, q0, q1, qf) * (1 - a) + read(j, q0, q1, qf) * a)
+    return y
 
 
 def partials_render(ratio, amp, f0):
@@ -379,14 +422,25 @@ def attack_env(tau, on_frame, S):
     return torch.where(t >= 0, 1 - torch.exp(-t.clamp(min=0) / tt), torch.zeros(B, S, device=tau.device))
 
 
+def safety(x):
+    """Synth output safety stage: exactly linear to +6 dBFS (2.0), then a tanh knee that never
+    passes +12 dBFS (4.0). Part of the instrument, so training renders through it."""
+    a = x.abs()
+    return torch.where(a <= SAFETY_KNEE, x,
+                       torch.sign(x) * (SAFETY_KNEE + SAFETY_KNEE * torch.tanh((a - SAFETY_KNEE) / SAFETY_KNEE)))
+
+
 def render(ctrl, f0, on_frame, ctx):
-    """Voice output: attack(t) * sum_p mix[p] * primitive_p. ctx: grain bank, sample, gen."""
+    """One voice through an otherwise empty Synth: safety(dry_gain * attack(t) * sum_p mix[p] *
+    primitive_p). Mono: pan is centre (unity on both sides) and no slot is running (the slot
+    families and modulation are not rendered here yet; METHOD.md s2). ctx: grain bank, sample, gen."""
     S = f0.shape[1] * HOP
     gen = ctx.get("gen")
     mix = frame_interp(ctrl["mix"], S)
     y = torch.zeros(f0.shape[0], S, device=f0.device)
     if "osc.re" in ctrl:
-        y = y + mix[..., 0] * osc_render(ctrl["osc.re"], ctrl["osc.im"], f0)
+        y = y + mix[..., 0] * osc_render(ctrl["osc.re"], ctrl["osc.im"], f0,
+                                         ctrl.get("osc.detune_ratio"), ctrl.get("osc.detune_level"))
     if "partials.ratio" in ctrl:
         y = y + mix[..., 1] * partials_render(ctrl["partials.ratio"], ctrl["partials.amp"], f0)
     if "fm.ratio" in ctrl:
@@ -399,7 +453,10 @@ def render(ctrl, f0, on_frame, ctx):
     if "sampler.rate" in ctrl:
         y = y + mix[..., 5] * sampler_render(ctx["sample"], ctx["sample_root"], f0, ctrl["sampler.rate"],
                                              ctrl["sampler.start"], ctrl["sampler.gain"], ctrl["sampler.eq"], on_frame)
-    return y * attack_env(ctrl["attack_tau"], on_frame, S)
+    y = y * attack_env(ctrl["attack_tau"], on_frame, S)
+    if "dry_gain" in ctrl:
+        y = y * frame_interp(ctrl["dry_gain"], S)
+    return safety(y)
 
 
 def merge_hybrid(ca, cb, xf):
@@ -417,6 +474,19 @@ def merge_hybrid(ca, cb, xf):
                 re, im = re + g * c["osc.re"], im + g * c["osc.im"]
         out["osc.re"], out["osc.im"] = re, im
         mix[..., 0] = 1.0
+        # Unison reads act on the merged table, so one set serves both components: the OSC-weighted
+        # mean of their ratios and levels (a component without unison counts as ratio 1, level 0).
+        if "osc.detune_level" in ca or "osc.detune_level" in cb:
+            R = max(c["osc.detune_level"].shape[-1] for c in (ca, cb) if "osc.detune_level" in c)
+            num_r = num_l = den = 0.0
+            for c, w in ((ca, wa), (cb, wb)):
+                if "osc.re" in c:
+                    g = w * c["mix"][..., 0:1]
+                    lv = c.get("osc.detune_level", torch.zeros_like(g).expand(*g.shape[:-1], R))
+                    rt = c.get("osc.detune_ratio", torch.ones_like(lv))
+                    num_r, num_l, den = num_r + g * lv * rt, num_l + g * lv, den + g
+            out["osc.detune_level"] = num_l / (den + 1e-6)
+            out["osc.detune_ratio"] = torch.where(num_l > 1e-9, num_r / (num_l + 1e-12), torch.ones_like(num_l))
     if "noise.band" in ca or "noise.band" in cb:
         pw = 0.0
         for c, w in ((ca, wa), (cb, wb)):
@@ -466,6 +536,13 @@ def _tail(amps, slope_db, oddeven):
     return torch.cat([amps, tail], -1)
 
 
+def _unison(p, out):
+    """OSC unison reads (layout v2) for the methods that play OSC tables."""
+    if "det_level" in p:
+        out["osc.detune_ratio"], out["osc.detune_level"] = p["det_ratio"], p["det_level"]
+    return out
+
+
 def build_subtractive(p, f0):
     k = harm_k(f0.device)
     sgn = torch.where(k % 2 == 1, 1.0, -1.0)
@@ -478,15 +555,15 @@ def build_subtractive(p, f0):
     cut, q, mode = p["cutoff"][..., 0], p["q"][..., 0], p["mode"]
     H = _filter_mag(f0.unsqueeze(-1) * k, cut, q, mode) * p["amp"]
     Hn = _filter_mag(band_hz(f0.device).expand(*f0.shape, N_BANDS), cut, q, mode)
-    return {"mix": mix_vec(f0, "osc", "noise"), "attack_tau": p["attack"][..., 0],
-            "osc.re": re * H, "osc.im": im * H, "noise.band": Hn * p["noise"] * p["amp"]}
+    return _unison(p, {"mix": mix_vec(f0, "osc", "noise"), "attack_tau": p["attack"][..., 0],
+                       "osc.re": re * H, "osc.im": im * H, "noise.band": Hn * p["noise"] * p["amp"]})
 
 
 def build_wavetable(p, f0):
     K = p["wt_re"].shape[-1]
     g = harm_k(f0.device, K) ** (p["tilt"] / 6.0206) * p["amp"]
-    return {"mix": mix_vec(f0, "osc"), "attack_tau": p["attack"][..., 0],
-            "osc.re": _pad_h(p["wt_re"] * g), "osc.im": _pad_h(p["wt_im"] * g)}
+    return _unison(p, {"mix": mix_vec(f0, "osc"), "attack_tau": p["attack"][..., 0],
+                       "osc.re": _pad_h(p["wt_re"] * g), "osc.im": _pad_h(p["wt_im"] * g)})
 
 
 def build_additive(p, f0):
@@ -556,6 +633,9 @@ def to_voiceframe(ctrl):
     """Pack a control dict [B,T,...] into flat VoiceFrames [B,T,VF_FLOATS] (ControlFrame.h)."""
     B, T = ctrl["mix"].shape[:2]
     out = torch.zeros(B, T, VF_FLOATS)
+    for k, v in VF_DEFAULTS.items():
+        o, c = VF_OFFSET[k]
+        out[..., o:o + c] = v
     for k, v in ctrl.items():
         v = v.detach().float().cpu()
         if k == "fm.index":
@@ -566,6 +646,34 @@ def to_voiceframe(ctrl):
         assert v.shape[-1] <= c, k
         out[..., o:o + v.shape[-1]] = v
     return out
+
+
+def check_layout(path):
+    """Compare VF_FIELDS / IF_FIELDS / tier limits with the DSP's exported src/dsp/layout.json.
+    Returns a list of mismatches (empty when in sync)."""
+    with open(path) as f:
+        L = json.load(f)
+    bad = []
+    if L.get("layout_version") != LAYOUT_VERSION:
+        bad.append(f"layout_version {L.get('layout_version')} != {LAYOUT_VERSION}")
+    for key, ours, n in (("fields", VF_FIELDS, VF_FLOATS), ("instance_fields", IF_FIELDS, IF_FLOATS)):
+        off, o = {}, 0
+        for name, c in ours:
+            off[name] = (o, c)
+            o += c
+        for fld in L.get(key, []):
+            if off.get(fld["name"]) != (fld["offset"], fld["count"]):
+                bad.append(f"{key}.{fld['name']}: DSP {(fld['offset'], fld['count'])}, training {off.get(fld['name'])}")
+    if L.get("frame_floats") != VF_FLOATS or L.get("instance_frame_floats") != IF_FLOATS:
+        bad.append(f"frame sizes DSP {L.get('frame_floats')}/{L.get('instance_frame_floats')}, "
+                   f"training {VF_FLOATS}/{IF_FLOATS}")
+    for name, lim in L.get("tiers", {}).items():
+        t = TIERS.get(name)
+        ours = t and {"partials": t.n_modes, "fm_operators": t.n_ops, "grain_layers": t.n_grains, "osc_unison": t.unison}
+        for k, v in (ours or {}).items():
+            if lim.get(k) != v:
+                bad.append(f"tiers.{name}.{k}: DSP {lim.get(k)}, training {v}")
+    return bad
 
 
 # ================================================================ control distance (METHOD.md s5)
@@ -589,6 +697,10 @@ def ctrl_distance(p, t):
             d = d + (torch.log(p[key].clamp(min=1e-5)) - torch.log(t[key].clamp(min=1e-5))).abs().mean()
     if "fm.index" in p and "fm.index" in t:
         d = d + (p["fm.index"] - t["fm.index"]).abs().mean() / 4
+    if "osc.detune_level" in p and "osc.detune_level" in t:
+        d = d + _l1log(p["osc.detune_level"], t["osc.detune_level"])
+        cents = 1200 * (torch.log2(p["osc.detune_ratio"]) - torch.log2(t["osc.detune_ratio"])).abs()
+        d = d + (cents * t["osc.detune_level"]).mean() / 10          # only where the teacher read sounds
     return d
 
 
@@ -699,6 +811,22 @@ def interp_frames(tab, pos):
     return f0_ + (f1_ - f0_) * fr
 
 
+def _teacher_unison(k, B, T, R, dev):
+    """Supersaw-style unison from knobs 22 (amount; below 0.5 none) and 23 (spread 3..50 cents):
+    n reads of the R available at level 0.8, spread symmetrically around the main read. Returns
+    ratio, level [B,T,R] and the gain that keeps the summed level near one read's."""
+    n_on = torch.round((k[:, 22] * 2 - 1).clamp(0, 1) * R).view(B, 1)
+    r = torch.arange(R, device=dev).float().view(1, R)
+    pairs = torch.ceil(n_on / 2).clamp(min=1)
+    cents = (3 + 47 * k[:, 23:24] ** 2) * (torch.div(r, 2, rounding_mode="floor") + 1) / pairs
+    cents = torch.where(r % 2 == 0, cents, -cents)
+    on = (r < n_on).float()
+    ratio = torch.where(on > 0, 2 ** (cents / 1200), torch.ones_like(cents))
+    level = 0.8 * on
+    gain = 1 / torch.sqrt(1 + (level ** 2).sum(-1))
+    return ratio.view(B, 1, R).expand(B, T, R), level.view(B, 1, R).expand(B, T, R), gain
+
+
 class Teachers:
     """Procedural classic synth per method: 32 knobs + performance -> method params. Factory
     content (wavetables, grain sources, mode sets, samples) is generated from a fixed seed."""
@@ -775,11 +903,12 @@ class Teachers:
         lp, hp = (1 - 2 * m).clamp(0, 1), (2 * m - 1).clamp(0, 1)
         mode = torch.stack([lp, 1 - lp - hp, hp], -1).view(B, 1, 3).expand(B, T, 3)
         q = 0.5 + 19.5 * k[:, 15] ** 2
+        dr, dl, ug = _teacher_unison(k, B, T, self.t.unison - 1, self.dev)
         return {"mix": mix.view(B, 1, 3).expand(B, T, 3), "pw": e(0.05 + 0.9 * k[:, 3]),
                 "cutoff": cut.clamp(20, 20000).unsqueeze(-1), "q": e(q), "mode": mode,
                 "noise": e(0.5 * k[:, 17] ** 2),
-                "amp": (aenv * (0.3 + 0.7 * perf["vel"].view(B, 1)) * 0.5 / q.sqrt().view(B, 1)).unsqueeze(-1),
-                "attack": _attack(A, T)}
+                "amp": (aenv * (0.3 + 0.7 * perf["vel"].view(B, 1)) * 0.5 * ug.view(B, 1) / q.sqrt().view(B, 1)).unsqueeze(-1),
+                "attack": _attack(A, T), "det_ratio": dr, "det_level": dl}
 
     def wavetable(self, k, perf):
         B, T = perf["f0"].shape
@@ -793,9 +922,10 @@ class Teachers:
         mag = tab.norm(dim=-1).mean(1)                                      # [B,K]
         kk = torch.arange(1, mag.shape[-1] + 1, device=self.dev).float()
         comp = mag.sum(-1) / (mag * kk ** (tilt.view(B, 1) / 6.0206)).sum(-1)  # keep level under tilt
+        dr, dl, ug = _teacher_unison(k, B, T, self.t.unison - 1, self.dev)
         return {"wt_re": fr[..., 0], "wt_im": fr[..., 1], "tilt": e(tilt),
-                "amp": (aenv * (0.3 + 0.7 * perf["vel"].view(B, 1)) * 0.5 * comp.view(B, 1)).unsqueeze(-1),
-                "attack": _attack(A, T)}
+                "amp": (aenv * (0.3 + 0.7 * perf["vel"].view(B, 1)) * 0.5 * (comp * ug).view(B, 1)).unsqueeze(-1),
+                "attack": _attack(A, T), "det_ratio": dr, "det_level": dl}
 
     def additive(self, k, perf):
         B, T = perf["f0"].shape
@@ -1088,11 +1218,11 @@ class PKSelect(nn.Module):
 
 
 def _head_spec(m, t):
-    K, N, M, G = t.K_h, t.n_ops, t.n_modes, t.n_grains
+    K, N, M, G, R = t.K_h, t.n_ops, t.n_modes, t.n_grains, t.unison - 1
     return {
         "subtractive": [("mix", 3), ("pw", 1), ("cutoff", 1), ("q", 1), ("mode", 3), ("noise", 1),
-                        ("amp", 1), ("attack", 1)],
-        "wavetable": [("pos", 1), ("tilt", 1), ("amp", 1), ("attack", 1)],
+                        ("amp", 1), ("attack", 1), ("det_ratio", R), ("det_level", R)],
+        "wavetable": [("pos", 1), ("tilt", 1), ("amp", 1), ("attack", 1), ("det_ratio", R), ("det_level", R)],
         "additive": [("harm", M), ("detune", M), ("stretch", 1), ("amp", 1), ("attack", 1)],
         "spectral": [("env", N_BANDS), ("balance", 1), ("amp", 1), ("attack", 1)],
         "fm": [("ratio", N), ("snap", 1), ("level", N), ("index", N * N), ("amp", 1), ("attack", 1)],
@@ -1162,17 +1292,21 @@ class Expert(nn.Module):
         r = self.sl(self.head(h).float())
         m = self.m
         att = log_rng(r["attack"] - 2, 3e-4, 0.08)
+        uni = {}
+        if "det_level" in r:          # +-1 semitone; exact zeros below 1e-4 so silent reads cost nothing
+            uni = {"det_ratio": 2 ** (torch.tanh(r["det_ratio"]) / 12),
+                   "det_level": F.relu(exp_sig(r["det_level"] - 3, 1.0) - 1e-4)}
         if m == "subtractive":
             return {"mix": F.softplus(r["mix"]), "pw": rng(r["pw"], 0.05, 0.95),
                     "cutoff": log_rng(r["cutoff"], 20, 20000), "q": log_rng(r["q"], 0.5, 20),
                     "mode": r["mode"].softmax(-1), "noise": exp_sig(r["noise"] - 3, 0.5),
-                    "amp": exp_sig(r["amp"] - 1, 1.0), "attack": att}
+                    "amp": exp_sig(r["amp"] - 1, 1.0), "attack": att, **uni}
         if m == "wavetable":
             idx, w = self.sel(h)                                  # [...,1,2]
             tab = (self.table[idx[..., 0, :]] * w[..., 0, :, None, None, None]).sum(-4)
             fr = interp_frames(tab, torch.sigmoid(r["pos"][..., 0]))
             return {"wt_re": fr[..., 0], "wt_im": fr[..., 1], "tilt": torch.tanh(r["tilt"]) * 4,
-                    "amp": exp_sig(r["amp"], 1.0), "attack": att}
+                    "amp": exp_sig(r["amp"], 1.0), "attack": att, **uni}
         if m == "additive":
             return {"harm": exp_sig(self._lookup(h) + r["harm"], 1.0), "detune": torch.tanh(r["detune"]) * 0.01,
                     "stretch": log_rng(r["stretch"] - 3, 1e-6, 1e-2), "amp": exp_sig(r["amp"], 1.0), "attack": att}
@@ -1728,17 +1862,22 @@ def export(args):
 
     # 3. golden DSP vectors per method, as flat VoiceFrames starting at the note-on frame
     gold = {}
-    for m in METHODS:
+    for name in METHODS + ["unison"]:
+        m = "wavetable" if name == "unison" else name        # "unison": wavetable with every OSC read on
         pair = ["wavetable", "physical"] if m == "hybrid" else None
-        b = teachers.batch(m, 1, 60, pair)
+        k = None
+        if name == "unison":
+            k = torch.rand(1, N_KNOBS, generator=torch.Generator().manual_seed(11))
+            k[:, 22], k[:, 23] = 1.0, 0.7
+        b = teachers.batch(m, 1, 60, pair, k=k)
         cut = tree_map(lambda x: x[:, ON_FRAME:] if x.dim() >= 2 and x.shape[:2] == b["perf"]["f0"].shape else x, b["ctrl"])
         f0c = b["perf"]["f0"][:, ON_FRAME:]
         ctx = dict(b["ctx"], gen=torch.Generator().manual_seed(3))
         with torch.no_grad():
             y = render(cut, f0c, 0, ctx)
-        gold[f"{m}/frames"] = to_voiceframe(cut)[0].numpy()
-        gold[f"{m}/f0"] = f0c[0].numpy()
-        gold[f"{m}/audio"] = y[0].numpy()
+        gold[f"{name}/frames"] = to_voiceframe(cut)[0].numpy()
+        gold[f"{name}/f0"] = f0c[0].numpy()
+        gold[f"{name}/audio"] = y[0].numpy()
         if m == "sampling":
             gold[f"{m}/sample"] = b["ctx"]["sample"][0].numpy()
             gold[f"{m}/sample_root_hz"] = np.float32(SAMPLE_ROOT_HZ)
@@ -1753,6 +1892,7 @@ def export(args):
                   f"active/voice {act/1e6:.3f}M (target {t.active/1e6:.2f}M)")
     manifest = {"tier": t.name, "layout_version": LAYOUT_VERSION, "sr_trained": SR, "frame_hz": FRAME_HZ,
                 "voiceframe_floats": VF_FLOATS, "voiceframe_offsets": VF_OFFSET,
+                "voiceframe_defaults": VF_DEFAULTS,
                 "tier_config": asdict(t), "graph_inputs": graph_inputs, "expert_outputs": layout,
                 "note_features": ["pitch/127", "velocity", "gate", "log1p(t_on)/log1p(4)",
                                   "log1p(t_off)/log1p(4)", "mod", "aftertouch", "bend(+-2 st)"],
@@ -1804,6 +1944,9 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("report", help="param counts per tier vs the tier spec")
     r.add_argument("--tier", default=None)
+    lc = sub.add_parser("layout", help="check the frame layout against the DSP's layout.json")
+    lc.add_argument("path", nargs="?", default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                         "..", "src", "dsp", "layout.json"))
     tr = sub.add_parser("train")
     tr.add_argument("--tier", default="lite", choices=list(TIERS))
     tr.add_argument("--stage", default="pretrain", choices=["pretrain", "polish", "finetune", "distill"])
@@ -1833,6 +1976,10 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if args.cmd == "report":
         report([args.tier] if args.tier else None)
+    elif args.cmd == "layout":
+        bad = check_layout(args.path)
+        print("\n".join(bad) if bad else f"layout v{LAYOUT_VERSION} matches {args.path}")
+        sys.exit(1 if bad else 0)
     elif args.cmd == "train":
         if args.stage == "distill" and not args.teacher:
             ap.error("--stage distill needs --teacher")

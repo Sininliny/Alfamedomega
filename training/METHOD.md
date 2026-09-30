@@ -1,17 +1,21 @@
-# Alfamedomega training method (draft v3, 2026-09-29)
+# Alfamedomega training method (draft v4, 2026-09-30)
 
 This is the method `alfamedomega_train.py` implements. It builds on the tier spec
 (`docs/tiers/model-tiers.md`, v5 per-voice budgets), the capacity plan (Claude Doc "Alfamedomega synthesis capacity
 plan"), ADR 0001 (JUCE 8 + ONNX Runtime through anira), and the control-frame contract in
-`src/dsp/include/alfa/dsp/ControlFrame.h` (layout version 1), which is the source of truth for
-section 2. Nothing has been trained at scale yet, so every loss weight, size and schedule is a
+`src/dsp/include/alfa/dsp/ControlFrame.h` (layout version 2, exported as `src/dsp/layout.json`),
+which is the source of truth for section 2. `python alfamedomega_train.py layout` checks the
+script's offsets and tier limits against `layout.json`. Nothing has been trained at scale yet, so every loss weight, size and schedule is a
 starting point to be tuned.
 
 v2 aligned the DSP primitives with ControlFrame.h: one OSC layer, amplitude-only PARTIALS with
 the modal integrator moved into the graph, per-primitive mix gains, the hop-ramp convention, no
 grain spray, and hybrids merged into one frame. v3 renders additive on PARTIALS as its own family
 (Sinin's ruling), adopts the tier spec v5 per-voice budgets (Pro 0.65 M, Studio 2.8 M), and renames
-the export tensors to the inference host's contract.
+the export tensors to the inference host's contract. v4 moves to layout v2: 2627-float
+VoiceFrames with dry gain defaulting to 1, OSC unison reads for subtractive and wavetable, the
+output safety stage in the render, and the design for processing slots and modulation
+(section 2b), which is not trained yet.
 
 ## 1. What the network learns
 
@@ -40,7 +44,7 @@ unused sub-experts and lookup tables that are gathered rather than multiplied.
 f0 comes from pitch and bend (±2 semitones) and goes straight to the DSP; the network does not
 have to predict it.
 
-## 2. DSP primitives (ControlFrame.h, layout version 1)
+## 2. DSP primitives (ControlFrame.h, layout version 2)
 
 The PyTorch render functions in the script are the reference implementation of the header. The
 export writes golden vectors (section 7) that the C++ engine's tests reproduce. Method-specific
@@ -53,25 +57,77 @@ note-on, and f0 ramps the same way.
 
 | Primitive | Controls per frame | Render |
 |---|---|---|
-| **OSC** | `osc.re`, `osc.im`: 1024 harmonics | frame j's wave is Σ re cos(2π(k+1)φ) − im sin(2π(k+1)φ). Harmonics at or above Nyquist for frame j's f0 are zeroed, the wave is stored as a 2048-point table read with linear interpolation, and hop j crossfades from table j−1 to table j |
+| **OSC** | `osc.re`, `osc.im`: 1024 harmonics; `osc.detune_ratio`, `osc.detune_level`: 7 unison reads | frame j's wave is Σ re cos(2π(k+1)φ) − im sin(2π(k+1)φ), stored as a 2048-point table read with linear interpolation, and hop j crossfades from table j−1 to table j. Table j drops harmonics at or above Nyquist for the f0 at the start of hop j times the largest ratio of any unison read sounding in frame j−1 or j (at least 1). Unison read r (the first oscUnison − 1 of 7 run) has its own phase, starting at (r+1)/8 on note-on and advancing at f0·ratio_r (both linear across the hop, so the frequency is quadratic within a hop), reads the same crossfaded tables, and adds level_r times the result |
 | **PARTIALS** | `partials.ratio`, `partials.amp` (M used) | sinusoids at f0·ratio with amplitude amp, both linear. A partial at or above Nyquist is silent |
 | **FM** | `fm.ratio`, `fm.level` (N used), `fm.index` (8×8 row-major, j>i) | y_i = sin(θ_i + Σ_{j>i} index[i][j]·y_j), evaluated from the last operator to the first, with output Σ level_i·y_i. There is no feedback |
 | **NOISE** | `noise.band`: 64 gains | each hop starts a 2-hop grain: uniform noise in [−1, 1), shaped by frame j's band curve with DC zeroed, then Hann-windowed and overlap-added |
 | **GRAIN** | per layer: `grain.source` (2 bank indices as floats), `grain.weight` (2), `grain.position`, `grain.rate`, `grain.gain` | each hop starts a 2-hop Hann grain per layer reading w0·bank[s0] + w1·bank[s1] from position·8192, advancing rate per sample and wrapping. All values are held |
 | **SAMPLER** | `sampler.rate` (held), `sampler.start` (note-on frame), `sampler.gain`, `sampler.eq` (64) | reads the sample at (f0/root)·rate from start·length, applies a short-time EQ (2-hop Hann frames, the frame starting at hop j using frame j's curve), then applies gain |
 
-Voice output is `attack(t) · Σ_p mix[p] · primitive_p`, with `mix` = 6 linear gains in the order
+The dry voice is `attack(t) · Σ_p mix[p] · primitive_p`, with `mix` = 6 linear gains in the order
 [osc, partials, fm, noise, grain, sampler], and `attack(t) = 1 − exp(−t/attack_tau)`, with
 attack_tau taken from the note-on frame. The per-sample attack keeps transients sharper than one
-4 ms frame, as the tier spec asks.
+4 ms frame, as the tier spec asks. Layout v2 then gives
+
+    voice out    = pan(dry_gain · dry + Σ_k out_gain_k · slot_k)          (equal power, unity at centre)
+    instance out = safety(master_gain · width(dry_gain · Σ voices + Σ_k out_gain_k · slot_k))
+    safety(x)    = x for |x| ≤ 2 (+6 dBFS), else sign(x) · (2 + 2·tanh((|x| − 2)/2))   (never past +12 dBFS)
+
+`dry_gain` defaults to 1 in both frames and `osc.detune_ratio` to 1, so every producer starts from
+a default-constructed frame (`VF_DEFAULTS` in the script, `voiceframe_defaults` in
+`export_info.json`). Until slots are trained (section 2b), the training render is one voice
+through an otherwise empty Synth: mono at centre pan, no slots, instance at its defaults, so
+`y = safety(dry_gain · dry)`. The teachers stay under full scale, so the safety stage only acts on
+a bad prediction, and it bounds the loss there.
 
 Band curve: band b is centred at 20·(nyquist/20)^(b/63) Hz, linear in log-frequency between
 centres, and flat below band 0. The DC bin takes band 0's gain in the SAMPLER EQ, so unity
 bands are transparent, and is zero in NOISE.
 
 Tier sizes: wavetable harmonics K_h = 32 / 64 / 128 / 256 (subtractive and spectral fill all 1024
-analytically), partials 16 / 32 / 48 / 64, FM operators 2 / 4 / 6 / 8, and grain
-layers 2 / 4 / 6 / 8. These match `TierLimits`.
+analytically), partials 16 / 32 / 48 / 64, FM operators 2 / 4 / 6 / 8, grain
+layers 2 / 4 / 6 / 8, and OSC unison 2 / 4 / 6 / 8 reads (1 / 3 / 5 / 7 detuned reads). These
+match `TierLimits` and `layout.json`.
+
+## 2b. Processing slots and modulation (design; not trained in this version)
+
+Layout v2 adds up to 4 voice slots and 4 instance slots (2 / 3 / 4 / 4 by tier), each
+`[family, out_gain, params[16] in 0..1, input[10]]`, with a lower-triangular routing DAG, and a
+modulation block (24 source params, 4 / 6 / 8 / 8 routes). The families and their param tables are
+in `layout.json`: 9 voice families (filter to body) and 6 instance-only ones (delay, reverb,
+convolution, spectral, pitch shift, spatial). The script writes zeros there today (every slot
+Off, no routes), which the DSP renders as the v1 instrument. The plan, for review before code:
+
+1. **Family choice is per patch, not per frame.** A slot head on the patch encoder picks each
+   slot's family (softmax over the families allowed in that chain, Off included) and the mod
+   routes' source and destination. The host writes them into every frame. A per-frame choice
+   would crossfade processors every hop, and it would make the router the hardest part of
+   training for no musical gain.
+2. **Everything continuous is per frame.** A slot head on the voice hidden state writes out_gain,
+   the 16 params (sigmoid), the input weights (masked to the lower triangle and the tier's slot
+   count) and the route depths. instance_step writes the InstanceFrame the same way.
+3. **Teachers get slot programs.** Each teacher patch draws 0 to the tier's slot count of
+   families, with params from the neutral defaults in `layout.json` plus knob-driven offsets, and
+   a few classic routings (serial chain, parallel into the dry sum, one send). Losses: cross
+   entropy on the family, L1 on normalised params weighted by out_gain, and the audio loss.
+4. **Render through the real Synth, gradients through proxies.** Most families are recursive
+   (SVF, comb, waveguide, FDN reverb) or nonlinear, and a PyTorch port would drift from the C++.
+   The loss uses `y = proxy + stopgrad(synth − proxy)` instead: the forward value comes from the
+   C++ Synth (through a small Python binding), and gradients flow through a differentiable proxy
+   per family. The proxies are frame-wise magnitude responses for the linear families (filter,
+   comb, formant, resonator, body, waveguide) and a memoryless waveshaper for nonlinear.
+   mod_delay, phaser and the instance-only families get no audio gradient, only the control loss.
+5. **Cost.** Slot and route counts are hard caps from the tier, masked in the heads. On top of
+   that, a penalty λ_cost · Σ_slots cost(family) · P(family), with costs from the per-family
+   `alfa_dsp_bench` timings, keeps slots Off unless they earn their CPU against the
+   2 / 3 / 3 / 3.5 ms budgets.
+6. **Modulation** is for what the 250 Hz frames cannot do: LFOs above 125 Hz, envelope segments
+   shorter than a frame, and sample-and-hold. The network already writes slow movement directly,
+   so routes start empty and are trained from teacher programs that use them (fast vibrato,
+   snappy filter envelopes).
+
+This needs a Python binding of `Synth` (asked of the DSP thread) and new export outputs on
+patch_encoder, voice_core and instance_step (to be agreed with the inference thread).
 
 ## 3. Method experts and their builders
 
@@ -82,8 +138,8 @@ fields directly.
 
 | Expert | Head outputs (method params) | Builder → VoiceFrame | Lookup table |
 |---|---|---|---|
-| Subtractive | saw/square/triangle mix, pulse width, cutoff, resonance, LP/BP/HP mix, noise level, amp | analytic oscillator spectra × 4-pole state-variable filter magnitude at each harmonic → OSC; the same filter on the band centres → NOISE | none |
-| Wavetable | table selection (top-2 over the bank), position, brightness tilt, amp | interpolate table frames at the position → OSC | tables of 32 frames × K_h complex harmonics (60% of the expert) |
+| Subtractive | saw/square/triangle mix, pulse width, cutoff, resonance, LP/BP/HP mix, noise level, amp, unison ratios (±1 semitone) and levels | analytic oscillator spectra × 4-pole state-variable filter magnitude at each harmonic → OSC; the same filter on the band centres → NOISE; unison → OSC reads | none |
+| Wavetable | table selection (top-2 over the bank), position, brightness tilt, amp, unison ratios and levels | interpolate table frames at the position → OSC; unison → OSC reads | tables of 32 frames × K_h complex harmonics (60% of the expert) |
 | Additive | M partial amps (codebook + correction), per-partial detune, stiffness stretch B, amp | partials at k·√(1+Bk²)·(1+detune_k) → PARTIALS. Additive is its own family and never uses OSC | partial-envelope codebook (30%) |
 | Spectral | spectral-envelope codebook + correction, harmonic/noise balance | envelope at each harmonic → OSC, the same envelope → NOISE | spectral-frame codebook (40%) |
 | FM | ratios (snapped toward integers by a learned blend), levels, modulation indices | → FM | none |
@@ -96,7 +152,15 @@ fields directly.
 NOISE bands add by power; every other primitive belongs to exactly one component and takes that
 component's mix scaled by its weight; attack_tau is the smaller of the two. Components are drawn
 from {subtractive, wavetable, additive, FM, physical}, except the additive + physical pair (both
-use PARTIALS), so two components never share anything but OSC and NOISE. Ring modulation was dropped because one VoiceFrame cannot express it.
+use PARTIALS), so two components never share anything but OSC and NOISE. Unison reads act on the
+merged table, so one set serves both components: the OSC-weighted mean of their levels, and the
+level-weighted mean of their ratios. That is exact when only one component plays OSC, and an
+approximation for subtractive + wavetable.
+
+**Unison in the teachers.** Knob 22 sets how many of the tier's detuned reads sound (none below
+0.5, all at 1), and knob 23 sets the spread (3 to 50 cents, symmetric around the main read).
+Sounding reads have level 0.8, and the amp is divided by √(1 + Σ level²). The network's levels
+pass through `relu(· − 1e-4)`, so a read it does not want is exactly 0 and costs the DSP nothing. Ring modulation was dropped because one VoiceFrame cannot express it.
 
 Expert sizes follow the capacity shares: expert budget = 0.70 × tier total × share, where the
 share formula is copied from `tier_budget.py`. The table takes the fraction shown above, and the
@@ -196,7 +260,7 @@ contract:
 | `expert_hybrid.onnx` | for hybrid voices | hidden → hidden_a, hidden_b, xf. The host runs both component experts and merges them (section 3) |
 | `grain_bank.npy` | loaded once | the learned grain bank [N, 8192] |
 | `export_info.json` | reference | layout version, VoiceFrame offsets, graph inputs, per-expert output widths, check results |
-| `dsp_golden.npz` | C++ unit tests | per method: VoiceFrames [T, 2451] from the note-on frame, f0, and the rendered audio |
+| `dsp_golden.npz` | C++ unit tests | per method, plus `unison` (wavetable with every read on): VoiceFrames [T, 2627] from the note-on frame, f0, and the rendered audio (through the safety stage) |
 
 `hybrid_parts` is component A's one-hot followed by component B's, and it is all zeros unless the
 method is hybrid. Four points go beyond the host contract as first published, and are with the
@@ -229,17 +293,11 @@ pretrained directly from the teachers in the meantime.
 
 ## 9. Open questions and known gaps
 
-- **Per-voice processing slots are coming.** The DSP thread is adding eight DSP families
-  (filters, modulation, nonlinear, delay and diffusion, physical and modal, resampling,
-  convolution and spatial, spectral transforms), routed through per-voice slots. VoiceFrame will
-  grow, and the routing head will have to respect the per-tier DSP cost limits in tier spec v4.
-  That needs a new routing head, teacher programs for the slots, and a cost penalty in the
-  loss. It is not in this version.
-- **Layout v2 is coming** (append-only, so the v1 offsets used here stay valid): OSC detune
-  (a second phase accumulator at f0·ratio reading the same tables, with the Nyquist cut at
-  f0·max(1, ratio)), pan, dry gain, 4 voice slots, a mod block, and an InstanceFrame for
-  instance_step. Subtractive and wavetable will get their detune back when the v2 offsets are
-  final.
+- **Slots, modulation and the InstanceFrame are designed (section 2b) but not trained.** The
+  exported models leave them at their defaults, and instance_step still returns a context vector,
+  not an InstanceFrame.
+- **Pan is not trained.** Training is mono at centre pan; pan and width wait for the stereo
+  instance render.
 - **Capacity split.** Expert shares still use the 9-method prevalence formula. Sinin's 14-family
   split (allocation.json) replaces it along with the slots.
 - **Large FM gradients.** Gradient norms on FM batches reach the thousands (phase modulation), so
