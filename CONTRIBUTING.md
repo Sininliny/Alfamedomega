@@ -1,10 +1,17 @@
 # Contributing to Alfamedomega
 
+The [Audio Tensor Space mission](docs/audio-tensor-space/mission.md) is the project direction.
+`src/tensor` implements the independent recurrent runtime foundation. Existing plugin, DSP
+control-frame and inference integration remains available during migration; its method-based
+assumptions must not determine the new tensor contract. See the
+[runtime contract](docs/audio-tensor-space/runtime-contract.md) for current behavior and limits.
+
 ## Layout and ownership
 
 | Path | Target | Owner | Notes |
 |---|---|---|---|
 | `src/dsp/` | `Alfa::dsp` | DSP engines | Real-time synthesis engines. Plain C++20, **no JUCE**. |
+| `src/tensor/` | `Alfa::tensor` | Tensor compiler/runtime | Independent deterministic lowering, shared recurrent state, explicit clocks and primitive kernels. Plain C++20, **no JUCE**. |
 | `src/inference/` | `Alfa::inference` | Inference host | Model loading, anira + ONNX Runtime. **No JUCE**. |
 | `src/ui/` | `Alfa::ui` | Plugin shell and UI | Look-and-feel, theming, components. INTERFACE library compiled into the plugin. |
 | `src/plugin/` | `Alfamedomega` | Plugin shell and UI | `juce_add_plugin`, processor, editor, parameters. |
@@ -25,6 +32,12 @@ plugin. The one shared piece is the control-frame contract, `alfa/dsp/ControlFra
 header owned by `dsp` that `inference` uses through `Alfa::dsp`'s include path only. Change it
 only through the DSP owner, since both components and the training export depend on it.
 The glue between the model's control frames and the engines lives in `src/plugin`.
+
+The preceding control-frame dependencies describe legacy integration. `Alfa::tensor` has no
+dependency on legacy `Alfa::dsp`, synthesis methods or ONNX experts. `training/aom` provides the
+new shared representation and dual-supervision data contract; `training/LEGACY_METHOD.md`
+preserves the old trainer's description. New CTest coverage includes `alfa_tensor_tests` and,
+when Python is available, the dependency-free `alfa_aom_training_contracts`.
 
 ## Building
 

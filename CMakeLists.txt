@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 project(Alfamedomega
     VERSION 0.1.0
-    DESCRIPTION "Neural multi-paradigm synthesizer plugin"
+    DESCRIPTION "Universal audio tensor compiler and stateful DSP runtime"
     LANGUAGES C CXX)
 
 # Options -----------------------------------------------------------------------
@@ -47,6 +47,7 @@ endif()
 # Each directory below has one owner (see CONTRIBUTING.md). Only the owner edits it.
 add_subdirectory(src/dsp)         # Alfa::dsp        synthesis engines, JUCE-free
 add_subdirectory(src/inference)   # Alfa::inference  model loading and real-time inference host
+add_subdirectory(src/tensor)      # Alfa::tensor     tensor compilation and recurrent state runtime
 
 if(ALFA_BUILD_PLUGIN)
     add_subdirectory(src/ui)      # Alfa::ui         look-and-feel, components, theming

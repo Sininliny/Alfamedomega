@@ -1,5 +1,10 @@
 # src/plugin and src/ui
 
+> Legacy plugin/UI integration retained during tensor-architecture stabilization. The new
+> [Audio Tensor Space direction](../../docs/audio-tensor-space/mission.md) is implemented
+> independently in `src/tensor`; the method selector and knobs described here remain the
+> behavior of this existing plugin entry, not the replacement architecture.
+
 Owner: the "Build the plugin shell and UI" thread. Design: [docs/ui/ui-design.md](../../docs/ui/ui-design.md).
 
 ## Targets
@@ -15,7 +20,7 @@ All four are INTERFACE libraries so JUCE modules compile once per final binary.
 
 ## The sound
 
-A sound has the shape the model was trained on (training/METHOD.md, src/inference/MODEL_CONTRACT.md): `method` (nine choices, in the contract's order), `hybrid_a` and `hybrid_b` (used when the method is hybrid), and `knob_01` to `knob_32` in 0..1. What a knob means depends on the method; `params::knobInfo` holds the names, display curves and minimum model sizes taken from the teacher programs in training/alfamedomega_train.py, and the UI relabels knobs when the method changes. A hybrid runs component A on the knobs and component B on the knobs rotated by 11; knob 32 crossfades. Additive with physical, or two of the same method, is silent.
+A legacy sound has the shape the model was trained on (training/LEGACY_METHOD.md, src/inference/MODEL_CONTRACT.md): `method` (nine choices, in the contract's order), `hybrid_a` and `hybrid_b` (used when the method is hybrid), and `knob_01` to `knob_32` in 0..1. What a knob means depends on the method; `params::knobInfo` holds the names, display curves and minimum model sizes taken from the teacher programs in training/alfamedomega_train.py, and the UI relabels knobs when the method changes. A hybrid runs component A on the knobs and component B on the knobs rotated by 11; knob 32 crossfades. Additive with physical, or two of the same method, is silent.
 
 Layout version 2 replaced version 1's Method blend, macros and per-engine controls, which the model cannot drive.
 

@@ -1,10 +1,15 @@
 # Model contract (what the training export must produce)
 
+> Legacy model contract. This remains the contract accepted by the current host, but is not
+> the target for the [Audio Tensor Compiler](../../docs/audio-tensor-space/mission.md).
+> Its 32-knob, method-expert and control-frame assumptions require redesign; replacement
+> semantics and compatibility have not yet been decided.
+
 The inference host loads one folder per tier and checks every graph against this contract when
 the tier is loaded. A mismatch is refused with a message naming the graph and tensor, and the
 previous tier keeps playing. `tools/export_dummy_models.py` writes toy models that follow it.
 
-This file restates `training/METHOD.md` section 7 in exact tensor terms. If the two disagree,
+This file restates `training/LEGACY_METHOD.md` section 7 in exact tensor terms. If the two disagree,
 fix one of them in the same change.
 
 ## Folder and manifest
