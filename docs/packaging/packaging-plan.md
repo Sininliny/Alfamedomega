@@ -34,7 +34,9 @@ DSP, anira, and ONNX Runtime.
 - **CI:** GitHub Actions, two jobs per commit:
   - `macos-14` (Apple Silicon): `-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"`,
     `-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0`, Xcode generator or Ninja.
-  - `windows-2022`: MSVC x64, static CRT (`/MT`) so hosts don't need a VC++ redistributable.
+  - `windows-2022`: MSVC x64 with the DLL runtime (`/MD`). anira's prebuilt static ONNX
+    Runtime is compiled `/MD` and does not link into `/MT` targets, so the installer ships the
+    VC++ runtime (section 6).
 - **Every commit:** build, unit tests, pluginval, and the ONNX exportability check the ADR
   already requires. **Tagged releases only:** signing, notarization, installers.
 - **Plugin identity, fixed forever before the first public build:** 4-char manufacturer
@@ -183,6 +185,16 @@ Build notes:
 - Sign the `.vst3` DLL, the AAX binary (through wraptool), the standalone `.exe`, and the
   installer, all with RFC 3161 timestamps.
 - Installer: Inno Setup (simplest) with components per format, per model tier, and the control center.
+- **VC++ runtime:** the installer runs the Microsoft Visual C++ 2015–2022 x64
+  redistributable (`vc_redist.x64.exe /install /quiet /norestart`), in a version at least as
+  new as the toolset that built ONNX Runtime 1.26 and the plugin. It skips the step if an equal
+  or newer version is already installed (check the `Version` value under
+  `HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64`).
+- **Runtime version risk inside a DAW:** with `/MD` the plugin uses whichever
+  `msvcp140.dll` the host process already loaded. A host that ships its own older copy can
+  crash plugins built with VS 2022 17.10 or later, the known `std::mutex` constexpr-constructor
+  break. Define `_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR` for all Windows targets, and include
+  one DAW that bundles an old runtime in the Windows smoke tests.
 
 ## 7. Control center app
 
