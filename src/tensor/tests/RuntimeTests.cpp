@@ -360,6 +360,23 @@ TEST_CASE("State runtime does not allocate after preparation", "[tensor][allocat
     CHECK(allocations == 0);
 }
 
+TEST_CASE("Reset restores compiled tensor controls as well as recurrent state", "[tensor][reset]")
+{
+    Runtime runtime;
+    std::string error;
+    auto config = configuration();
+    REQUIRE(runtime.prepare(config, budget(), 48000.0, error));
+    config.parameters.values[0] = 0.9f;
+    REQUIRE(runtime.updateTensors(tensorView(config.activation), tensorView(config.parameters),
+                                  tensorView(config.routing), tensorView(config.modulation)));
+    runtime.reset();
+    const std::array<float, 1> impulse{1.0f};
+    const std::array<float, 1> silence{0.0f};
+    REQUIRE(runtime.tick(audioInput(impulse)));
+    REQUIRE(runtime.tick(audioInput(silence)));
+    CHECK(runtime.state()[0] == 0.5f);
+}
+
 TEST_CASE("Learned tensor values publish atomically without rebuilding the allocation",
           "[tensor][publication]")
 {

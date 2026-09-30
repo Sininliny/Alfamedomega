@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <string>
 #include <vector>
@@ -74,6 +75,7 @@ struct Step
     std::span<const float> parameters;
     TensorView routing;
     TensorView modulation;
+    std::span<const TensorView> assets{};
 };
 
 // Deterministic primitive implementations own mathematical interpretation of their
@@ -99,6 +101,9 @@ struct Instance
     Slice parameters;
     Clock clock;
     OutputBetweenUpdates outputBetweenUpdates = OutputBetweenUpdates::Zero;
+    std::vector<Tensor> assets{};
+    // Serialized programs own factory descriptors through this optional pointer.
+    std::shared_ptr<const Primitive> descriptor{};
 };
 
 enum class SourceKind
@@ -212,11 +217,13 @@ public:
 
 private:
     Configuration configuration_;
+    std::vector<float> initialActivation_, initialParameters_, initialRouting_, initialModulation_;
     std::vector<Primitive> primitives_;
     std::vector<Slice> states_;
     std::vector<Slice> outputs_;
     std::vector<ScheduledUpdate> schedule_;
     std::vector<std::uint8_t> allocated_;
+    std::vector<std::vector<TensorView>> assets_;
     std::vector<float> initial_;
     std::vector<float> state_;
     std::vector<float> next_;

@@ -1,0 +1,92 @@
+{
+  "schema": "aom.tensor/1",
+  "ontology": "aom.math/1",
+  "description": "Native audio recurrent low-pass reference; input is preserved as X_t.",
+  "tensors": {
+    "activation": {
+      "axes": [
+        "primitive"
+      ],
+      "shape": [
+        1
+      ],
+      "values": [
+        1
+      ]
+    },
+    "parameters": {
+      "axes": [
+        "parameter"
+      ],
+      "shape": [
+        1
+      ],
+      "values": [
+        1200
+      ]
+    },
+    "routing": {
+      "axes": [
+        "coefficient"
+      ],
+      "shape": [
+        0
+      ],
+      "values": []
+    },
+    "modulation": {
+      "axes": [
+        "relationship"
+      ],
+      "shape": [
+        0
+      ],
+      "values": []
+    }
+  },
+  "instances": [
+    {
+      "primitive": "math.one_pole_lowpass",
+      "activation": 0,
+      "parameters": {
+        "offset": 0,
+        "count": 1
+      },
+      "clock": {
+        "period_samples": 1,
+        "phase_samples": 0
+      },
+      "output_between_updates": "zero",
+      "state_size": 1,
+      "initial_state": [
+        0
+      ],
+      "assets": []
+    }
+  ],
+  "projections": [],
+  "parameter_locks": [],
+  "shared_initial_state": [],
+  "outputMix": [
+    [
+      0,
+      0,
+      1
+    ],
+    [
+      0,
+      1,
+      1
+    ]
+  ],
+  "budget": {
+    "active_primitives": 1,
+    "state_elements": 1,
+    "parameter_elements": 1,
+    "routing_elements": 0,
+    "modulation_elements": 0,
+    "output_elements": 1,
+    "stored_tensor_elements": 2,
+    "projection_terms": 0
+  }
+}

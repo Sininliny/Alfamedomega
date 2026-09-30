@@ -71,3 +71,26 @@ Still required for the complete mission:
 
 These are unfinished implementation areas, not unanswered versions of the decisions above.
 New directional ambiguities must be raised with Sinin before committing to a universal meaning.
+
+## Executable implementation update
+
+The native `src/tensor_plugin` entry now hosts instrument, FX and hybrid audio
+buses, MIDI/MPE input tensors, off-thread compilation/publication, recurrent DSP
+and independently clocked GRU tensor predictions. Its layered editor supports
+musical intentions, inspection and versioned JSON edits/model import. The legacy
+entry remains available with its original state semantics.
+
+`Compiler.h` defines the `aom.tensor/1` / `aom.math/1` JSON boundary; state allocation
+and independent schedules are derived from validated programs. `Universe.h`
+adds 46 executable operations to the four initial mathematical kernels. Explicit
+immutable assets hold tables, IRs, frames, HRTFs and envelope segment definitions.
+`Model.h` implements deterministic CPU inference for `aom.runtime.gru/1`, with
+independent model budget, explicit clock, bounded predictions and user locks.
+
+`training/aom` now provides actual dual-head training, native DSP rendering,
+WAV-to-editable-template inference, runtime model training/export, local pairwise
+preference learning, context-dependent importance and measured constrained tier
+candidate search. AOM Centre exposes tensor workflows separately from legacy
+method training. See [validation](validation.md) for reproducible execution and
+remaining generalization/product limits. Earlier foundation-only observations
+above are retained as the audit history, not the current implementation status.

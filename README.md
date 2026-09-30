@@ -8,10 +8,19 @@ for a deterministic recurrent DSP runtime.
 The core abstraction is **Audio Tensor Space**. Instrument, FX and hybrid operation are native
 requirements. This is not a traditional synthesizer, a preset generator or a modular DSP graph.
 
-**Status: recurrent tensor foundation alongside the legacy plugin.** `src/tensor` supplies a
-separate CPU contract, persistent state execution, independent clocks, explicit padding masks,
-capacity validation, explicit affine parameter projection, parameter locks and a migration boundary. It is not yet a trained tensor compiler or a
-complete primitive universe. The plugin still uses the legacy method/slot implementation.
+**Status: executable tensor compiler and native tensor plugin alongside the legacy entry.**
+`src/tensor` supplies versioned tensor programs, recurrent deterministic execution, independent
+clocks, padding masks, capacity validation, immutable assets, parameter locks and a migration
+boundary. Fifty mathematical operations cover the required primitive families. The new
+`AlfamedomegaTensor` Standalone/VST3 entry supports native audio, MIDI/MPE, instrument/FX/hybrid
+execution, semantic intentions, inspection and expert tensor editing. A separately budgeted
+recurrent neural compiler predicts tensor controls; DSP generates audio.
+
+`training/aom` supplies dual-supervised WAV learning, native DSP rendering, runtime model
+export, local preference learning and constrained tier candidate optimization. These are
+executable reference implementations. The repository does **not** contain a universal pretrained
+audio-construction model; the verified learning fixture is deliberately small. Structural
+templates currently supply primitive identities and projection bindings for WAV import.
 
 The [project direction](docs/audio-tensor-space/mission.md),
 [runtime contract](docs/audio-tensor-space/runtime-contract.md),
@@ -36,10 +45,12 @@ git workflow.
 ```
 src/dsp/         existing DSP kernels and legacy runtime (no JUCE)
 src/tensor/      recurrent tensor contract and deterministic runtime (no JUCE)
+src/tensor_plugin/ native tensor Standalone/VST3 and layered editor
 src/inference/   legacy model loading and real-time inference host (no JUCE)
 src/ui/          look-and-feel and editor components
 src/plugin/      the plugin target
 training/        AOM data contract plus legacy method training and ONNX export
+programs/        explicit demonstration tensor programs, not learned defaults
 docs/            design docs and decision records
 cmake/           build helpers and pinned dependencies
 ```

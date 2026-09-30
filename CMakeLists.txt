@@ -50,6 +50,7 @@ add_subdirectory(src/inference)   # Alfa::inference  model loading and real-time
 add_subdirectory(src/tensor)      # Alfa::tensor     tensor compilation and recurrent state runtime
 
 if(ALFA_BUILD_PLUGIN)
+    add_subdirectory(src/tensor_plugin) # Native tensor instrument/FX/hybrid host
     add_subdirectory(src/ui)      # Alfa::ui         look-and-feel, components, theming
     add_subdirectory(src/plugin)  # Alfamedomega     VST3 / AU / AAX / Standalone
 endif()

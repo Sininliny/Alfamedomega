@@ -22,6 +22,7 @@ class Tensor:
     axes: tuple[str, ...]
     shape: tuple[int, ...]
     values: tuple[float, ...]
+    presence: tuple[bool, ...] | None = None
 
     def __post_init__(self) -> None:
         _shape(self.shape)
@@ -33,6 +34,11 @@ class Tensor:
             raise ValueError("Tensor storage does not match its shape")
         if any(not isfinite(value) for value in self.values):
             raise ValueError("Tensor values must be finite")
+        if self.presence is not None:
+            if len(self.presence) != len(self.values) or any(value not in (False, True) for value in self.presence):
+                raise ValueError("Presence requires one binary value per tensor element")
+            if any(not present and value != 0 for present, value in zip(self.presence, self.values)):
+                raise ValueError("Absent tensor elements must contain zero")
 
 
 @dataclass(frozen=True)
@@ -69,7 +75,7 @@ def pad_tensor(source: Tensor, schema: TensorSchema) -> PaddedTensor:
         for coordinate, extent in zip(coordinates, schema.padded_shape):
             target_index = target_index * extent + coordinate
         values[target_index] = source.values[source_index]
-        mask[target_index] = True
+        mask[target_index] = source.presence is None or bool(source.presence[source_index])
     return PaddedTensor(Tensor(schema.axes, schema.padded_shape, tuple(values)),
                         tuple(mask), source.shape)
 

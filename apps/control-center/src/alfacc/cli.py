@@ -7,6 +7,7 @@ from dataclasses import asdict, fields
 from pathlib import Path
 
 from . import __version__
+from .aom import train_tensor_model, train_runtime_tensor_model, infer_tensor_preset, import_tensor_wav
 from .assimilate.harvest import create_assimilation_job, create_scan_job, host_formats
 from .assimilate.plans import DENSITIES, custom_density, estimate
 from .context import Context
@@ -248,12 +249,49 @@ def cmd_jobs(ctx: Context, a) -> int:
 
 # ---------------------------------------------------------------------- parser
 
+
+def cmd_aom(ctx, a) -> int:
+    if a.action == "train":
+        result = train_tensor_model(a.repository, a.manifest, a.model)
+    elif a.action == "train-runtime":
+        result = train_runtime_tensor_model(a.repository, a.manifest, a.model)
+    elif a.action == "infer":
+        result = infer_tensor_preset(a.repository, a.model, a.wav, a.output, mask_threshold=a.mask_threshold)
+    else:
+        result = import_tensor_wav(a.repository, a.model, a.wav, a.template, a.bounds, a.output,
+                                  head=a.head, mask_threshold=a.mask_threshold, sample_rate=a.sample_rate,
+                                  dll_path=a.dll)
+    print(json.dumps(result, indent=2))
+    return 0
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="alfa-cc", description="Alfamedomega control center")
     ap.add_argument("--version", action="version", version=__version__)
     ap.add_argument("--home", help="control center data folder (default: per-user app data)")
     ap.add_argument("--models-dir", help="Models folder (default: the shared system folder)")
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    aom = sub.add_parser("aom", help="tensor compiler training, native runtime models and editable WAV import")
+    aom.add_argument("--repository", type=Path, required=True, help="repository containing the tensor learner and native runtime")
+    actions = aom.add_subparsers(dest="action", required=True)
+    for action, help_text in (("train", "dual-supervised offline WAV tensor learning"),
+                              ("train-runtime", "train recurrent runtime tensor compiler and export native GRU weights")):
+        command = actions.add_parser(action, help=help_text)
+        command.add_argument("manifest", type=Path)
+        command.add_argument("model", type=Path)
+    inference = actions.add_parser("infer", help="inspect inferred canonical and rendered tensor targets")
+    inference.add_argument("model", type=Path)
+    inference.add_argument("wav", type=Path)
+    inference.add_argument("output", type=Path)
+    inference.add_argument("--mask-threshold", type=float, required=True)
+    importing = actions.add_parser("import-wav", help="infer and compile an editable AOM preset")
+    for name in ("model", "wav", "template", "bounds", "output"):
+        importing.add_argument(name, type=Path)
+    importing.add_argument("--head", choices=("primary_canonical", "secondary_rendered_instance"), required=True)
+    importing.add_argument("--mask-threshold", type=float, required=True)
+    importing.add_argument("--sample-rate", type=float, required=True)
+    importing.add_argument("--dll", type=Path)
+    aom.set_defaults(fn=cmd_aom)
 
     sub.add_parser("info", help="paths and whether training can run here").set_defaults(fn=cmd_info)
     s = sub.add_parser("settings", help="show or change settings")
@@ -279,7 +317,7 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("tier", choices=list(TIERS))
     m.set_defaults(fn=cmd_models)
 
-    t = sub.add_parser("train", help="train a tier locally, or write a Colab notebook")
+    t = sub.add_parser("train", help="legacy method-vector training, or write its Colab notebook")
     t.add_argument("--tier", default="lite", choices=list(TIERS))
     t.add_argument("--stage", default="pretrain", choices=STAGES)
     t.add_argument("--steps", type=int, default=200_000)
@@ -301,7 +339,7 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--quiet", action="store_true")
     t.set_defaults(fn=cmd_train)
 
-    x = sub.add_parser("export", help="export a checkpoint to ONNX and install it")
+    x = sub.add_parser("export", help="legacy method-vector ONNX export and installation")
     x.add_argument("--tier", required=True, choices=list(TIERS))
     x.add_argument("--ckpt", help="omit to export an untrained model (pipeline test)")
     x.add_argument("--version")
@@ -387,10 +425,10 @@ def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
     a = build_parser().parse_args(argv)
     a.density_given = "--density" in argv
-    ctx = Context(a.home, a.models_dir)
+    ctx = None if a.cmd == "aom" else Context(a.home, a.models_dir)
     try:
         return a.fn(ctx, a)
-    except (ModelStoreError, ValueError, FileNotFoundError, KeyError) as e:
+    except (ModelStoreError, ValueError, FileNotFoundError, KeyError, RuntimeError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
 

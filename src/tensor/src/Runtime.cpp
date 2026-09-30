@@ -138,6 +138,11 @@ bool Runtime::prepare(const Configuration& configuration, const Budget& budget, 
                                &configuration.modulation})
         if (!append(stored, tensor->values.size(), budget.storedTensorElements))
             return fail("Full padded tensor storage exceeds the supplied hardware capacity");
+    for (const auto& instance : configuration.instances)
+        for (const auto& asset : instance.assets)
+            if (!validTensor(view(asset)) ||
+                !append(stored, asset.values.size(), budget.storedTensorElements))
+                return fail("Immutable primitive asset is invalid or exceeds storage capacity");
     if (configuration.initialState.size() != configuration.instances.size() ||
         !finite(configuration.sharedInitialState))
         return fail("Initial state does not match the configuration");
@@ -155,11 +160,16 @@ bool Runtime::prepare(const Configuration& configuration, const Budget& budget, 
     // Build a candidate so a refused configuration leaves the playing runtime intact.
     Runtime candidate;
     candidate.configuration_ = configuration;
+    candidate.initialActivation_ = configuration.activation.values;
+    candidate.initialParameters_ = configuration.parameters.values;
+    candidate.initialRouting_ = configuration.routing.values;
+    candidate.initialModulation_ = configuration.modulation.values;
     candidate.primitives_.reserve(configuration.instances.size());
     candidate.sampleRate_ = sampleRate;
     candidate.states_.resize(configuration.instances.size());
     candidate.outputs_.resize(configuration.instances.size());
     candidate.allocated_.resize(configuration.instances.size(), 0);
+    candidate.assets_.resize(configuration.instances.size());
     candidate.initial_ = configuration.sharedInitialState;
     std::size_t stateCount = configuration.sharedInitialState.size();
     std::size_t outputCount = 0;
@@ -175,6 +185,8 @@ bool Runtime::prepare(const Configuration& configuration, const Budget& budget, 
             return fail("Primitive must provide an identity, transition and readout");
         candidate.primitives_.push_back(*primitive);
         candidate.configuration_.instances[index].primitive = &candidate.primitives_.back();
+        for (const auto& asset : candidate.configuration_.instances[index].assets)
+            candidate.assets_[index].push_back(view(asset));
         if (instance.activationIndex >= configuration.activation.values.size() ||
             !fits(instance.parameters, configuration.parameters.values.size()))
             return fail("Primitive tensor selection is out of range");
@@ -295,7 +307,8 @@ bool Runtime::tick(const Inputs& inputs) noexcept
                         std::span<const float>(effectiveParameters_)
                             .subspan(instance.parameters.offset, instance.parameters.count),
                         view(configuration_.routing),
-                        view(configuration_.modulation)};
+                        view(configuration_.modulation),
+                        assets_[index]};
         std::fill(output.begin(), output.end(), 0.0f);
         instance.primitive->readout(step, output);
         instance.primitive->transition(step, std::span<float>(next_).subspan(local.offset, local.count));
@@ -313,6 +326,11 @@ bool Runtime::tick(const Inputs& inputs) noexcept
 
 void Runtime::reset() noexcept
 {
+    for (const auto& pair : {std::pair{&configuration_.activation.values, &initialActivation_},
+                             std::pair{&configuration_.parameters.values, &initialParameters_},
+                             std::pair{&configuration_.routing.values, &initialRouting_},
+                             std::pair{&configuration_.modulation.values, &initialModulation_}})
+        std::copy(pair.second->begin(), pair.second->end(), pair.first->begin());
     std::copy(initial_.begin(), initial_.end(), state_.begin());
     std::copy(initial_.begin(), initial_.end(), next_.begin());
     std::fill(output_.begin(), output_.end(), 0.0f);

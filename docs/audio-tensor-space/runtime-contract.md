@@ -120,3 +120,41 @@ not claimed as a production-optimized delay. These kernels consume explicit para
 and scalar audio input. Runtime affine projection can supply their effective parameters;
 the kernels do not silently interpret arbitrary routing/modulation tensors themselves.
 Their callbacks and tests are a small numerical foundation, not coverage of the full universe.
+
+## Serialized compiler, learned execution and native hosting
+
+`Compiler.h` accepts `aom.tensor/1`, ontology `aom.math/1`, with four named
+prediction tensors, dynamically described primitive instances, assets, explicit
+projection terms, clocks, initial state, locks and independent capacity limits.
+The compiler validates them and derives state allocation and an execution
+schedule. Instance descriptors own their primitive callbacks for the program's
+lifetime. `Universe.h` extends the four original kernels by 46 operations.
+
+The host's explicit `outputMix` rows are `[primitive_output_element, channel,
+gain]`. Mixing is performed after simultaneous recurrent updates; it does not
+introduce a module chain or establish general tensor routing semantics.
+
+`aom.runtime.gru/1` embeds an independently budgeted neural compiler: six input
+category widths, explicit GRU weights and persistent neural context, four output
+schemas, producer-defined bounds and inference clock. Native inference matches
+PyTorch sequential vectors. It predicts tensor values/presence and never renders
+waveforms. In-place predictions must match prepared shapes and masks; structural
+changes require off-thread recompilation. Failed tensor publication also retains
+previous neural context. Reset restores prepared tensor controls, original DSP
+memory and clock; the model resets its own original context.
+
+The plugin stages immutable compiled programs off-thread and transfers ownership
+through preallocated queues. Runtime ticking and tensor publication are serialized
+on the audio thread. New audio/MIDI/MPE input encoding belongs to that native host,
+not to an instrument-method selector. Its three modes share the same compiler
+contract. The legacy host remains a separate compatibility entry.
+
+Offline WAV import, local preference/importance learning, hardware probes and
+constrained tier candidate optimization are implemented in `training/aom`. These
+later capabilities supersede the foundation-only status descriptions above;
+[validation](validation.md) records their actual limitations.
+
+An explicit off-thread `PrimitiveResolver` can resolve extension operation IDs
+while retaining tensor serialization and state allocation contracts. Unknown
+operations without a registered implementation are rejected. This is an open
+mathematical operation boundary, not a closed list of instrument types.
