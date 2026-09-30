@@ -13,7 +13,7 @@ dependencies = []
 
 [project.optional-dependencies]
 gui = ["PySide6-Essentials>=6.6"]
-test = ["pytest>=8"]
+test = ["pytest>=8", "numpy"]
 
 [project.scripts]
 alfa-cc = "alfacc.cli:main"

@@ -84,6 +84,10 @@ class Settings:
     runs_dir: str = ""
     # Command that runs the preference learner; see docs/control-center/preference-batch.md.
     preference_learner: str = ""
+    # Local plugin assimilation: the render host binary, and extra plugin folders to scan
+    # (separated by the OS path separator); see docs/control-center/plugin-assimilation.md.
+    render_host: str = ""
+    plugin_folders: str = ""
     extra: dict = field(default_factory=dict)
 
     def resolved_models_dir(self) -> Path:
@@ -110,6 +114,10 @@ class Settings:
             return self.preference_learner
         learner = find_in_checkout("preference", "learner.py", repo=self.repo_dir)
         return subprocess.list2cmdline([self.resolved_training_python(), learner]) if learner else ""
+
+    def resolved_descriptor(self) -> str:
+        """preference/alfapref/descriptor.py, so harvested notes share the libraries' timbre space."""
+        return find_in_checkout("preference", "alfapref", "descriptor.py", repo=self.repo_dir)
 
     def resolved_runs_dir(self, home: Path) -> Path:
         return Path(self.runs_dir) if self.runs_dir else home / "runs"

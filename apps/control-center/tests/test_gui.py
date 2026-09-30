@@ -19,7 +19,7 @@ def test_window_runs_a_training_job_and_shows_the_model(qapp, ctx):
     from alfacc.gui.app import MainWindow
     win = MainWindow(ctx)
     win.show()
-    for i in range(5):
+    for i in range(len(win.pages)):
         win.nav.setCurrentRow(i)
         qapp.processEvents()
     training = win.pages[1]
@@ -28,7 +28,7 @@ def test_window_runs_a_training_job_and_shows_the_model(qapp, ctx):
     training.steps.setValue(4)
     training.version.setText("3.0.0")
     training.train()  # the button is disabled, but the action itself still works
-    assert win.stack.currentIndex() == 3
+    assert win.stack.currentWidget() is win.jobs_page
     deadline = time.time() + 20
     while time.time() < deadline and not ctx.jobs.wait(0.05):
         qapp.processEvents()
@@ -36,6 +36,6 @@ def test_window_runs_a_training_job_and_shows_the_model(qapp, ctx):
     assert ctx.jobs.list()[0]["status"] == "succeeded"
     assert win.pages[0].table.rowCount() == 1
     assert win.pages[0].table.item(0, 0).text() == "lite-3.0.0"
-    win.pages[3].refresh()
-    assert "step 4/4" in win.pages[3].log.toPlainText()
+    win.jobs_page.refresh()
+    assert "step 4/4" in win.jobs_page.log.toPlainText()
     win.close()
