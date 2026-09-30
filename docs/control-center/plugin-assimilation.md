@@ -192,9 +192,11 @@ train shared models, that needs a separate opt-in and a licence review. It is of
 
 ## 10. For other threads
 
-- **Preference learning**: `features.jsonl` lines with a `descriptor` can be read as extra items with
-  weak labels from preset names and categories (the preference tokenizer applies). Proposed: the
-  learner's batch command accepts `--assimilation <home>/assimilation`.
+- **Preference learning**: done. A batch passes `--assimilation <home>/assimilation` to the learner
+  when plugin notes exist and the learner script supports the flag (branch
+  preference/plugin-assimilation). The learner keeps logmel-stats-v1 lines, takes weak labels from
+  "category/name" with the shared tokenizer, weights each preset's notes 0.5 (library files 1.0),
+  and stores no plugin or preset names in the profile. A batch can now run on plugin notes alone.
 - **Training**: the knowledge base is a list of (plugin, preset, key, velocity, duration) → timbre
   features. It can drive synthesis-space expansion (find regions no family covers well) and a per-user
   fine-tune. With **Keep audio** on, the WAVs plus `presets.json` are a ready rendering set.

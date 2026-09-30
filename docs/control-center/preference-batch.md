@@ -26,8 +26,12 @@
    ```
    <learner> batch --index <home>/preference/library_index.jsonl
                    --events <home>/preference/events
+                   [--assimilation <home>/assimilation]
                    --out <home>/preference/profiles/<timestamp>
    ```
+
+   `--assimilation` is added when plugin assimilation has analysed notes and the learner script
+   supports the flag ([plugin-assimilation.md](plugin-assimilation.md), section 10).
 
    `<learner>` is `python <repo>/preference/learner.py`, found from the repository folder in
    Settings and run with the training Python (it needs numpy), or any command set there
