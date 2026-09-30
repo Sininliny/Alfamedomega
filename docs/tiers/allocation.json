@@ -686,6 +686,85 @@
       "Standard",
       "Pro",
       "Studio"
-    ]
+    ],
+    "measured": {
+      "_note": "DSP thread, 2026-09-30, dsp/primitives cea4ff2. Worst case = every primitive plus NONLINEAR in every voice slot. Percent of block; +/-20% noise. Model = guard's own estimate (worst-case params, over-estimates ~1.5-2x). At 96 kHz Standard/Pro/Studio stay over 25% even with every voice slot bypassed because primitives alone exceed the budget.",
+      "48k": {
+        "off": {
+          "Lite": 19,
+          "Standard": 22,
+          "Pro": 40,
+          "Studio": 17
+        },
+        "on": {
+          "Lite": 22,
+          "Standard": 20,
+          "Pro": 21,
+          "Studio": 18
+        },
+        "model_before": {
+          "Lite": 31,
+          "Standard": 40,
+          "Pro": 61,
+          "Studio": 42
+        },
+        "model_after": {
+          "Lite": 25,
+          "Standard": 25,
+          "Pro": 25,
+          "Studio": 25
+        },
+        "downgraded": {
+          "Lite": 18,
+          "Standard": 42,
+          "Pro": 9,
+          "Studio": 28
+        },
+        "bypassed": {
+          "Lite": 0,
+          "Standard": 6,
+          "Pro": 55,
+          "Studio": 0
+        }
+      },
+      "96k": {
+        "off": {
+          "Lite": 34,
+          "Standard": 50,
+          "Pro": 70,
+          "Studio": 46
+        },
+        "on": {
+          "Lite": 24,
+          "Standard": 32,
+          "Pro": 42,
+          "Studio": 36
+        },
+        "model_before": {
+          "Lite": 60,
+          "Standard": 79,
+          "Pro": 151,
+          "Studio": 78
+        },
+        "model_after": {
+          "Lite": 25,
+          "Standard": 29,
+          "Pro": 48,
+          "Studio": 27
+        },
+        "downgraded": {
+          "Lite": 9,
+          "Standard": 0,
+          "Pro": 0,
+          "Studio": 0
+        },
+        "bypassed": {
+          "Lite": 23,
+          "Standard": 48,
+          "Pro": 64,
+          "Studio": 32
+        }
+      }
+    }
   }
 }

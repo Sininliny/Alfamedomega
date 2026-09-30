@@ -1,4 +1,4 @@
-# Alfamedomega model size tiers (draft v5.6, 2026-09-30)
+# Alfamedomega model size tiers (draft v5.7, 2026-09-30)
 
 Four tiers. Every number is a planning estimate from `tier_budget.py` (same folder); change an
 assumption there and re-run. Nothing here is measured yet. v2 rebases the budgets on the stack in
@@ -221,6 +221,20 @@ heaviest voice slots, lowest-weighted families first, until the total fits. With
 measurements this only engages in Pro worst cases and at 96 kHz in Standard and Pro; typical
 patches are never touched. Configuration is `audio_budget_guard` in `allocation.json`, also
 copied into each tier in `allocation_by_tier.json`.
+
+Measured with the guard built (DSP thread, 2026-09-30), worst case = every primitive plus
+2x-oversampled nonlinear in every voice slot, % of block, guard off → on:
+
+| | Lite | Standard | Pro | Studio |
+|---|---|---|---|---|
+| 48 kHz | 19 → 22 | 22 → 20 | 40 → 21 | 17 → 18 |
+| 96 kHz | 34 → 24 | 50 → 32 | 70 → 42 | 46 → 36 |
+
+At 48 kHz every tier now fits. At 96 kHz Standard, Pro and Studio stay over 25% even with every
+voice slot bypassed, because the sources alone (partials, unison, grains, FM) exceed the budget;
+closing that gap needs the guard to be allowed to reduce more than voice slots (open decision).
+The guard's cost model uses worst-case parameters and over-estimates by about 1.5 to 2x, so it
+also engages in some cases that were really under budget (48 kHz Lite and Studio).
 
 ## DSP cost check
 
