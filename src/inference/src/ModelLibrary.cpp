@@ -67,7 +67,8 @@ namespace
 bool isSafeRelative(const std::string& name)
 {
     const std::filesystem::path p(name);
-    if (name.empty() || p.is_absolute() || p.has_root_name())
+    // On Windows "/etc/passwd" is not absolute (no drive) but is rooted at the current drive.
+    if (name.empty() || p.is_absolute() || p.has_root_name() || p.has_root_directory())
         return false;
     for (const auto& part : p)
         if (part == ".." || part.string().empty())

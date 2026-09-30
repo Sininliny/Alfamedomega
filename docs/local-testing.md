@@ -6,7 +6,7 @@ These commands mirror the CI jobs in `.github/workflows/ci.yml`. The first confi
 
 | | Windows | macOS | Linux |
 |---|---|---|---|
-| Compiler | Visual Studio 2022, "Desktop development with C++" workload | Xcode or `xcode-select --install` | GCC 13+ or Clang 17+ |
+| Compiler | Visual Studio 2022 or 2026, "Desktop development with C++" workload | Xcode or `xcode-select --install` | GCC 13+ or Clang 17+ |
 | CMake 3.25+ | Included with VS, or cmake.org | `brew install cmake` | `sudo apt install cmake` |
 | Ninja | Not needed | `brew install ninja` | `sudo apt install ninja-build` |
 | Python 3.11+ | python.org | `brew install python@3.12` | `sudo apt install python3 python3-venv` |
@@ -41,10 +41,10 @@ Then check out one of these:
 
 Use a new build folder, or delete `build`, whenever you switch branches.
 
-**Windows.** Open the "Developer PowerShell for VS 2022" from the Start menu:
+**Windows.** Open the "Developer PowerShell for VS 2022" from the Start menu. With Visual Studio 2026, use its Developer PowerShell and `-G "Visual Studio 18 2026"`. Keep `-DCMAKE_BUILD_TYPE=Release`: the ONNX Runtime dependency refuses to configure on Windows without it.
 
 ```
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DALFA_BUILD_PLUGIN=ON -DALFA_BUILD_TESTS=ON -DALFA_WARNINGS_AS_ERRORS=ON
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release -DALFA_BUILD_PLUGIN=ON -DALFA_BUILD_TESTS=ON -DALFA_WARNINGS_AS_ERRORS=ON
 cmake --build build --config Release --parallel
 ctest --test-dir build -C Release --output-on-failure
 ```
