@@ -14,6 +14,12 @@ target_link_libraries(alfa_plugin_tests PRIVATE
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
 target_compile_definitions(alfa_plugin_tests PRIVATE ${ALFA_JUCE_APP_DEFINITIONS})
+# The inference tests' dummy models, when Python could export them.
+if(TARGET alfa_inference_test_models)
+    add_dependencies(alfa_plugin_tests alfa_inference_test_models)
+    target_compile_definitions(alfa_plugin_tests PRIVATE
+        ALFA_TEST_MODELS_DIR="${CMAKE_BINARY_DIR}/src/inference/tests/models")
+endif()
 catch_discover_tests(alfa_plugin_tests
     TEST_PREFIX "alfa_plugin_tests:"
     DISCOVERY_MODE PRE_TEST)

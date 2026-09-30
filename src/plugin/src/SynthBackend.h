@@ -11,8 +11,8 @@ namespace alfa
 {
 /// What the processor needs from the sound-producing side: the inference host
 /// (Alfa::inference) turning notes and controls into control frames, and the
-/// DSP engines (Alfa::dsp) rendering them. Until those components land, a stub
-/// backend plays simple stand-in engines so the shell and UI can be exercised.
+/// DSP engines (Alfa::dsp) rendering them. When no model is installed, a stub
+/// backend plays simple stand-in engines so the shell and UI still work.
 class SynthBackend
 {
 public:
@@ -30,6 +30,10 @@ public:
     /// until ready.
     virtual void requestTier(params::Tier tier) = 0;
 
+    /// Offline rendering (bounce, freeze): wait for every frame instead of
+    /// holding the last one. Called while the audio thread is not processing.
+    virtual void setNonRealtime(bool) {}
+
     /// Latency the current model adds, in samples.
     [[nodiscard]] virtual int latencySamples(double sampleRate) const = 0;
 
@@ -38,5 +42,10 @@ public:
 };
 
 std::unique_ptr<SynthBackend> createStubBackend(juce::AudioProcessorValueTreeState& state);
+
+/// The neural backend on the models in ModelLibrary::defaultModelsDir()
+/// (ALFA_MODELS_DIR overrides it), or the stub when none are installed.
+std::unique_ptr<SynthBackend> createBackend(juce::AudioProcessorValueTreeState& state,
+                                            juce::AudioProcessor& processor);
 
 } // namespace alfa

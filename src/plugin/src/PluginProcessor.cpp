@@ -9,7 +9,7 @@ AlfamedomegaProcessor::AlfamedomegaProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true))
     , state(*this, nullptr, "Parameters", params::createLayout(&packedShape))
 {
-    backend = createStubBackend(state);
+    backend = createBackend(state, *this);
     outputGainParam = state.getRawParameterValue(params::id::outputGain);
     for (const auto& id :
          {params::id::modelTier, params::id::method, params::id::hybridA, params::id::hybridB})
@@ -51,6 +51,12 @@ void AlfamedomegaProcessor::prepareToPlay(double sampleRate, int samplesPerBlock
     keyboard.reset();
     setLatencySamples(backend->latencySamples(sampleRate));
     recorder->setSampleRate(sampleRate);
+}
+
+void AlfamedomegaProcessor::setNonRealtime(bool isNonRealtime) noexcept
+{
+    AudioProcessor::setNonRealtime(isNonRealtime);
+    backend->setNonRealtime(isNonRealtime);
 }
 
 bool AlfamedomegaProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
