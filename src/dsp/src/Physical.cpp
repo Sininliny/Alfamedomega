@@ -21,6 +21,11 @@ constexpr double kMaxLoopGain = 0.99999;
     return std::fabs(x) < kFlush ? 0.0f : x;
 }
 
+[[nodiscard]] inline double flushTinyD(double x) noexcept
+{
+    return std::fabs(x) < static_cast<double>(kFlush) ? 0.0 : x;
+}
+
 /// Phase delay in samples at w (rad/sample) of the first-order allpass (a + z^-1) / (1 + a z^-1).
 /// Its phase is -w + 2 arg(1 + a e^{iw}); 1 + a cos w > 0 for |a| < 1, so no unwrapping.
 [[nodiscard]] double allpassDelay(double a, double w) noexcept
@@ -284,9 +289,9 @@ void WaveguideProcessor::resetChannel(Channel& ch) noexcept
 {
     std::fill(ch.line.begin(), ch.line.end(), 0.0f);
     std::fill(ch.exc.begin(), ch.exc.end(), 0.0f);
-    ch.fir1 = ch.fir2 = 0.0f;
-    ch.frac = 0.0f;
-    ch.disp.fill(0.0f);
+    ch.fir1 = ch.fir2 = 0.0;
+    ch.frac = 0.0;
+    ch.disp.fill(0.0);
     ch.burstLp = 0.0f;
 }
 
@@ -427,7 +432,7 @@ void WaveguideProcessor::process(float* const* channels, int n) noexcept
     const float dIn = (inGainT_ - inGain_) * inv;
     const float dMix = (mixT_ - mix_) * inv;
     const auto delay = static_cast<unsigned>(delayInt_);
-    const float a0 = firA0_, a1 = firA1_, fa = fracA_, da = dispA_, g = loopGain_;
+    const double a0 = firA0_, a1 = firA1_, fa = fracA_, da = dispA_, g = loopGain_;
     const int stages = stages_;
     float peak = 0.0f;
 
@@ -457,20 +462,20 @@ void WaveguideProcessor::process(float* const* channels, int n) noexcept
             exc[pos & excMask_] = e;
             const float excited = 0.5f * (e - readFractional(ch.exc, excMask_, pos, excD_ + dExc * ft));
 
-            const float v = line[(pos - delay) & lineMask_];
-            const float y = a1 * (v + ch.fir2) + a0 * ch.fir1;
+            const double v = line[(pos - delay) & lineMask_];
+            const double y = a1 * (v + ch.fir2) + a0 * ch.fir1;
             ch.fir2 = ch.fir1;
             ch.fir1 = v;
-            float o = fa * y + ch.frac;
-            ch.frac = y - fa * o;
+            double od = fa * y + ch.frac;
+            ch.frac = y - fa * od;
             for (int s = 0; s < stages; ++s)
             {
-                float& st = ch.disp[static_cast<std::size_t>(s)];
-                const float z = da * o + st;
-                st = o - da * z;
-                o = z;
+                double& st = ch.disp[static_cast<std::size_t>(s)];
+                const double z = da * od + st;
+                st = od - da * z;
+                od = z;
             }
-            o = flushTiny(o * g);
+            float o = flushTiny(static_cast<float>(od * g));
             const float ao = std::fabs(o);
             if (ao > 2.0f)
                 o = std::copysign(4.0f - 4.0f / ao, o); // C1-continuous, asymptote 4
@@ -483,11 +488,11 @@ void WaveguideProcessor::process(float* const* channels, int n) noexcept
             ++pos;
         }
 
-        ch.fir1 = flushTiny(ch.fir1);
-        ch.fir2 = flushTiny(ch.fir2);
-        ch.frac = flushTiny(ch.frac);
+        ch.fir1 = flushTinyD(ch.fir1);
+        ch.fir2 = flushTinyD(ch.fir2);
+        ch.frac = flushTinyD(ch.frac);
         for (auto& s : ch.disp)
-            s = flushTiny(s);
+            s = flushTinyD(s);
         if (bad || !std::isfinite(energy) || !std::isfinite(ch.frac))
         {
             resetChannel(ch);
@@ -503,7 +508,14 @@ void WaveguideProcessor::process(float* const* channels, int n) noexcept
     excD_ = excT_;
     inGain_ = inGainT_;
     mix_ = mixT_;
-    env_ += 0.3f * (peak - env_);
+    // Amplitude envelope for the tension glide: fast attack, 50 ms release. A block (32
+    // samples) is far shorter than a low string's period, so the raw block peak swings within
+    // every period; following it directly frequency-modulated the loop, and the constant
+    // retuning bled energy (a 30 s T60 decayed 15 dB too fast with tension and dispersion).
+    if (peak > env_)
+        env_ += 0.5f * (peak - env_);
+    else
+        env_ *= static_cast<float>(std::exp(-static_cast<double>(n) / (0.05 * sampleRate_)));
 }
 
 int WaveguideProcessor::tailSamples() const noexcept

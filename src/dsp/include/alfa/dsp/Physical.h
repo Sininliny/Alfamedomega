@@ -92,9 +92,12 @@ private:
     {
         std::vector<float> line; // loop delay, also read by the pickup comb
         std::vector<float> exc;  // input history for the excitation comb
-        float fir1 = 0.0f, fir2 = 0.0f;
-        float frac = 0.0f;
-        std::array<float, kMaxStages> disp{};
+        // Filter state in double: at 30 s decays the loop loses ~1e-6 per pass, the same order
+        // as float rounding in the all-pass chain, and FMA contraction (Apple Clang) moved the
+        // T60 by 11 dB with float state.
+        double fir1 = 0.0, fir2 = 0.0;
+        double frac = 0.0;
+        std::array<double, kMaxStages> disp{};
         float burstLp = 0.0f;
         detail::Random rng;
     };

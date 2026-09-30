@@ -122,7 +122,8 @@ TEST_CASE("Nonlinear param table is well formed", "[dsp][nonlinear]")
             REQUIRE(info.name.empty());
     }
     REQUIRE(mapParam(t[NP::kBias], t[NP::kBias].defaultNorm) == 0.0f);
-    REQUIRE(mapParam(t[NP::kTrim], t[NP::kTrim].defaultNorm) == 0.0f);
+    // Trim's default (2/3) is not exact in float; FMA contraction leaves ~1e-6 dB.
+    REQUIRE(std::fabs(mapParam(t[NP::kTrim], t[NP::kTrim].defaultNorm)) < 1.0e-5f);
     REQUIRE(mapParam(t[NP::kBits], t[NP::kBits].defaultNorm) == 24.0f);
     REQUIRE(mapParam(t[NP::kDownsample], t[NP::kDownsample].defaultNorm) == 1.0f);
     REQUIRE(mapParam(t[NP::kTone], t[NP::kTone].defaultNorm) == 0.0f);
@@ -183,7 +184,7 @@ TEST_CASE("Nonlinear hard clip bounds the output", "[dsp][nonlinear]")
     auto x = sine(220.0, kSr, 48000, 0.9f);
     run(p, x, params);
     const auto out = tail(x, 24000);
-    REQUIRE(maxAbs(out) <= 1.0);
+    REQUIRE(maxAbs(out) <= 1.0 + 1.0e-6); // gain stages after the clip may round up by an ulp
     REQUIRE(maxAbs(out) > 0.95);
     // Nearly square: RMS close to the peak.
     REQUIRE(rms(out) > 0.9);

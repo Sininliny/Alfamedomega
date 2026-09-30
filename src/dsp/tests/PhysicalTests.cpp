@@ -332,19 +332,21 @@ TEST_CASE("WAVEGUIDE stays stable at a 30 s decay for 60 s with every feature on
     const auto out = run(wg, p, ctx, static_cast<long long>(60.0 * sr));
     REQUIRE(allFinite(out));
     REQUIRE(peakAbs(out) <= 4.0f);
-    // The fundamental falls 60 dB over 30 s (dispersed upper partials go round the loop more
-    // often and fall faster; the tension glide moves the early pitch, hence the peak search).
+    // The fundamental falls 40 dB over 20 s (T60 30 s). Dispersed upper partials go round the
+    // loop more often and fall faster, so only the fundamental is measured. It is measured from
+    // 11 s on: earlier, the tension glide is still sweeping the pitch across the window.
     auto fundamental = [&](double from)
     {
         const auto w = slice(out, sr, from, from + 1.0);
         return dtftMag(w.data(), w.size(), peakHz(w.data(), w.size(), sr, 98.0, 0.03), sr);
     };
-    const double early = fundamental(1.0);
+    const double early = fundamental(11.0);
     const double mid = fundamental(31.0);
     const double late = fundamental(59.0);
     const double drop = 20.0 * std::log10(early / mid);
-    REQUIRE(drop > 54.0);
-    REQUIRE(drop < 66.0);
+    INFO("drop " << drop);
+    REQUIRE(drop > 36.0);
+    REQUIRE(drop < 44.0);
     REQUIRE(late < mid);
 }
 
