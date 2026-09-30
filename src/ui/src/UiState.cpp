@@ -32,6 +32,7 @@ juce::ValueTree UiState::createDefault()
     t.setProperty(Ids::flowSelected, 2, nullptr);
     t.setProperty(Ids::soundLayer, 0, nullptr);
     t.setProperty(Ids::locks, "", nullptr);
+    t.setProperty(Ids::nearbyMode, "my_taste", nullptr);
     return t;
 }
 

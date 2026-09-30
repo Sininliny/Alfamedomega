@@ -49,9 +49,9 @@ CustomizeView::CustomizeView(EditorContext& c)
                         ctx.ui.set(I::macroPage, 0);
                     })
 {
-    for (auto* comp : std::initializer_list<juce::Component*>{&themeChoice, &density, &gesture, &valueDisplay,
-                                                              &macrosPerPage, &accent, &scale, &useForNew,
-                                                              &exportButton, &importButton, &learn})
+    for (auto* comp : std::initializer_list<juce::Component*>{
+             &themeChoice, &density, &gesture, &valueDisplay, &macrosPerPage, &accent, &scale, &useForNew,
+             &exportButton, &importButton, &learn, &personalization})
         addAndMakeVisible(comp);
 
     for (int i = 0; i < static_cast<int>(std::size(accents)); ++i)
@@ -90,16 +90,51 @@ CustomizeView::CustomizeView(EditorContext& c)
         addAndMakeVisible(toggle);
     }
 
-    learn.setTooltip(
-        "Keeps a private log of which sounds you play, keep and like, so the control center can learn "
-        "your taste. It stays on this computer. Off by default.");
+    learn.setTooltip("Keeps a private log of how you use sounds, so the control center can learn your taste. "
+                     "It stays on this computer. Off by default.");
     learn.onClick = [this]
     {
-        ctx.host.setLearningEnabled(learn.getToggleState());
+        applyConsent();
         statusText = learn.getToggleState()
                          ? "Learning on. The log stays on this computer; the control center reads it."
                          : "Learning off. Nothing more is logged.";
         repaint();
+    };
+
+    // design.md section 7.1: performance, parameters, suggestions, workflow.
+    const char* const learnTips[] = {
+        "The notes you play: how many, their pitch and their length",
+        "Knob movements after a sound is loaded",
+        "Which sounds you like or dislike with the + and - buttons",
+        "How long you play a sound and whether you keep it in a project",
+    };
+    const char* const learnNames[] = {"Notes I play", "Knob edits", "Likes and dislikes", "Sounds I keep"};
+    for (size_t i = 0; i < learnFrom.size(); ++i)
+    {
+        learnFrom[i].setButtonText(learnNames[i]);
+        learnFrom[i].setTooltip(learnTips[i]);
+        learnFrom[i].onClick = [this]
+        {
+            applyConsent();
+        };
+        addAndMakeVisible(learnFrom[i]);
+    }
+
+    personalization.setSliderStyle(juce::Slider::LinearHorizontal);
+    personalization.setRange(0.0, 100.0, 5.0);
+    personalization.setTextBoxStyle(juce::Slider::TextBoxRight, false, 64, 24);
+    personalization.setTextValueSuffix(" %");
+    personalization.setTitle("Personalization");
+    personalization.setTooltip(
+        "How strongly your taste steers Generate and Randomize nearby. 0 is the plain model.");
+    personalization.onDragEnd = [this]
+    {
+        applyConsent();
+    };
+    personalization.onValueChange = [this]
+    {
+        if (!personalization.isMouseButtonDown())
+            applyConsent();
     };
 
     useForNew.onClick = [this]
@@ -143,11 +178,41 @@ void CustomizeView::syncFromState()
     if (!scale.isMouseButtonDown())
         scale.setValue(ctx.ui.getDouble(I::scale) * 100.0, juce::dontSendNotification);
 
-    learn.setToggleState(ctx.host.learningEnabled(), juce::dontSendNotification);
+    syncLearning();
 
     for (size_t i = 0; i < std::size(panelToggleList); ++i)
         panelToggles[static_cast<int>(i)]->setToggleState(ctx.ui.getBool(*panelToggleList[i].id),
                                                           juce::dontSendNotification);
+}
+
+void CustomizeView::syncLearning()
+{
+    const auto c = ctx.host.learningConsent();
+    learn.setToggleState(c.learn, juce::dontSendNotification);
+    const bool cats[] = {c.performance, c.parameters, c.suggestions, c.workflow};
+    for (size_t i = 0; i < learnFrom.size(); ++i)
+    {
+        // With learning off the categories show what would be learned once on.
+        learnFrom[i].setToggleState(c.learn ? cats[i] : true, juce::dontSendNotification);
+        learnFrom[i].setEnabled(c.learn);
+    }
+    if (!personalization.isMouseButtonDown())
+        personalization.setValue(c.personalization * 100.0, juce::dontSendNotification);
+    learned = ctx.host.learnedSummary();
+    repaint();
+}
+
+void CustomizeView::applyConsent()
+{
+    preference::Consent c;
+    c.learn = learn.getToggleState();
+    c.performance = c.learn && learnFrom[0].getToggleState();
+    c.parameters = c.learn && learnFrom[1].getToggleState();
+    c.suggestions = c.learn && learnFrom[2].getToggleState();
+    c.workflow = c.learn && learnFrom[3].getToggleState();
+    c.personalization = static_cast<float>(personalization.getValue() / 100.0);
+    ctx.host.setLearningConsent(c);
+    syncLearning();
 }
 
 void CustomizeView::valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier& id)
@@ -204,9 +269,26 @@ void CustomizeView::resized()
 {
     const auto gap = gapFor(ctx.ui);
     auto b = getLocalBounds();
-    previewArea = b.removeFromRight(420);
+    auto right = b.removeFromRight(420);
+    previewArea = right.removeFromTop(410);
+    right.removeFromTop(gap);
+    learningArea = right;
     b.removeFromRight(gap);
     settingsArea = b;
+
+    auto l = learningArea.withTrimmedTop(kPanelTitleHeight + 8).reduced(18, 4);
+    learn.setBounds(l.removeFromTop(30));
+    for (size_t i = 0; i < learnFrom.size(); ++i)
+    {
+        const auto col = static_cast<int>(i % 2), line = static_cast<int>(i / 2);
+        learnFrom[i].setBounds(l.getX() + 16 + col * 190, l.getY() + line * 28, 180, 26);
+    }
+    l.removeFromTop(60);
+    auto p = l.removeFromTop(32);
+    personalizationLabel = p.removeFromLeft(130);
+    personalization.setBounds(p.reduced(0, 4));
+    l.removeFromTop(8);
+    learnedArea = l;
 
     rowLabels.clear();
     auto rows = settingsArea.withTrimmedTop(kPanelTitleHeight + 10).reduced(18, 6);
@@ -224,7 +306,6 @@ void CustomizeView::resized()
     row("Knob drag", gesture, 380);
     row("Value display", valueDisplay, 380);
     row("Knobs per page", macrosPerPage, 200);
-    row("Preferences", learn, 380);
 
     rows.removeFromTop(12);
     auto panelsRow = rows.removeFromTop(24);
@@ -262,6 +343,46 @@ void CustomizeView::paint(juce::Graphics& g)
         g.setFont(AlfaLookAndFeel::labelFont(12.5f));
         g.drawText(statusText, settingsArea.reduced(18, 14).removeFromBottom(20),
                    juce::Justification::centredLeft, true);
+    }
+
+    // Learning: shared by every instance, unlike everything on the left.
+    drawPanel(g, t, learningArea, "Learning", "every instance, this computer only");
+    g.setColour(t.text);
+    g.setFont(AlfaLookAndFeel::labelFont(13.0f));
+    g.drawText("Personalization", personalizationLabel, juce::Justification::centredLeft, false);
+    {
+        auto area = learnedArea;
+        g.setColour(t.text);
+        g.setFont(AlfaLookAndFeel::labelFont(12.5f));
+        g.drawText("What Alfamedomega has learned", area.removeFromTop(20), juce::Justification::centredLeft,
+                   false);
+        g.setColour(t.text2);
+        g.setFont(AlfaLookAndFeel::labelFont(12.0f));
+        // The switch lines repeat the toggles above, so only the findings show.
+        juce::StringArray lines;
+        for (const auto& line : learned)
+        {
+            const auto l = line.trim();
+            if (l.isNotEmpty() && !l.startsWith("[") && !l.startsWith("Learning from how you play") &&
+                !l.startsWith("Personalization strength"))
+                lines.add(l);
+        }
+        if (lines.isEmpty())
+            lines.add(
+                "Nothing yet. The control center fits your taste from the log; its summary shows here.");
+
+        g.drawText("To reset or forget what is learned, use the control center.", area.removeFromBottom(18),
+                   juce::Justification::bottomLeft, true);
+        const auto font = g.getCurrentFont();
+        for (const auto& line : lines)
+        {
+            const auto h =
+                juce::GlyphArrangement::getStringWidth(font, line) > static_cast<float>(area.getWidth()) ? 32
+                                                                                                         : 16;
+            if (area.getHeight() < h)
+                break;
+            g.drawFittedText(line, area.removeFromTop(h), juce::Justification::topLeft, h / 16);
+        }
     }
 
     // Preview: the theme's tokens with what each one means.

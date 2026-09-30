@@ -128,6 +128,8 @@ private:
     params::KnobInfo xInfo, yInfo;
     std::array<juce::Point<float>, 2> snapshots{juce::Point<float>{-1.0f, -1.0f}, {-1.0f, -1.0f}};
     juce::TextButton snapA{"A"}, snapB{"B"}, randomize{"Randomize nearby"};
+    juce::ComboBox nearbyMode;
+    juce::String nearbyNote; // why the last randomize used another mode
     ShapeWatcher watcher;
 };
 
@@ -278,6 +280,9 @@ public:
 private:
     void valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier&) override;
     void syncFromState();
+    void syncLearning();
+    void applyConsent();
+    void visibilityChanged() override { syncLearning(); }
     void exportTheme();
     void importTheme();
 
@@ -287,12 +292,15 @@ private:
     juce::Slider scale;
     juce::OwnedArray<juce::ToggleButton> panelToggles;
     juce::ToggleButton learn{"Learn from how I play"};
+    std::array<juce::ToggleButton, 4> learnFrom; // performance, parameters, suggestions, workflow
+    juce::Slider personalization;
+    juce::StringArray learned;
     juce::TextButton useForNew{"Use for new instances"}, exportButton{"Export theme file..."},
         importButton{"Import theme file..."};
     std::unique_ptr<juce::FileChooser> chooser;
     juce::String statusText;
 
-    juce::Rectangle<int> settingsArea, previewArea;
+    juce::Rectangle<int> settingsArea, previewArea, learningArea, personalizationLabel, learnedArea;
     std::vector<std::pair<juce::String, juce::Rectangle<int>>> rowLabels;
 };
 

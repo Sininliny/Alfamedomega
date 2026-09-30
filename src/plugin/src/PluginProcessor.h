@@ -59,6 +59,9 @@ public:
     void loadPreset(int index, bool browsing) override;
     bool learningEnabled() const override { return learning.isOn(); }
     void setLearningEnabled(bool on) override;
+    preference::Consent learningConsent() const override { return learning.consent(); }
+    void setLearningConsent(const preference::Consent& c) override;
+    juce::StringArray learnedSummary() const override { return learning.learnedSummary(); }
     void rateSound(int value) override { recorder->rate(value); }
     int soundRating() const override { return recorder->rating(); }
     params::Tier loadedTier() const override;

@@ -141,6 +141,12 @@ void AlfamedomegaProcessor::setLearningEnabled(bool on)
     recorder->tick();
 }
 
+void AlfamedomegaProcessor::setLearningConsent(const preference::Consent& c)
+{
+    learning.setConsent(c);
+    recorder->tick();
+}
+
 void AlfamedomegaProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     juce::ValueTree root{stateType};

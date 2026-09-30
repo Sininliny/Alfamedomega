@@ -11,7 +11,8 @@
 // The behaviour event log for preference learning (docs/preference/design.md,
 // sections 3.1 and 8.1). Events go to <home>/preference/events/<date>.jsonl in
 // the schema of preference/alfapref/events.py, and only while "Learn from how
-// I play" is on: the learner treats a present log as consent.
+// I play" is on. Each kind of data has its own switch (design.md section 7.1,
+// preference/alfapref/consent.py); a category that is off is not written.
 //
 // Nothing here runs on the audio thread except PlayCounter::process, which only
 // touches atomics.
@@ -22,24 +23,53 @@ namespace alfa::preference
 /// default_home): ALFA_CC_HOME if set, otherwise the platform's app data folder.
 juce::File controlCenterHome();
 
-/// The learning switch, shared by every instance and by the control center:
-/// <home>/preference/plugin.json, {"learn": true|false}. Off unless the file
-/// says on.
+/// What the user lets the learner learn from, as consent.py reads it.
+struct Consent
+{
+    bool learn = false;           // master switch
+    bool performance = false;     // notes played: count, pitch, length
+    bool parameters = false;      // knob edits after a load
+    bool suggestions = false;     // likes and dislikes
+    bool workflow = false;        // play time, sounds kept in a project, the project id
+    float personalization = 1.0f; // 0..1, how strongly taste steers Generate and Randomize nearby
+
+    bool operator==(const Consent&) const = default;
+
+    /// consent.py's normalise(): anything not explicitly true is off, and a
+    /// missing "categories" object means all of them follow "learn".
+    static Consent fromVar(const juce::var& json);
+};
+
+/// The learning switches, shared by every instance and by the control center:
+/// <home>/preference/plugin.json,
+///   {"learn": true, "categories": {"performance": true, ...}, "personalization": 1.0}.
+/// Off unless the file says on.
 class LearningSwitch
 {
 public:
     explicit LearningSwitch(juce::File preferenceFolder = controlCenterHome().getChildFile("preference"));
 
-    bool isOn() const;
+    Consent consent() const;
+    bool isOn() const { return consent().learn; }
+
+    /// Flips the master switch only; the other fields in the file stay.
     void setOn(bool on);
+    /// Writes every switch.
+    void setConsent(const Consent& c);
 
     juce::File eventsFolder() const { return folder.getChildFile("events"); }
 
+    /// The "explain" lines of the newest profile the control center fitted
+    /// (<preference>/profiles/*/summary.json). Empty when nothing is learned yet.
+    juce::StringArray learnedSummary() const;
+
 private:
+    void write(const juce::var& obj);
+
     juce::File folder;
     mutable juce::Time lastChecked;
     mutable juce::Time lastModified;
-    mutable bool cached = false;
+    mutable Consent cached;
 };
 
 /// A sound in the learner's terms: {"method", "pair", "knobs"}.
@@ -147,6 +177,7 @@ private:
     void timerCallback() override { tick(); }
     double now() const;
     bool learning() const;
+    Consent consent() const;
     void emit(const juce::String& type, juce::DynamicObject::Ptr fields = {});
     void startExposure(Source source);
     void endExposure();
