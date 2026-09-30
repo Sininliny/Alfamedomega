@@ -4,6 +4,10 @@ from pathlib import PurePath
 
 FILE_WEIGHT = 1.0
 FOLDER_WEIGHT = 0.5
+# Words the user wrote on purpose count for more than words that happen to be in a path.
+LABEL_WEIGHT = 2.0           # a word the user attached to an example by hand
+TAG_WEIGHT = 1.0             # a tag on a file or preset
+DESCRIPTION_WEIGHT = 0.75    # a word in a free-text description
 
 FILLER = {
     "sample", "samples", "loop", "loops", "oneshot", "one", "shot", "shots", "wav", "wave", "aif",
@@ -62,6 +66,29 @@ def path_words(rel_path):
     for w in words(p.stem):
         tags[w] = max(tags.get(w, 0.0), FILE_WEIGHT)
     return tags
+
+
+def _merge(tags, ws, weight):
+    for w in ws:
+        tags[w] = max(tags.get(w, 0.0), weight)
+
+
+def label_words(labels):
+    """Words from a list of labels or tags ("warm", "Film Score" -> warm, film, score)."""
+    out = []
+    for lab in labels or ():
+        out += words(str(lab))
+    return out
+
+
+def record_words(rel_path=None, tags=(), description="", labels=()):
+    """{word: weight} for one example from every text the user gave it: path (file 1.0, folders
+    0.5), tags 1.0, description 0.75, hand labels 2.0. A word keeps its largest weight."""
+    out = path_words(rel_path) if rel_path else {}
+    _merge(out, label_words(tags), TAG_WEIGHT)
+    _merge(out, words(description or ""), DESCRIPTION_WEIGHT)
+    _merge(out, label_words(labels), LABEL_WEIGHT)
+    return out
 
 
 def parse_query(text):

@@ -3,18 +3,23 @@ together (design.md s4 to s7). A profile is one folder:
 
     profile.json    settings, salt, background descriptors, fitted basis, scorer and word map
     library.jsonl   one entry per library file: salted key, size, mtime, descriptor, words
-    events.jsonl    behaviour log written by the plugin (read only here)
+The behaviour log is written by the plugin under <home>/preference/events and only read here.
+Consent (consent.py) decides which of it is used; `learned` records what was.
 """
 import json
 import os
 import secrets
+import time
 
 import numpy as np
 
+from . import consent as consent_mod
 from . import descriptor as desc_mod
 from . import events as ev_mod
 from . import generate as gen
 from . import library
+from . import textprior
+from . import tokens
 from .model import Basis, PreferenceModel, WordModel, features
 
 VERSION = 1
@@ -44,7 +49,12 @@ class Profile:
         d = data or {}
         self.salt = d.get("salt") or secrets.token_hex(16)
         self.settings = d.get("settings", {"n_background": 512, "d": 24, "lam": 1.0, "beta": 1.0,
-                                           "gamma": 1.0, "learn_from_behaviour": False})
+                                           "gamma": 1.0})
+        # older profiles stored one switch; it meant every kind of behaviour
+        legacy = {"learn": True} if self.settings.pop("learn_from_behaviour", False) else None
+        self.consent = consent_mod.normalise(d.get("consent", legacy))
+        self.learned = d.get("learned", {})
+        self.general_text = None           # optional textprior.GeneralTextModel; none ships
         self.background = [np.asarray(b) for b in d.get("background", [])]
         self.background_methods = d.get("background_methods", [])
         self.basis = Basis.from_dict(d["basis"]) if d.get("basis") else None
@@ -80,7 +90,7 @@ class Profile:
              "basis": self.basis.to_dict() if self.basis else None,
              "model": self.model.to_dict() if self.model else None,
              "words": self.words.to_dict() if self.words else None,
-             "liked": self.liked}
+             "liked": self.liked, "consent": self.consent, "learned": self.learned}
         tmp = os.path.join(self.path, "profile.json.tmp")
         with open(tmp, "w") as f:
             json.dump(d, f)
@@ -122,13 +132,19 @@ class Profile:
         self.background_methods = [p["method"] for p in pats]
 
     # -- fitting
-    def fit(self, renderer, event_log=None, now=None):
-        """Refit basis, scorer and word map from the library index and (if enabled) the log."""
+    def fit(self, renderer, event_log=None, now=None, consent=None):
+        """Refit basis, scorer and word map from the library index and, only as far as the
+        user's consent allows, the behaviour log. `consent` replaces the stored consent."""
+        if consent is not None:
+            self.consent = consent_mod.normalise(consent)
         self.ensure_background(renderer)
-        points, pairs = [], []
-        if event_log is not None and self.settings.get("learn_from_behaviour"):
+        points, pairs, n_exp, n_events = [], [], 0, 0
+        if event_log is not None and self.consent["learn"]:
             evs = ev_mod.read_log(event_log) if isinstance(event_log, str) else event_log
-            points, pairs = ev_mod.labels(ev_mod.exposures(evs), now)
+            evs = consent_mod.filter_events(evs, self.consent)
+            exps = ev_mod.exposures(evs)
+            n_events, n_exp = len(evs), len(exps)
+            points, pairs = ev_mod.labels(exps, now)
         lib_desc = [np.asarray(e["desc"]) for e in self.index]
         pt_desc = [self.describe_patch(p, c, renderer) for p, c, _, _ in points]
         pr_desc = [(self.describe_patch(a, c, renderer), self.describe_patch(b, c, renderer)) for a, b, c, _ in pairs]
@@ -156,34 +172,118 @@ class Profile:
             self.words = None
         liked = sorted([(w, p) for p, _, y, w in points if y > 0], key=lambda t: -t[0])
         self.liked = [p for _, p in liked[:16]]
+        sources = {}
+        for e in self.index:
+            src = e.get("source", "library")
+            sources[src] = sources.get(src, 0) + 1
+        self.learned = {
+            "fitted_at": int(time.time()),
+            "consent": self.consent,
+            "behaviour": {"events": n_events, "sounds_heard": n_exp, "liked": sum(1 for p in points if p[2] > 0),
+                          "disliked": sum(1 for p in points if p[2] < 0), "comparisons": len(pairs)},
+            "examples": sources,
+            "vocabulary": len(self.words.words) if self.words else 0,
+        }
         return {"library": len(lib_desc), "points": len(points), "pairs": len(pairs),
                 "background": len(self.background)}
+
+    # -- what is learned, and removing it
+    def explain(self):
+        """Plain-language summary of what this profile holds, for the UI and the CLI."""
+        lines = consent_mod.describe(self.consent)
+        b = self.learned.get("behaviour", {})
+        if self.consent["learn"]:
+            lines.append("From behaviour: %d sounds heard, %d liked, %d disliked, %d comparisons."
+                         % (b.get("sounds_heard", 0), b.get("liked", 0), b.get("disliked", 0),
+                            b.get("comparisons", 0)))
+        ex = self.learned.get("examples", {})
+        if ex:
+            lines.append("Examples: " + ", ".join("%d %s" % (n, k) for k, n in sorted(ex.items())))
+        if self.words:
+            top = sorted(self.words.words.items(), key=lambda kv: -kv[1]["n"])[:12]
+            lines.append("Your words (%d): %s" % (len(self.words.words), ", ".join(w for w, _ in top)))
+        lines.append("Stored: descriptors (numbers), words and model weights. No audio, file names or paths.")
+        return lines
+
+    def reset(self, keep_library=True):
+        """Forget everything learned. With keep_library the scanned examples stay (they are only
+        numbers and words) but the model and word map are cleared until the next fit."""
+        self.model, self.words, self.liked, self.learned = None, None, [], {}
+        if not keep_library:
+            self.index = []
+
+    def forget_word(self, word):
+        """Remove one word from every example, so it stops meaning anything."""
+        for e in self.index:
+            e["words"].pop(word, None)
+        if self.words:
+            self.words.words.pop(word, None)
+
+    def label(self, path, labels):
+        """Hand-label one audio example with the user's own words."""
+        self.index = library.label_example(path, labels, self.salt, self.index)
 
     # -- scoring and generation
     def z(self, patch, ctx, renderer):
         return self.basis(self.describe_patch(patch, ctx, renderer))[0]
 
-    def score_fn(self, renderer, ctx=NO_CTX, text=None, theta=None, gamma=None):
+    def parse_text(self, text):
+        """([(word, sign)] the user has used, [(word, sign)] they have not)."""
+        known = set(self.words.words) if self.words else set()
+        q = tokens.parse_query(text or "")
+        return [t for t in q if t[0] in known], [t for t in q if t[0] not in known]
+
+    def score_fn(self, renderer, ctx=NO_CTX, text=None, theta=None, gamma=None, taste=1.0):
+        """Scores patches by taste (scaled by `taste`) plus the text query. Only the user's own
+        words count, unless a general text model is attached, which then covers unknown words."""
         gamma = self.settings["gamma"] if gamma is None else gamma
-        parsed = self.words.query(text)[0] if (text and self.words) else []
+        parsed, unknown = self.parse_text(text)
+        general = self.general_text
 
         def fn(patches):
             out = []
             for p in patches:
                 z = self.z(p, ctx, renderer)
-                s = self.model.score(z, p["method"], ctx, theta)
-                if parsed:
-                    s += gamma * self.words.query_score(z, parsed)
+                s = taste * self.model.score(z, p["method"], ctx, theta) if self.model else 0.0
+                if parsed or (unknown and general):
+                    dsc = self.describe_patch(p, ctx, renderer)
+                    s += gamma * textprior.text_score(self.words, z, dsc, parsed, unknown, general)
                 out.append(s)
             return out
         return fn
+
+    def randomize_nearby(self, patch, renderer, mode=None, ctx=NO_CTX, k=8, n=64, seed=0, community=None):
+        """'Randomize nearby' (design.md s6.5). mode: my_taste (default), model, community, wild.
+        community: a Profile fitted on aggregated community data, if the user has one; without it
+        community mode explores the model space and says so. Returns (proposals, mode used)."""
+        mode = mode or gen.DEFAULT_NEARBY
+        if mode not in gen.NEARBY_MODES:
+            raise ValueError("unknown mode %r; use one of %s" % (mode, ", ".join(gen.NEARBY_MODES)))
+        cfg = gen.NEARBY_MODES[mode]
+        used, fn, liked = mode, None, ()
+        pers = self.consent["personalization"]
+        if cfg["scorer"] == "personal":
+            if self.model is None or pers == 0:
+                used = "model"
+            else:
+                fn, liked = self.score_fn(renderer, ctx, taste=pers), self.liked
+        elif cfg["scorer"] == "community":
+            if community is None or community.model is None:
+                used = "model"
+            else:
+                fn = community.score_fn(renderer, ctx)
+        beta = cfg["beta"] * (pers if cfg["scorer"] == "personal" else 1.0)
+        rng = np.random.default_rng(seed)
+        props = gen.nearby(patch, fn, rng, k=k, n=n, sigma=cfg["sigma"], beta=beta if fn else 0.0,
+                           pull=cfg["pull"] if fn else 0.0, liked=liked)
+        return [{"patch": p, "score": s, "origin": o} for p, s, o in props], used
 
     def generate(self, renderer, ctx=NO_CTX, text=None, k=8, n=256, beta=None, seed=0, cem_iters=0,
                  thompson=True, methods=None):
         rng = np.random.default_rng(seed)
         beta = self.settings["beta"] if beta is None else beta
         theta = self.model.sample_theta(rng) if thompson else None
-        fn = self.score_fn(renderer, ctx, text, theta)
+        fn = self.score_fn(renderer, ctx, text, theta, taste=self.consent["personalization"])
         props = gen.propose(fn, rng, n=n, k=k, beta=beta, seeds=self.liked, cem_iters=cem_iters,
                             methods=methods)
         out = []

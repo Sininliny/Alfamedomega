@@ -1,4 +1,3 @@
-import shlex
 import shutil
 import sys
 from pathlib import Path
@@ -32,7 +31,7 @@ def test_repo_folder_locates_script_learner_and_venv(repo):
     s = Settings(repo_dir=str(repo))
     assert s.resolved_training_script() == str(repo / "training" / "alfamedomega_train.py")
     assert s.resolved_training_python() == str(venv)
-    assert shlex.split(s.resolved_preference_learner()) == [str(venv), str(repo / "preference" / "learner.py")]
+    assert settings.split_command(s.resolved_preference_learner()) == [str(venv), str(repo / "preference" / "learner.py")]
     s.preference_learner = "custom --flag"
     assert s.resolved_preference_learner() == "custom --flag"
 
@@ -75,7 +74,7 @@ def test_models_folder_matches_the_inference_host(monkeypatch, platform, env, ex
     for k, v in env.items():
         monkeypatch.setenv(k, v)
     monkeypatch.setattr(sys, "platform", platform)
-    assert str(settings.default_models_dir()) == expected
+    assert settings.default_models_dir() == Path(expected)
 
 
 def test_linux_models_folder_defaults_to_local_share(monkeypatch):

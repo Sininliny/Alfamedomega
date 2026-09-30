@@ -17,7 +17,6 @@ import importlib.util
 import json
 import os
 import re
-import shlex
 import shutil
 import struct
 import subprocess
@@ -26,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import jobs
-from .settings import find_in_checkout, write_json_atomic
+from .settings import find_in_checkout, split_command, write_json_atomic
 
 AUDIO_SUFFIXES = {".wav", ".wave", ".aif", ".aiff", ".flac", ".mp3", ".ogg"}
 
@@ -276,7 +275,7 @@ class PreferenceStore:
 
 def learner_argv(learner: str, store: PreferenceStore, out: Path, assimilation: Path | None = None) -> list:
     """The call to the preference learner (contract in docs/control-center/preference-batch.md)."""
-    argv = [*shlex.split(learner, posix=os.name != "nt"), "batch",
+    argv = [*split_command(learner), "batch",
             "--index", str(store.index_path), "--events", str(store.events_dir)]
     if assimilation is not None:
         argv += ["--assimilation", str(assimilation)]
@@ -292,7 +291,7 @@ def assimilation_for(home: Path, learner: str) -> Path | None:
     folder = Path(home) / "assimilation"
     if not any(folder.glob("*/features.jsonl")):
         return None
-    scripts = [t for t in shlex.split(learner, posix=os.name != "nt") if t.endswith(".py")]
+    scripts = [t for t in split_command(learner) if t.endswith(".py")]
     if not scripts:
         return None
     # learner.py is a thin launcher; the flag itself is defined in alfapref/cli.py next to it.
@@ -340,7 +339,7 @@ def _no_learner(args: dict, log) -> dict:
 def run_learner_check(learner: str) -> str | None:
     """Return None if the learner command starts, else the reason it doesn't."""
     try:
-        r = subprocess.run([*shlex.split(learner, posix=os.name != "nt"), "--help"],
+        r = subprocess.run([*split_command(learner), "--help"],
                            capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired, ValueError) as e:
         return str(e)

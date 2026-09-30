@@ -7,11 +7,13 @@ Python 3.9+ and NumPy only, no torch, so it runs on any machine and on Colab.
 | Module | Design section | What it does |
 |---|---|---|
 | `alfapref/descriptor.py` | 2 | 134-number timbre descriptor from audio, same log-mel front end as training |
+| `alfapref/consent.py` | 7.1 | opt-in switches per kind of data, filtering the log, plain-language summary |
 | `alfapref/events.py` | 3.1 | plugin behaviour log schema, exposures, weak labels and pairs |
 | `alfapref/library.py` | 3.2, 7 | WAV reader, incremental library scan that stores no audio and no paths |
-| `alfapref/tokens.py` | 5 | words from file and folder names, query parsing |
+| `alfapref/tokens.py` | 5 | the user's words from names, tags, descriptions and hand labels; query parsing |
+| `alfapref/textprior.py` | 5.4 | hook for an optional general text model (none ships) |
 | `alfapref/model.py` | 2, 4, 5 | basis, contextual preference scorer (Newton + Laplace), word map |
-| `alfapref/generate.py` | 6 | training prior, "randomize nearby", Gumbel top-k, cross-entropy refinement |
+| `alfapref/generate.py` | 6 | training prior, "randomize nearby" modes, Gumbel top-k, cross-entropy refinement |
 | `alfapref/profile.py` | 4–7 | a user's local profile folder, fit and generate |
 | `alfapref/renderers.py` | 6.2 | preview renderer interface and a NumPy stand-in synth |
 | `alfapref/simulate.py` | 9 | simulated user with a hidden taste |
@@ -24,12 +26,20 @@ From this folder:
 python -m unittest discover tests              # ~5 s; ALFA_SLOW=1 adds the simulated user
 python -m alfapref init --profile ~/amo-profile
 python -m alfapref scan --profile ~/amo-profile ~/Samples/MyPads
-python -m alfapref fit --profile ~/amo-profile                     # add --events log.jsonl --behaviour on
+python -m alfapref label --profile ~/amo-profile ~/Samples/x.wav lonely cinematic
+python -m alfapref fit --profile ~/amo-profile                     # add --events DIR --behaviour on
+python -m alfapref explain --profile ~/amo-profile                 # what is learned and stored
+python -m alfapref reset --profile ~/amo-profile                   # forget it (--all: examples too)
 python -m alfapref words --profile ~/amo-profile                   # the vocabulary it learned
 python -m alfapref generate --profile ~/amo-profile --text "warm not dark" --context bass -k 8
+python -m alfapref nearby --profile ~/amo-profile --patch patch.json --mode my_taste
 python -m alfapref simulate                                         # learning curve, ~1 min
-python learner.py batch --index IDX.jsonl --events EVENTS_DIR [--assimilation ASSIM_DIR] --out OUT
+python learner.py batch --index IDX.jsonl --events EVENTS_DIR [--consent plugin.json] \
+    [--assimilation ASSIM_DIR] [--labels LABELS.jsonl] [--presets PRESETS.jsonl] --out OUT
 ```
+
+Behaviour learning is off unless the user turns it on (`{"learn": true}` in
+`<home>/preference/plugin.json`, found next to the events folder, or `fit --behaviour on`).
 
 `learner.py` runs the same commands from any working directory; it is the command the control
 center calls (design section 8.3).
