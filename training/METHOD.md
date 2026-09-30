@@ -126,8 +126,16 @@ Off, no routes), which the DSP renders as the v1 instrument. The plan, for revie
    so routes start empty and are trained from teacher programs that use them (fast vibrato,
    snappy filter envelopes).
 
-This needs a Python binding of `Synth` (asked of the DSP thread) and new export outputs on
-patch_encoder, voice_core and instance_step (to be agreed with the inference thread).
+**Export names (agreed with the inference host).** Slot and mod outputs are sub-fields that the
+host scatters at the 28-float slot stride: `slots.family [S]`, `slots.out_gain [S]`,
+`slots.params [S×16]`, `slots.input [S×10]`, and `mod.sources [24]`, `mod.route_source [R]`,
+`mod.route_destination [R]`, `mod.route_depth [R]`, each a prefix within its own sub-field.
+InstanceFrame outputs carry an `instance.` prefix (`instance.slots.family`,
+`instance.master_gain`, and so on). patch_encoder outputs [1,…] are held per patch and written
+into every frame. voice_core outputs [V,…] go in per voice before the method experts, so an
+expert's output wins on a shared field. instance_step outputs [1,…] fill one InstanceFrame per
+hop. Any output that is not hidden, state_out, context or embedding must be one of these names.
+The rendering side uses the DSP's ctypes binding of `Synth` (`src/dsp/tools/alfa_dsp_py`).
 
 ## 3. Method experts and their builders
 
