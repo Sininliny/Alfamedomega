@@ -1,8 +1,10 @@
 """Everything a front end (CLI or GUI) needs, built once from the user's home folder."""
 
+import os
 from pathlib import Path
 
 from . import training  # noqa: F401  (registers the install_export job action)
+from .assimilate import harvest
 from .jobs import JobManager
 from .models import ModelStore
 from .preference import PreferenceStore, use_repo
@@ -39,6 +41,17 @@ class Context:
     @property
     def runs_dir(self) -> Path:
         return self.settings.resolved_runs_dir(self.home)
+
+    @property
+    def render_host(self) -> str:
+        return harvest.find_render_host(self.settings.render_host)
+
+    @property
+    def assimilation(self) -> "harvest.AssimilationStore":
+        return harvest.AssimilationStore(self.home)
+
+    def plugin_folders(self) -> list:
+        return [p for p in self.settings.plugin_folders.split(os.pathsep) if p.strip()]
 
     def save_settings(self) -> None:
         save_settings(self.home, self.settings)

@@ -61,6 +61,27 @@ class JobCancelled(Exception):
     pass
 
 
+class StepTimeout(RuntimeError):
+    pass
+
+
+_current = threading.local()
+
+
+def spawn(argv, log, cwd=None, timeout: float | None = None, label: str | None = None) -> None:
+    """Run a command from inside a job action, with the job's log, cancel and an optional timeout.
+
+    Outside a job (tests, the CLI calling an action directly) it just runs the command.
+    """
+    step = cmd_step(argv, cwd=cwd, label=label)
+    ctx = getattr(_current, "job", None)
+    if ctx is None:
+        JobManager._run_standalone(step, log, timeout)
+    else:
+        manager, job_id = ctx
+        manager._run_cmd(job_id, step, log, timeout)
+
+
 class JobManager:
     def __init__(self, home: Path):
         self.dir = Path(home) / "jobs"
@@ -224,6 +245,7 @@ class JobManager:
                 last_save[0] = time.time()
                 self._save(job)
 
+        _current.job = (self, job_id)
         try:
             for i, step in enumerate(job["steps"]):
                 if job_id in self._cancel:
@@ -251,6 +273,7 @@ class JobManager:
             job["error"] = str(e) or type(e).__name__
             log(traceback.format_exc())
         finally:
+            _current.job = None
             self._release(job_id)
             job["finished"] = _now()
             job["heartbeat"] = time.time()
@@ -259,26 +282,58 @@ class JobManager:
             self._cancel.discard(job_id)
         return job
 
-    def _run_cmd(self, job_id: str, step: dict, log) -> None:
+    @staticmethod
+    def _popen(step: dict):
         env = {**os.environ, "PYTHONUNBUFFERED": "1", **step.get("env", {})}
-        log("$ " + subprocess.list2cmdline(step["argv"]))
         flags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
-        with self._lock:
-            if job_id in self._cancel:
-                raise JobCancelled()
-            proc = subprocess.Popen(step["argv"], cwd=step.get("cwd"), env=env,
-                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                    text=True, encoding="utf-8", errors="replace",
-                                    creationflags=flags)
-            self._proc = proc
+        return subprocess.Popen(step["argv"], cwd=step.get("cwd"), env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, encoding="utf-8", errors="replace",
+                                creationflags=flags)
+
+    @staticmethod
+    def _pump(proc, step: dict, log, timeout: float | None) -> None:
+        timed_out = threading.Event()
+        timer = None
+        if timeout:
+            def kill():
+                timed_out.set()
+                proc.kill()
+            timer = threading.Timer(timeout, kill)
+            timer.daemon = True
+            timer.start()
         try:
             for line in proc.stdout:
                 log(line)
             rc = proc.wait()
         finally:
+            if timer:
+                timer.cancel()
+        if timed_out.is_set():
+            raise StepTimeout(f"{step['label']} did not finish within {timeout:.0f} s and was stopped")
+        if rc != 0:
+            raise RuntimeError(f"{step['label']} exited with code {rc}")
+
+    @classmethod
+    def _run_standalone(cls, step: dict, log, timeout: float | None) -> None:
+        log("$ " + subprocess.list2cmdline(step["argv"]))
+        cls._pump(cls._popen(step), step, log, timeout)
+
+    def _run_cmd(self, job_id: str, step: dict, log, timeout: float | None = None) -> None:
+        log("$ " + subprocess.list2cmdline(step["argv"]))
+        with self._lock:
+            if job_id in self._cancel:
+                raise JobCancelled()
+            proc = self._popen(step)
+            self._proc = proc
+        try:
+            self._pump(proc, step, log, timeout)
+        except RuntimeError:
+            if job_id in self._cancel:
+                raise JobCancelled() from None
+            raise
+        finally:
             with self._lock:
                 self._proc = None
         if job_id in self._cancel:
             raise JobCancelled()
-        if rc != 0:
-            raise RuntimeError(f"{step['label']} exited with code {rc}")

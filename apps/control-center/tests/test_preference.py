@@ -106,3 +106,26 @@ def test_batch_without_learner_still_indexes(tmp_path, ctx):
     assert done["status"] == jobs.SUCCEEDED
     assert done["result"]["learner"] == "not configured"
     assert ctx.prefs.vocabulary()["labels"]["airy"] == 1
+
+
+def test_batch_passes_assimilated_plugins_only_to_a_learner_that_reads_them(tmp_path):
+    from alfacc import jobs as jobs_mod
+    from alfacc.preference import create_batch_job
+    home = tmp_path / "home"
+    (home / "assimilation" / "vendor-synth-vst3").mkdir(parents=True)
+    (home / "assimilation" / "vendor-synth-vst3" / "features.jsonl").write_text("{}\n")
+    new, old = tmp_path / "learner.py", tmp_path / "old_learner.py"
+    new.write_text('p.add_argument("--assimilation")\n')
+    old.write_text("# no such flag\n")
+    manager = jobs_mod.JobManager(home)
+    job = create_batch_job(manager, home, f"python {new}")  # no libraries: plugin notes are enough
+    argv = job["steps"][1]["argv"]
+    assert argv[argv.index("--assimilation") + 1] == str(home / "assimilation")
+    with pytest.raises(ValueError):
+        create_batch_job(manager, home, f"python {old}")
+    # The real learner.py is a launcher; the flag lives in alfapref/cli.py beside it.
+    launcher = tmp_path / "repo" / "learner.py"
+    (launcher.parent / "alfapref").mkdir(parents=True)
+    launcher.write_text("from alfapref.cli import main\n")
+    (launcher.parent / "alfapref" / "cli.py").write_text('p.add_argument("--assimilation")\n')
+    assert "--assimilation" in create_batch_job(manager, home, f"python {launcher}")["steps"][1]["argv"]

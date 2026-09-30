@@ -274,23 +274,50 @@ class PreferenceStore:
             shutil.rmtree(d, ignore_errors=True)
 
 
-def learner_argv(learner: str, store: PreferenceStore, out: Path) -> list:
+def learner_argv(learner: str, store: PreferenceStore, out: Path, assimilation: Path | None = None) -> list:
     """The call to the preference learner (contract in docs/control-center/preference-batch.md)."""
-    return [*shlex.split(learner, posix=os.name != "nt"), "batch",
-            "--index", str(store.index_path), "--events", str(store.events_dir),
-            "--out", str(out)]
+    argv = [*shlex.split(learner, posix=os.name != "nt"), "batch",
+            "--index", str(store.index_path), "--events", str(store.events_dir)]
+    if assimilation is not None:
+        argv += ["--assimilation", str(assimilation)]
+    return argv + ["--out", str(out)]
+
+
+def assimilation_for(home: Path, learner: str) -> Path | None:
+    """<home>/assimilation when it holds analysed plugin notes and the learner reads them.
+
+    Older learners reject unknown flags, so the flag is passed only when the learner script
+    or its alfapref/cli.py mentions it (docs/control-center/plugin-assimilation.md, section 10).
+    """
+    folder = Path(home) / "assimilation"
+    if not any(folder.glob("*/features.jsonl")):
+        return None
+    scripts = [t for t in shlex.split(learner, posix=os.name != "nt") if t.endswith(".py")]
+    if not scripts:
+        return None
+    # learner.py is a thin launcher; the flag itself is defined in alfapref/cli.py next to it.
+    script = Path(scripts[-1])
+    for source in (script, script.parent / "alfapref" / "cli.py"):
+        try:
+            if "--assimilation" in source.read_text(encoding="utf-8"):
+                return folder
+        except OSError:
+            continue
+    return None
 
 
 def create_batch_job(manager: jobs.JobManager, home: Path, learner: str) -> dict:
     """Scan the libraries, then run the preference learner on the index, as one job."""
     store = PreferenceStore(home)
-    if not any(lib.get("enabled", True) for lib in store.libraries()):
+    assimilation = assimilation_for(home, learner) if learner else None
+    if not any(lib.get("enabled", True) for lib in store.libraries()) and assimilation is None:
         raise ValueError("add at least one library folder first")
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out = store.profiles_dir / stamp
     steps = [jobs.action_step("preference_scan", label="Index libraries", home=str(home))]
     if learner:
-        steps.append(jobs.cmd_step(learner_argv(learner, store, out), label="Learn preferences"))
+        steps.append(jobs.cmd_step(learner_argv(learner, store, out, assimilation),
+                                   label="Learn preferences"))
     else:
         steps.append(jobs.action_step("preference_no_learner", label="Learn preferences"))
     return manager.create("preference", "Adaptive Preference Learning batch", steps,

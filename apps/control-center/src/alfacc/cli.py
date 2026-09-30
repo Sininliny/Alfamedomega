@@ -7,6 +7,8 @@ from dataclasses import asdict, fields
 from pathlib import Path
 
 from . import __version__
+from .assimilate.harvest import create_assimilation_job, create_scan_job, host_formats
+from .assimilate.plans import DENSITIES, custom_density, estimate
 from .context import Context
 from .jobs import SUCCEEDED
 from .models import ModelStoreError, model_bytes
@@ -140,6 +142,77 @@ def cmd_pref(ctx: Context, a) -> int:
     return 0
 
 
+def _pick_plugin(ctx: Context, query: str) -> dict:
+    """A scanned instrument by uid, or by a name that matches only one."""
+    plugins = ctx.assimilation.instruments()
+    exact = [p for p in plugins if p["uid"] == query]
+    hits = exact or [p for p in plugins if query.lower() in p["name"].lower()]
+    if len(hits) == 1:
+        return hits[0]
+    if not hits:
+        raise ValueError(f"no scanned instrument matches {query!r}; run 'alfa-cc plugins scan' first")
+    raise ValueError(f"{query!r} matches {len(hits)} plugins: " + ", ".join(f"{p['name']} ({p['format']})"
+                                                                         for p in hits))
+
+
+def _density(a):
+    if a.step is None and not a.velocities and not a.durations:
+        return DENSITIES[a.density]
+    vel = [int(v) for v in a.velocities.split(",")] if a.velocities else None
+    dur = [float(d) for d in a.durations.split(",")] if a.durations else None
+    return custom_density(a.density, a.step, vel, dur)
+
+
+def cmd_plugins(ctx: Context, a) -> int:
+    store = ctx.assimilation
+    if a.action == "discover":
+        formats = host_formats(ctx.render_host) if ctx.render_host else ["VST3"]
+        cat = store.discover(formats, ctx.plugin_folders())
+        for f in cat["files"]:
+            mark = "ok " if f["loadable"] else "-- "
+            note = f"  ({f['reason']}{'; twin: ' + f['twin'] if f['twin'] else ''})" if f["reason"] else ""
+            print(f"  {mark}{f['format']:<5} {f['name']:<32} {f['path']}{note}")
+        print(f"{sum(f['loadable'] for f in cat['files'])} of {len(cat['files'])} plugin files can be opened")
+    elif a.action == "scan":
+        files = a.files
+        if not files:
+            cat = store.catalog() if store.catalog()["files"] else store.discover(
+                host_formats(ctx.render_host) if ctx.render_host else ["VST3"], ctx.plugin_folders())
+            files = [f["path"] for f in cat["files"] if f["loadable"]]
+        return _run_job(ctx, create_scan_job(ctx.jobs, ctx.home, ctx.render_host, files), a.quiet)
+    elif a.action == "list":
+        for row in store.summary():
+            print(f"  {row['name']:<28} {row['format']:<5} {row['vendor']:<20} "
+                  f"{row['harvested']}/{row['presets']} presets, {row['renders']} renders   {row['uid']}")
+    elif a.action == "presets":
+        plugin = _pick_plugin(ctx, a.plugin)
+        res = store.results(plugin)
+        for ref in store.presets_for(plugin):
+            r = res.get(ref.key, {})
+            rng = r.get("range") or r.get("status", "")
+            print(f"  {ref.key:<8} {ref.name:<36} {r.get('status', 'new'):<10} {rng}")
+    elif a.action == "estimate":
+        plugin = _pick_plugin(ctx, a.plugin)
+        n = len(a.presets.split(",")) if a.presets else len(store.presets_for(plugin))
+        for d in ([_density(a)] if a.density_given else DENSITIES.values()):
+            print(f"  {d.label:<13} {estimate(n, d).text()}")
+    elif a.action == "assimilate":
+        plugin = _pick_plugin(ctx, a.plugin)
+        job = create_assimilation_job(ctx.jobs, ctx.home, plugin["uid"], _density(a), ctx.render_host,
+                                      ctx.python, ctx.settings.resolved_descriptor(),
+                                      a.presets.split(",") if a.presets else None, a.keep_audio)
+        return _run_job(ctx, job, a.quiet)
+    elif a.action == "show":
+        plugin = _pick_plugin(ctx, a.plugin)
+        for rec in store.features(plugin, a.preset):
+            rec.pop("descriptor", None)
+            print(json.dumps(rec))
+    elif a.action == "forget":
+        store.forget(_pick_plugin(ctx, a.plugin) if a.plugin else None)
+        print("deleted what was learned from " + (a.plugin or "all plugins"))
+    return 0
+
+
 def cmd_jobs(ctx: Context, a) -> int:
     if a.action == "list":
         for j in ctx.jobs.list()[: a.limit]:
@@ -231,6 +304,38 @@ def build_parser() -> argparse.ArgumentParser:
     psub.add_parser("forget", help="delete everything learned from your libraries")
     p.set_defaults(fn=cmd_pref)
 
+    g = sub.add_parser("plugins", help="Local Plugin Assimilation: learn from your own instruments")
+    gsub = g.add_subparsers(dest="action", required=True)
+    gsub.add_parser("discover", help="find installed plugin files and say which can be opened")
+    gs = gsub.add_parser("scan", help="open plugin files (all loadable ones by default)")
+    gs.add_argument("files", nargs="*")
+    gs.add_argument("--quiet", action="store_true")
+    gsub.add_parser("list", help="scanned instruments and what was learned from them")
+    gp = gsub.add_parser("presets")
+    gp.add_argument("plugin", help="uid or part of the name")
+
+    def density_args(parser):
+        parser.add_argument("--density", choices=list(DENSITIES), default="normal")
+        parser.add_argument("--step", type=int, help="semitones between keys (overrides the density)")
+        parser.add_argument("--velocities", help="comma-separated, e.g. 40,80,120")
+        parser.add_argument("--durations", help="held seconds, comma-separated, e.g. 0.25,1,4")
+        parser.add_argument("--presets", help="preset keys from 'plugins presets', comma-separated")
+
+    ge = gsub.add_parser("estimate", help="how many renders each density means")
+    ge.add_argument("plugin")
+    density_args(ge)
+    ga = gsub.add_parser("assimilate", help="find ranges, render and analyse")
+    ga.add_argument("plugin")
+    density_args(ga)
+    ga.add_argument("--keep-audio", action="store_true", help="keep the rendered WAV files")
+    ga.add_argument("--quiet", action="store_true")
+    gw = gsub.add_parser("show", help="print the analysed notes (JSON lines)")
+    gw.add_argument("plugin")
+    gw.add_argument("--preset")
+    gf = gsub.add_parser("forget", help="delete what was learned from one plugin, or all")
+    gf.add_argument("plugin", nargs="?")
+    g.set_defaults(fn=cmd_plugins)
+
     j = sub.add_parser("jobs", help="job history")
     jsub = j.add_subparsers(dest="action", required=True)
     jl = jsub.add_parser("list")
@@ -245,7 +350,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
+    argv = sys.argv[1:] if argv is None else list(argv)
     a = build_parser().parse_args(argv)
+    a.density_given = "--density" in argv
     ctx = Context(a.home, a.models_dir)
     try:
         return a.fn(ctx, a)

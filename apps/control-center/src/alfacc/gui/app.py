@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from .. import __version__, jobs
+from ..assimilate.harvest import create_assimilation_job, create_scan_job, host_formats
+from ..assimilate.plans import DENSITIES, estimate
 from ..context import Context
 from ..models import BUNDLE_SUFFIX, ModelStoreError, model_bytes
 from ..preference import create_batch_job
@@ -602,6 +604,216 @@ class PreferencePage(Page):
             self.refresh()
 
 
+# ---------------------------------------------------------------------- Plugins
+
+class PluginsPage(Page):
+    """Local Plugin Assimilation: pick installed instruments, render their presets, learn timbres."""
+
+    def __init__(self, win):
+        super().__init__(win, "Plugin assimilation",
+                         "Learn the sounds of instruments you already own. Each preset is played "
+                         "across its playable range, and the recordings are analysed into timbre "
+                         "features on this computer. Audio is deleted after analysis unless you keep it.")
+        f, lay = card()
+        head = QHBoxLayout()
+        head.addWidget(label("Installed plugins", "h2"))
+        head.addStretch(1)
+        head.addWidget(button("Find plugins", self.discover, tip="Look in the standard plugin folders"))
+        self.scan_btn = button("Open selected", self.scan, "primary",
+                               "Open each ticked plugin in a separate process and list its presets")
+        head.addWidget(self.scan_btn)
+        lay.addLayout(head)
+        self.files = table(["Use", "Plugin", "Format", "Status"])
+        self.files.setMinimumHeight(180)
+        lay.addWidget(self.files)
+        self.host_note = label("", "muted", wrap=True)
+        lay.addWidget(self.host_note)
+        self.lay.addWidget(f)
+
+        f, lay = card()
+        head = QHBoxLayout()
+        head.addWidget(label("Assimilate", "h2"))
+        head.addStretch(1)
+        head.addWidget(button("Forget this plugin…", self.forget, "danger",
+                              "Delete the ranges and features learned from this plugin"))
+        lay.addLayout(head)
+        row = QHBoxLayout()
+        self.plugin = QComboBox()
+        self.plugin.currentIndexChanged.connect(self.fill_presets)
+        row.addWidget(label("Instrument"))
+        row.addWidget(self.plugin, 1)
+        lay.addLayout(row)
+        self.presets = table(["Use", "Preset", "Range", "Status"])
+        self.presets.setMinimumHeight(200)
+        self.presets.itemChanged.connect(lambda _it: self.update_estimate())
+        lay.addWidget(self.presets)
+        row = QHBoxLayout()
+        row.addWidget(label("Density"))
+        self.density = QComboBox()
+        for d in DENSITIES.values():
+            self.density.addItem(d.label, d.name)
+        self.density.setCurrentIndex(1)
+        self.density.currentIndexChanged.connect(lambda _i: self.update_estimate())
+        row.addWidget(self.density)
+        self.keep_audio = QCheckBox("Keep audio")
+        row.addWidget(self.keep_audio)
+        row.addStretch(1)
+        self.start_btn = button("Start", self.assimilate, "primary",
+                                "Find each preset's playable range, then render and analyse it")
+        row.addWidget(self.start_btn)
+        lay.addLayout(row)
+        self.estimate = label("", "muted", wrap=True)
+        lay.addWidget(self.estimate)
+        self.lay.addWidget(f)
+        self.lay.addStretch(1)
+        self._filling = False
+        self.refresh()
+
+    # -- installed plugin files
+
+    def refresh(self):
+        store = self.ctx.assimilation
+        cat = store.catalog()
+        host = self.ctx.render_host
+        self.host_note.setText(
+            f"Render host: {host}. VST3 plugins open on every system and Audio Units on macOS. "
+            "AAX plugins only open in Pro Tools, so use the VST3 or AU version of the same instrument."
+            if host else "The render host (alfa-render-host) wasn't found. Set it in Settings.")
+        self._filling = True
+        files = cat["files"]
+        failed = cat.get("failed", {})
+        scanned = {p["file"] for p in cat["plugins"].values()}
+        self.files.setRowCount(len(files))
+        for r, fl in enumerate(files):
+            use = QTableWidgetItem()
+            flags = Qt.ItemIsEnabled | Qt.ItemIsSelectable
+            use.setFlags(flags | Qt.ItemIsUserCheckable if fl["loadable"] else flags)
+            use.setCheckState(Qt.Checked if fl["loadable"] and fl["path"] not in scanned else Qt.Unchecked)
+            use.setData(Qt.UserRole, fl["path"])
+            self.files.setItem(r, 0, use)
+            self.files.setItem(r, 1, item(fl["name"]))
+            self.files.setItem(r, 2, item(fl["format"]))
+            if fl["path"] in failed:
+                status = "Failed to open: " + failed[fl["path"]]["error"]
+            elif fl["path"] in scanned:
+                status = "Opened"
+            elif fl["loadable"]:
+                status = "Can open"
+            else:
+                status = fl["reason"] + (" (a loadable version is installed)" if fl["twin"] else "")
+            self.files.setItem(r, 3, item(status))
+        self.files.resizeColumnsToContents()
+        self._filling = False
+        self.scan_btn.setEnabled(bool(host) and any(fl["loadable"] for fl in files))
+
+        current = self.plugin.currentData()
+        self.plugin.blockSignals(True)
+        self.plugin.clear()
+        for p in sorted(store.instruments(), key=lambda p: p["name"].lower()):
+            self.plugin.addItem(f"{p['name']} ({p['format']}, {p.get('vendor', '')})", p["uid"])
+        if current:
+            self.plugin.setCurrentIndex(max(0, self.plugin.findData(current)))
+        self.plugin.blockSignals(False)
+        self.fill_presets()
+
+    def discover(self):
+        host = self.ctx.render_host
+        try:
+            formats = host_formats(host) if host else ["VST3"]
+        except RuntimeError as e:
+            return self.win.error(f"The render host didn't start: {e}")
+        self.ctx.assimilation.discover(formats, self.ctx.plugin_folders())
+        self.refresh()
+
+    def scan(self):
+        files = [self.files.item(r, 0).data(Qt.UserRole) for r in range(self.files.rowCount())
+                 if self.files.item(r, 0).checkState() == Qt.Checked]
+        try:
+            job = create_scan_job(self.ctx.jobs, self.ctx.home, self.ctx.render_host, files)
+        except ValueError as e:
+            return self.win.error(str(e))
+        self.start(job)
+
+    # -- presets of one instrument
+
+    def _plugin(self):
+        uid = self.plugin.currentData()
+        return self.ctx.assimilation.catalog()["plugins"].get(uid) if uid else None
+
+    def fill_presets(self, *_):
+        plugin = self._plugin()
+        store = self.ctx.assimilation
+        refs = store.presets_for(plugin) if plugin else []
+        res = store.results(plugin) if plugin else {}
+        self._filling = True
+        self.presets.setRowCount(len(refs))
+        for r, ref in enumerate(refs):
+            got = res.get(ref.key, {})
+            use = QTableWidgetItem()
+            use.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            use.setCheckState(Qt.Unchecked if got.get("status") in ("silent", "unusable") else Qt.Checked)
+            use.setData(Qt.UserRole, ref.key)
+            self.presets.setItem(r, 0, use)
+            self.presets.setItem(r, 1, item(ref.name if not ref.category else f"{ref.category}/{ref.name}"))
+            rng = got.get("range", "")
+            if rng:
+                rng += "  pitched" if got.get("pitched") else "  unpitched"
+            self.presets.setItem(r, 2, item(rng))
+            status = got.get("status", "")
+            if status == "harvested":
+                d = DENSITIES.get(got.get("density"))
+                status = f"Learned, {got.get('renders', 0)} notes" + (f" ({d.label})" if d else "")
+            else:
+                status = {"": "Not yet", "ranged": "Range found", "silent": "Silent, skipped",
+                          "unusable": "No usable keys, skipped",
+                          "failed": "The plugin failed on this preset"}.get(status, status)
+            self.presets.setItem(r, 3, item(status))
+        self.presets.resizeColumnsToContents()
+        self._filling = False
+        self.update_estimate()
+
+    def chosen_presets(self) -> list:
+        return [self.presets.item(r, 0).data(Qt.UserRole) for r in range(self.presets.rowCount())
+                if self.presets.item(r, 0).checkState() == Qt.Checked]
+
+    def update_estimate(self):
+        if self._filling:
+            return
+        d = DENSITIES[self.density.currentData()]
+        n = len(self.chosen_presets())
+        self.estimate.setText(f"{d.label}: {d.summary}. {n} presets: {estimate(n, d).text()} "
+                              "(before playable ranges are known).")
+        self.start_btn.setEnabled(bool(n and self.ctx.render_host))
+
+    def assimilate(self):
+        plugin = self._plugin()
+        if plugin is None:
+            return
+        d = DENSITIES[self.density.currentData()]
+        if d.name == "unreasonable" and QMessageBox.question(
+                self, "Unreasonable density",
+                "This renders every playable key at 8 velocities and 3 note lengths, and can take "
+                "hours per preset. Start it?") != QMessageBox.Yes:
+            return
+        try:
+            job = create_assimilation_job(self.ctx.jobs, self.ctx.home, plugin["uid"], d,
+                                          self.ctx.render_host, self.ctx.python,
+                                          self.ctx.settings.resolved_descriptor(),
+                                          self.chosen_presets(), self.keep_audio.isChecked())
+        except ValueError as e:
+            return self.win.error(str(e))
+        self.start(job)
+
+    def forget(self):
+        plugin = self._plugin()
+        if plugin and QMessageBox.question(
+                self, "Forget this plugin",
+                f"Delete the ranges and timbre features learned from {plugin['name']}? The plugin "
+                "itself is not touched.") == QMessageBox.Yes:
+            self.ctx.assimilation.forget(plugin)
+            self.refresh()
+
+
 # ---------------------------------------------------------------------- Jobs
 
 class JobsPage(Page):
@@ -722,6 +934,10 @@ class SettingsPage(Page):
         self.runs = PathField(folder=True)
         self.learner = QLineEdit()
         self.learner.setObjectName("mono")
+        self.render_host = PathField(placeholder="alfa-render-host")
+        self.plugin_folders = QLineEdit()
+        self.plugin_folders.setPlaceholderText("extra plugin folders, separated by " +
+                                               ("“;”" if sys.platform == "win32" else "“:”"))
 
         form.addRow("Models folder", self.models_dir)
         form.addRow("", label("Where the plugin looks for weights. Leave empty for the standard "
@@ -734,6 +950,8 @@ class SettingsPage(Page):
         form.addRow("Training script", self.script)
         form.addRow("Training runs", self.runs)
         form.addRow("Preference learner", self.learner)
+        form.addRow("Render host", self.render_host)
+        form.addRow("Extra plugin folders", self.plugin_folders)
         lay.addLayout(form)
         row = QHBoxLayout()
         row.addStretch(1)
@@ -756,6 +974,9 @@ class SettingsPage(Page):
         self.runs.edit.setPlaceholderText(str(self.ctx.runs_dir))
         self.learner.setText(s.preference_learner)
         self.learner.setPlaceholderText(s.resolved_preference_learner() or "python <repo>/preference/learner.py")
+        self.render_host.setText(s.render_host)
+        self.render_host.edit.setPlaceholderText(self.ctx.render_host or "not found")
+        self.plugin_folders.setText(s.plugin_folders)
 
     def save(self):
         s = self.ctx.settings
@@ -763,6 +984,7 @@ class SettingsPage(Page):
         s.repo_dir = self.repo.text()
         s.training_script, s.runs_dir = self.script.text(), self.runs.text()
         s.preference_learner = self.learner.text().strip()
+        s.render_host, s.plugin_folders = self.render_host.text(), self.plugin_folders.text().strip()
         self.ctx.save_settings()
         self.win.statusBar().showMessage("Settings saved", 4000)
         self.win.refresh_all()
@@ -784,9 +1006,11 @@ class MainWindow(QMainWindow):
         self.nav.setObjectName("nav")
         self.nav.setFixedWidth(200)
         self.stack = QStackedWidget()
-        self.pages = [ModelsPage(self), TrainingPage(self), PreferencePage(self), JobsPage(self),
-                      SettingsPage(self)]
-        for name, page in zip(["Models", "Training", "Preference learning", "Jobs", "Settings"], self.pages):
+        self.jobs_page = JobsPage(self)
+        self.pages = [ModelsPage(self), TrainingPage(self), PreferencePage(self), PluginsPage(self),
+                      self.jobs_page, SettingsPage(self)]
+        names = ["Models", "Training", "Preference learning", "Plugin assimilation", "Jobs", "Settings"]
+        for name, page in zip(names, self.pages):
             self.nav.addItem(QListWidgetItem(name))
             self.stack.addWidget(page)
         self.nav.currentRowChanged.connect(self.show_page)
@@ -828,9 +1052,9 @@ class MainWindow(QMainWindow):
             p.refresh()
 
     def jobs_changed(self, job_id=None):
-        self.nav.setCurrentRow(3)
+        self.nav.setCurrentRow(self.pages.index(self.jobs_page))
         if job_id:
-            self.pages[3].select(job_id)
+            self.jobs_page.select(job_id)
         self.poll()
 
     def poll(self):
@@ -846,11 +1070,11 @@ class MainWindow(QMainWindow):
             self.job_status.setStyleSheet("")
         state = tuple((j["id"], j["status"], tuple(j.get("progress") or ())) for j in live)
         if state != self._last_state or live:
-            if self.stack.currentIndex() == 3:
-                self.pages[3].refresh()
+            if self.stack.currentWidget() is self.jobs_page:
+                self.jobs_page.refresh()
             if state != self._last_state:
-                # A job just finished or started: models or the index may have changed.
-                for i in (0, 2):
+                # A job just finished or started: models, the index or plugin results may have changed.
+                for i in (0, 2, 3):
                     self.pages[i].refresh()
         self._last_state = state
 
