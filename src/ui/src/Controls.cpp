@@ -83,22 +83,46 @@ ParamControl::ParamControl(EditorContext& context, const juce::String& paramId, 
     // restore real units.
     control.setDoubleClickReturnValue(true, static_cast<double>(paramSpec->defaultValue));
 
-    ctx.params.addParameterListener(params::id::modelTier, this);
+    for (const auto& id :
+         {params::id::modelTier, params::id::method, params::id::hybridA, params::id::hybridB})
+        ctx.params.addParameterListener(id, this);
     ctx.ui.tree().addListener(this);
     applyGesture();
-    control.getProperties().set(AlfaLookAndFeel::dimmedProperty, isDimmed());
     control.setTooltip(paramSpec->name);
+    refreshKnob();
 }
 
 ParamControl::~ParamControl()
 {
-    ctx.params.removeParameterListener(params::id::modelTier, this);
+    for (const auto& id :
+         {params::id::modelTier, params::id::method, params::id::hybridA, params::id::hybridB})
+        ctx.params.removeParameterListener(id, this);
     ctx.ui.tree().removeListener(this);
+}
+
+void ParamControl::refreshKnob()
+{
+    if (paramSpec->group == params::Group::knob)
+    {
+        const auto shape = params::readShape(ctx.params);
+        knob = params::knobInfoFor(shape.method, shape.hybridA, shape.hybridB, paramSpec->knobIndex);
+        if (!nameOverridden)
+            displayName = knob.shortName;
+        auto tip = "Knob " + juce::String(paramSpec->knobIndex + 1) + ": " + knob.name;
+        if (knob.note.isNotEmpty())
+            tip << ". " << knob.note;
+        control.setTooltip(tip);
+        control.setTitle(knob.name);
+    }
+    control.getProperties().set(AlfaLookAndFeel::dimmedProperty, isDimmed());
+    repaint();
+    control.repaint();
 }
 
 void ParamControl::setDisplayName(const juce::String& name)
 {
     displayName = name;
+    nameOverridden = true;
     resized();
     repaint();
 }
@@ -115,9 +139,16 @@ void ParamControl::setLabelWidth(int width)
     repaint();
 }
 
+params::Tier ParamControl::requiredTier() const
+{
+    return paramSpec->group == params::Group::knob ? knob.minimumTier : params::Tier::lite;
+}
+
 bool ParamControl::isDimmed() const
 {
-    return static_cast<int>(ctx.selectedTier()) < static_cast<int>(paramSpec->minimumTier);
+    if (paramSpec->group == params::Group::knob && !knob.used)
+        return true;
+    return static_cast<int>(ctx.selectedTier()) < static_cast<int>(requiredTier());
 }
 
 void ParamControl::parameterChanged(const juce::String&, float)
@@ -126,11 +157,7 @@ void ParamControl::parameterChanged(const juce::String&, float)
         [safe = juce::Component::SafePointer<ParamControl>(this)]
         {
             if (safe != nullptr)
-            {
-                safe->control.getProperties().set(AlfaLookAndFeel::dimmedProperty, safe->isDimmed());
-                safe->repaint();
-                safe->control.repaint();
-            }
+                safe->refreshKnob();
         });
 }
 
@@ -169,6 +196,8 @@ juce::String ParamControl::valueText() const
         const auto norm = (v - paramSpec->min) / juce::jmax(1.0e-6f, paramSpec->max - paramSpec->min);
         return juce::String(juce::roundToInt(norm * 100.0f)) + " %";
     }
+    if (paramSpec->group == params::Group::knob)
+        return params::formatKnob(knob, v);
     return params::formatValue(*paramSpec, v);
 }
 
@@ -278,10 +307,9 @@ void ParamControl::paintOverChildren(juce::Graphics& g)
     if (style == Style::horizontalBar)
         badgeRow = getLocalBounds().toFloat().withWidth(0.0f);
 
-    if (isDimmed())
+    if (isDimmed() && requiredTier() != params::Tier::lite)
     {
-        const auto label =
-            juce::String(params::kTiers[static_cast<size_t>(paramSpec->minimumTier)].shortName) + "+";
+        const auto label = juce::String(params::kTiers[static_cast<size_t>(requiredTier())].shortName) + "+";
         drawBadge(g, badgeRow.removeFromRight(38.0f).withTrimmedBottom(1.0f), label, t.warn, t);
         badgeRow.removeFromRight(3.0f);
     }
@@ -310,7 +338,9 @@ void ParamControl::mouseDown(const juce::MouseEvent& e)
 void ParamControl::showMenu()
 {
     juce::PopupMenu menu;
-    menu.addSectionHeader(paramSpec->name);
+    menu.addSectionHeader(paramSpec->group == params::Group::knob
+                              ? "Knob " + juce::String(paramSpec->knobIndex + 1) + ": " + knob.name
+                              : paramSpec->name);
     menu.addItem("Type a value...", [this] { typeValue(); });
     menu.addItem("Reset to default",
                  [this] { control.setValue(static_cast<double>(paramSpec->defaultValue)); });
@@ -323,11 +353,15 @@ void ParamControl::showMenu()
     menu.addItem("Map to macro (coming)", false, false, nullptr);
     menu.addItem("Add modulation (coming)", false, false, nullptr);
     menu.addItem("MIDI learn (coming)", false, false, nullptr);
-    if (isDimmed())
+    if (paramSpec->group == params::Group::knob && !knob.used)
     {
         menu.addSeparator();
-        menu.addItem("Needs the " +
-                         juce::String(params::kTiers[static_cast<size_t>(paramSpec->minimumTier)].name) +
+        menu.addItem("This method does not use this knob", false, false, nullptr);
+    }
+    else if (isDimmed())
+    {
+        menu.addSeparator();
+        menu.addItem("Needs the " + juce::String(params::kTiers[static_cast<size_t>(requiredTier())].name) +
                          " model or larger",
                      false, false, nullptr);
     }

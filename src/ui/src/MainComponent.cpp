@@ -31,12 +31,12 @@ HeaderBar::HeaderBar(EditorContext& c, LiveData& l)
     prevPreset.onClick = [this]
     {
         const auto n = ctx.host.numPresets();
-        ctx.host.loadPreset((ctx.host.currentPreset() - 1 + n) % n);
+        ctx.host.loadPreset((ctx.host.currentPreset() - 1 + n) % n, true);
         refreshPreset();
     };
     nextPreset.onClick = [this]
     {
-        ctx.host.loadPreset((ctx.host.currentPreset() + 1) % ctx.host.numPresets());
+        ctx.host.loadPreset((ctx.host.currentPreset() + 1) % ctx.host.numPresets(), true);
         refreshPreset();
     };
     presetName.onClick = [this]
@@ -46,6 +46,25 @@ HeaderBar::HeaderBar(EditorContext& c, LiveData& l)
     addAndMakeVisible(prevPreset);
     addAndMakeVisible(presetName);
     addAndMakeVisible(nextPreset);
+
+    // Like and dislike feed preference learning, so they only show while it is on.
+    like.setTooltip("I like this sound (teaches your preference model)");
+    dislike.setTooltip("Not for me (teaches your preference model)");
+    for (auto* b : {&like, &dislike})
+    {
+        b->setClickingTogglesState(false);
+        addChildComponent(b);
+    }
+    like.onClick = [this]
+    {
+        ctx.host.rateSound(ctx.host.soundRating() == 1 ? 0 : 1);
+        refreshRating();
+    };
+    dislike.onClick = [this]
+    {
+        ctx.host.rateSound(ctx.host.soundRating() == -1 ? 0 : -1);
+        refreshRating();
+    };
 
     for (size_t i = 0; i < params::kTiers.size(); ++i)
     {
@@ -78,6 +97,19 @@ void HeaderBar::refreshPreset()
                              params::kTiers[static_cast<size_t>(ctx.host.presetMadeOn(i))].name);
 }
 
+void HeaderBar::refreshRating()
+{
+    const bool learning = ctx.host.learningEnabled();
+    if (learning != like.isVisible())
+    {
+        like.setVisible(learning);
+        dislike.setVisible(learning);
+        resized();
+    }
+    like.setToggleState(ctx.host.soundRating() == 1, juce::dontSendNotification);
+    dislike.setToggleState(ctx.host.soundRating() == -1, juce::dontSendNotification);
+}
+
 void HeaderBar::showPresetMenu()
 {
     juce::PopupMenu menu;
@@ -87,7 +119,7 @@ void HeaderBar::showPresetMenu()
                                                        i == ctx.host.currentPreset(),
                                                        [this, i]
                                                        {
-                                                           ctx.host.loadPreset(i);
+                                                           ctx.host.loadPreset(i, false);
                                                            refreshPreset();
                                                        });
     for (auto& [category, sub] : byCategory)
@@ -118,6 +150,7 @@ void HeaderBar::liveDataUpdated()
         repaint(statsArea);
     }
     refreshPreset();
+    refreshRating();
 }
 
 void HeaderBar::paint(juce::Graphics& g)
@@ -145,8 +178,14 @@ void HeaderBar::resized()
     viewSwitch.setBounds(b.removeFromLeft(420));
     b.removeFromLeft(14);
     prevPreset.setBounds(b.removeFromLeft(30));
-    presetName.setBounds(b.removeFromLeft(262).reduced(4, 0));
+    presetName.setBounds(b.removeFromLeft(like.isVisible() ? 206 : 262).reduced(4, 0));
     nextPreset.setBounds(b.removeFromLeft(30));
+    if (like.isVisible())
+    {
+        b.removeFromLeft(4);
+        like.setBounds(b.removeFromLeft(26));
+        dislike.setBounds(b.removeFromLeft(26));
+    }
     b.removeFromLeft(10);
     tierBox.setBounds(b.removeFromLeft(136));
     statsArea = b.withTrimmedLeft(6);

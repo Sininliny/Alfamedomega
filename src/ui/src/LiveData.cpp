@@ -46,13 +46,46 @@ void LiveData::update()
     {
         snap.experts[m] = t.expertActivity[m].load(std::memory_order_relaxed);
         snap.engines[m] = t.engineLevel[m].load(std::memory_order_relaxed);
-        snap.blend[m] = raw(params::id::blend(static_cast<int>(m)));
+        snap.share[m] = 0.0f;
     }
 
-    snap.attackMs = raw(params::id::attack);
-    snap.decayMs = raw(params::id::decay);
-    snap.sustain = raw(params::id::sustain);
-    snap.releaseMs = raw(params::id::release);
+    // The sound's shape: one method, or a hybrid whose components share the
+    // voice by the crossfade knob.
+    const auto shape = params::readShape(ctx.params);
+    snap.method = static_cast<int>(shape.method);
+    if (shape.method == params::Method::hybrid)
+    {
+        const auto xf = raw(params::id::knob(params::kNumKnobs - 1));
+        snap.share[static_cast<size_t>(params::Method::hybrid)] = 1.0f;
+        snap.share[static_cast<size_t>(shape.hybridA)] = 1.0f - xf;
+        snap.share[static_cast<size_t>(shape.hybridB)] = xf;
+    }
+    else
+    {
+        snap.share[static_cast<size_t>(shape.method)] = 1.0f;
+    }
+
+    // Amp envelope from knobs 19-22 with the teacher programs' curves (component
+    // A's for a hybrid); physical rings out on its decay knob instead.
+    const auto knob = [&raw](int i)
+    {
+        return raw(params::id::knob(i));
+    };
+    const auto envMethod = shape.method == params::Method::hybrid ? shape.hybridA : shape.method;
+    if (envMethod == params::Method::physical)
+    {
+        snap.attackMs = 1.0f;
+        snap.decayMs = 50.0f * std::exp2(knob(2) * 7.0f);
+        snap.sustain = knob(7) > 0.5f ? 0.7f : 0.0f;
+        snap.releaseMs = 50.0f + 300.0f * knob(4);
+    }
+    else
+    {
+        snap.attackMs = std::exp2(knob(18) * 11.0f);
+        snap.decayMs = 10.0f * std::exp2(knob(19) * 9.0f);
+        snap.sustain = knob(20);
+        snap.releaseMs = 10.0f * std::exp2(knob(21) * 9.0f);
+    }
 
     // Meters fall back smoothly rather than jumping to zero between blocks.
     snap.peakL = juce::jmax(t.peakL.load(), snap.peakL * 0.8f);
@@ -209,8 +242,8 @@ void modelGraph(juce::Graphics& g, juce::Rectangle<float> area, const Theme& t, 
     }
 }
 
-void blendBars(juce::Graphics& g, juce::Rectangle<float> area, const Theme& t, const Snapshot& s,
-               bool showLabels)
+void methodBars(juce::Graphics& g, juce::Rectangle<float> area, const Theme& t, const Snapshot& s,
+                bool showLabels)
 {
     const auto rowH = area.getHeight() / static_cast<float>(params::kNumMethods);
     for (size_t m = 0; m < static_cast<size_t>(params::kNumMethods); ++m)
@@ -228,7 +261,8 @@ void blendBars(juce::Graphics& g, juce::Rectangle<float> area, const Theme& t, c
         g.setColour(t.line);
         g.fillRoundedRectangle(row, 2.0f);
         g.setColour(t.accent);
-        g.fillRoundedRectangle(row.withWidth(row.getWidth() * s.blend[m]), 2.0f);
+        g.setColour(static_cast<int>(m) == s.method ? t.accent : t.accent.withAlpha(0.6f));
+        g.fillRoundedRectangle(row.withWidth(row.getWidth() * s.share[m]), 2.0f);
     }
 }
 

@@ -6,13 +6,21 @@ namespace
 {
 using namespace params;
 
-juce::String blendId(Method m)
+// Knob n as numbered in the UI (1-based).
+juce::String kn(int n)
 {
-    return id::blend(static_cast<int>(m));
+    return id::knob(n - 1);
 }
-juce::String engineId(Method m, int slot)
+
+float methodValue(Method m)
 {
-    return id::engine(static_cast<int>(m), slot);
+    return static_cast<float>(static_cast<int>(m));
+}
+
+float componentValue(Method m)
+{
+    const auto it = std::find(kHybridComponents.begin(), kHybridComponents.end(), m);
+    return static_cast<float>(std::distance(kHybridComponents.begin(), it));
 }
 
 void setParam(juce::AudioProcessorValueTreeState& state, const juce::String& paramId, float value)
@@ -24,58 +32,85 @@ void setParam(juce::AudioProcessorValueTreeState& state, const juce::String& par
 
 PresetLibrary::PresetLibrary()
 {
-    // Placeholder sounds that exercise different engines, so the browser, the
-    // Method blend and the tier badges have something to show.
+    // Placeholder sounds, one or two per method, so the browser, the method
+    // picker and the knob labels have something to show. Knob numbers and
+    // meanings follow the teacher programs (ParameterLayout.cpp).
     presets = {
         {"Init", "Basic", Tier::lite, {}},
         {"Warm Pad",
          "Pad",
          Tier::standard,
-         {{blendId(Method::subtractive), 0.6f},
-          {blendId(Method::wavetable), 0.5f},
-          {blendId(Method::spectral), 0.2f},
-          {id::attack, 600.0f},
-          {id::release, 2500.0f},
-          {engineId(Method::subtractive, 0), 1200.0f},
-          {id::timbreX, 0.3f},
-          {id::timbreY, 0.6f}}},
+         {{id::method, methodValue(Method::wavetable)},
+          {kn(1), 0.3f},
+          {kn(2), 0.35f},
+          {kn(3), 0.7f},
+          {kn(5), 0.8f},
+          {kn(6), 0.8f},
+          {kn(7), 0.6f},
+          {kn(9), 0.4f},
+          {kn(19), 0.72f},
+          {kn(22), 0.8f},
+          {kn(23), 0.8f},
+          {kn(24), 0.45f}}},
         {"Glass Keys",
          "Keys",
          Tier::standard,
-         {{blendId(Method::subtractive), 0.0f},
-          {blendId(Method::fm), 0.8f},
-          {blendId(Method::additive), 0.3f},
-          {engineId(Method::fm, 0), 3.5f},
-          {engineId(Method::fm, 1), 4.0f},
-          {id::decay, 900.0f},
-          {id::sustain, 0.2f}}},
+         {{id::method, methodValue(Method::fm)},
+          {kn(1), 0.0f},
+          {kn(3), 0.43f},
+          {kn(11), 0.1f},
+          {kn(12), 0.55f},
+          {kn(13), 0.2f},
+          {kn(15), 0.45f},
+          {kn(19), 0.05f},
+          {kn(20), 0.7f},
+          {kn(21), 0.15f},
+          {kn(22), 0.6f}}},
         {"Plucked Wire",
          "Pluck",
          Tier::lite,
-         {{blendId(Method::subtractive), 0.2f},
-          {blendId(Method::physical), 0.9f},
-          {id::attack, 1.0f},
-          {id::decay, 700.0f},
-          {id::sustain, 0.0f},
-          {id::release, 300.0f}}},
+         {{id::method, methodValue(Method::physical)},
+          {kn(1), 0.1f},
+          {kn(2), 0.3f},
+          {kn(3), 0.55f},
+          {kn(4), 0.3f},
+          {kn(6), 0.7f},
+          {kn(7), 0.2f}}},
         {"Sampled Choir",
          "Vocal",
          Tier::pro,
-         {{blendId(Method::subtractive), 0.0f},
-          {blendId(Method::sampling), 0.9f},
-          {blendId(Method::granular), 0.3f},
-          {engineId(Method::sampling, 5), 0.6f},
-          {id::attack, 300.0f},
-          {id::release, 1500.0f}}},
+         {{id::method, methodValue(Method::sampling)},
+          {kn(1), 0.6f},
+          {kn(5), 0.7f},
+          {kn(6), 0.5f},
+          {kn(19), 0.7f},
+          {kn(22), 0.75f}}},
         {"Spectral Drift",
          "Texture",
          Tier::studio,
-         {{blendId(Method::subtractive), 0.0f},
-          {blendId(Method::spectral), 0.8f},
-          {blendId(Method::hybrid), 0.4f},
-          {engineId(Method::spectral, 5), 0.7f},
-          {id::latentDrift, 0.6f},
-          {id::timbreY, 0.9f}}},
+         {{id::method, methodValue(Method::spectral)},
+          {kn(1), 0.3f},
+          {kn(4), 0.7f},
+          {kn(7), 0.6f},
+          {kn(8), 0.15f},
+          {kn(9), 0.8f},
+          {kn(19), 0.8f},
+          {kn(22), 0.85f}}},
+        {"Struck Bell",
+         "Bell",
+         Tier::pro,
+         {{id::method, methodValue(Method::hybrid)},
+          {id::hybridA, componentValue(Method::fm)},
+          {id::hybridB, componentValue(Method::physical)},
+          {kn(1), 0.0f},
+          {kn(3), 0.62f},
+          {kn(15), 0.4f},
+          {kn(19), 0.02f},
+          {kn(20), 0.75f},
+          {kn(21), 0.0f},
+          {kn(22), 0.25f}, // A release, and B's (physical) resonator: beam
+          {kn(24), 0.6f},  // B decay time
+          {kn(32), 0.45f}}},
     };
 }
 

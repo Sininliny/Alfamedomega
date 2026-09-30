@@ -18,34 +18,32 @@ const std::vector<SignalFlowView::Step>& SignalFlowView::steps()
          {id::voices, id::glide, id::bendRange}},
         {"controls",
          "Controls",
-         "knob, macro and timbre-space values",
-         "a 16-number control vector per voice",
-         "audio thread",
-         "Everything you can turn is gathered into one short list of numbers, "
-         "the control vector. This is the "
-         "model's whole view of what you want: the knobs are its input, not the "
-         "sound itself.",
-         {id::timbreX, id::timbreY, id::macro(0), id::macro(1)}},
+         "the method and its 32 knobs",
+         "a patch embedding, recomputed when a knob moves",
+         "message thread",
+         "The method and the 32 knobs are the whole description of the sound. "
+         "A small network, the patch encoder, turns them into a list of numbers "
+         "the model reads: the knobs are its input, not the sound itself.",
+         {id::method, id::knob(0), id::knob(1), id::knob(2)}},
         {"model",
          "Neural model",
-         "control vector + note",
-         "control frames for each engine",
+         "patch embedding + each note",
+         "control frames for the engines",
          "inference thread pool (anira)",
-         "A shared trunk reads the control vector, then a few specialist "
-         "experts, one per synthesis method, turn it "
-         "into settings for the engines. Only the experts you are using run, "
-         "which is how a large model stays "
-         "affordable. Bigger model sizes have larger experts.",
-         {id::modelTier, id::latentDrift, id::followModel}},
+         "A shared trunk reads the embedding and the note, then a specialist "
+         "expert for the sound's method turns it into settings for the engines, "
+         "250 times a second. Only that expert runs, which is how a large model "
+         "stays affordable. Bigger model sizes have larger experts.",
+         {id::modelTier}},
         {"blend",
-         "Method blend",
-         "per-engine control frames",
-         "a mix weight for each of the nine engines",
-         "audio thread",
-         "The Method blend decides how much of each engine you hear. It is the "
-         "same set of sliders as on the "
-         "Perform view. An engine at zero costs nothing.",
-         {id::blend(0), id::blend(3), id::blend(2), id::blend(6), id::blend(5)}},
+         "Method",
+         "the sound's method",
+         "which expert and engines each voice uses",
+         "inference thread pool",
+         "Every sound uses one synthesis method, and each method has its own "
+         "expert in the model. A hybrid runs two methods' experts and merges "
+         "their frames into one voice, crossfaded by knob 32.",
+         {id::method, id::hybridA, id::hybridB, id::knob(params::kNumKnobs - 1)}},
         {"engines",
          "Sound engines",
          "control frames at the model rate",
@@ -55,7 +53,7 @@ const std::vector<SignalFlowView::Step>& SignalFlowView::steps()
          "the actual sound, steered by the "
          "model's frames. The network never generates samples directly, which "
          "keeps CPU cost predictable.",
-         {id::engine(0, 0), id::engine(0, 1), id::engine(3, 0), id::engine(2, 1)}},
+         {id::knob(3), id::knob(4), id::knob(5), id::knob(6)}},
         {"envfx",
          "Envelope + FX",
          "engine audio per voice",
@@ -63,8 +61,9 @@ const std::vector<SignalFlowView::Step>& SignalFlowView::steps()
          "audio thread",
          "The amp envelope shapes each note over time: how fast it starts "
          "(attack), falls (decay), holds (sustain) "
-         "and fades after you let go (release).",
-         {id::attack, id::decay, id::sustain, id::release}},
+         "and fades after you let go (release). Knobs 19 to 22 set it for every "
+         "method except physical, which rings out on its own decay.",
+         {id::knob(18), id::knob(19), id::knob(20), id::knob(21)}},
         {"output",
          "Output",
          "all voices summed",
@@ -89,31 +88,33 @@ juce::String summaryFor(const juce::String& stepId, const Snapshot& s, const Edi
                    ? juce::String("No notes held")
                    : juce::String(s.heldNotes) + " held, " + juce::String(s.voices) + " voices sounding";
     if (stepId == "controls")
-        return "Bright " + juce::String(juce::roundToInt(s.controlVector[0] * 100.0f)) + ", evolve " +
-               juce::String(juce::roundToInt(s.controlVector[1] * 100.0f));
+    {
+        const auto shape = readShape(ctx.params);
+        int used = 0;
+        for (int i = 0; i < kNumKnobs; ++i)
+            used += knobInfoFor(shape.method, shape.hybridA, shape.hybridB, i).used ? 1 : 0;
+        return juce::String(kMethods[static_cast<size_t>(shape.method)].name) + ", " + juce::String(used) +
+               " of 32 knobs in use";
+    }
     if (stepId == "model")
     {
         int active = 0;
         for (auto e : s.experts)
             active += e > 0.0f ? 1 : 0;
-        return juce::String(tier.name) + ", " + juce::String(active) + " of 9 experts active" +
+        return juce::String(tier.name) + ", " + juce::String(active) + " of 9 experts running" +
                (s.modelIsStub ? " (stub)" : "");
     }
     if (stepId == "blend")
     {
-        size_t top = 0;
-        for (size_t m = 1; m < s.blend.size(); ++m)
-            if (s.blend[m] > s.blend[top])
-                top = m;
-        return juce::String("Mostly ") + kMethods[top].name;
+        const auto shape = readShape(ctx.params);
+        if (shape.method != Method::hybrid)
+            return juce::String(kMethods[static_cast<size_t>(shape.method)].name);
+        return juce::String("Hybrid of ") + kMethods[static_cast<size_t>(shape.hybridA)].name + " and " +
+               kMethods[static_cast<size_t>(shape.hybridB)].name +
+               (isValidHybridPair(shape.hybridA, shape.hybridB) ? "" : " (not allowed)");
     }
     if (stepId == "engines")
-    {
-        int on = 0;
-        for (auto b : s.blend)
-            on += b > 0.001f ? 1 : 0;
-        return juce::String(on) + " engines running";
-    }
+        return s.voices == 0 ? juce::String("Idle") : juce::String(s.voices) + " voices rendering";
     if (stepId == "envfx")
         return "A " + juce::String(juce::roundToInt(s.attackMs)) + " ms, R " +
                juce::String(juce::roundToInt(s.releaseMs)) + " ms";
@@ -126,7 +127,9 @@ juce::String rateFor(const juce::String& stepId, const Snapshot& s)
     const auto khz = juce::String(s.sampleRate / 1000.0, 1) + " kHz";
     if (stepId == "notes")
         return "per event";
-    if (stepId == "controls" || stepId == "model" || stepId == "blend")
+    if (stepId == "controls")
+        return "when a knob moves";
+    if (stepId == "model" || stepId == "blend")
         return juce::String(juce::roundToInt(params::kControlRateHz)) + " frames/s";
     return khz + ", " + juce::String(s.blockSize) + "-sample blocks";
 }
@@ -153,7 +156,7 @@ void drawStepViz(juce::Graphics& g, const juce::String& id, juce::Rectangle<floa
     else if (id == "model")
         viz::modelGraph(g, area, t, s, labels);
     else if (id == "blend")
-        viz::blendBars(g, area, t, s, labels);
+        viz::methodBars(g, area, t, s, labels);
     else if (id == "engines")
         viz::waveform(g, area, t, s, t.accent);
     else if (id == "envfx")

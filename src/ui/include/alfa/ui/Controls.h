@@ -52,6 +52,9 @@ public:
 
     bool isDimmed() const;
 
+    /// For a knob parameter: what it means for the current method.
+    const params::KnobInfo& knobInfo() const noexcept { return knob; }
+
 private:
     void parameterChanged(const juce::String& parameterID, float newValue) override;
     void valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier&) override;
@@ -61,11 +64,15 @@ private:
     juce::String valueText() const;
     juce::Rectangle<int> valueArea() const;
     int labelWidth() const;
+    void refreshKnob();
+    params::Tier requiredTier() const;
 
     EditorContext& ctx;
     const params::ParamSpec* paramSpec;
     Style style;
     juce::String displayName;
+    bool nameOverridden = false;
+    params::KnobInfo knob;
     int fixedLabelWidth = 0;
     juce::Slider control;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;

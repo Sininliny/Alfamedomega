@@ -17,7 +17,8 @@ struct Snapshot
     std::array<float, Telemetry::kControlVectorSize> controlVector{};
     std::array<float, params::kNumMethods> experts{};
     std::array<float, params::kNumMethods> engines{};
-    std::array<float, params::kNumMethods> blend{};
+    std::array<float, params::kNumMethods> share{}; // how much of the sound each method makes
+    int method = 0;
     std::array<float, kScopePoints> scope{};
     std::array<float, kSpectrumBands> spectrum{}; // dB, -90..0
     float attackMs = 0, decayMs = 0, sustain = 0, releaseMs = 0;
@@ -76,7 +77,7 @@ namespace viz
 void pianoRoll(juce::Graphics&, juce::Rectangle<float>, const Theme&, const LiveData&);
 void controlVector(juce::Graphics&, juce::Rectangle<float>, const Theme&, const Snapshot&);
 void modelGraph(juce::Graphics&, juce::Rectangle<float>, const Theme&, const Snapshot&, bool showLabels);
-void blendBars(juce::Graphics&, juce::Rectangle<float>, const Theme&, const Snapshot&, bool showLabels);
+void methodBars(juce::Graphics&, juce::Rectangle<float>, const Theme&, const Snapshot&, bool showLabels);
 void waveform(juce::Graphics&, juce::Rectangle<float>, const Theme&, const Snapshot&, juce::Colour colour);
 void envelope(juce::Graphics&, juce::Rectangle<float>, const Theme&, const Snapshot&);
 void spectrum(juce::Graphics&, juce::Rectangle<float>, const Theme&, const Snapshot&);

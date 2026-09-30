@@ -7,11 +7,18 @@ namespace alfa
 
 AlfamedomegaProcessor::AlfamedomegaProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true))
-    , state(*this, nullptr, "Parameters", params::createLayout())
+    , state(*this, nullptr, "Parameters", params::createLayout(&packedShape))
 {
     backend = createStubBackend(state);
     outputGainParam = state.getRawParameterValue(params::id::outputGain);
-    state.addParameterListener(params::id::modelTier, this);
+    for (const auto& id :
+         {params::id::modelTier, params::id::method, params::id::hybridA, params::id::hybridB})
+        state.addParameterListener(id, this);
+    packedShape.store(params::packShape(params::readShape(state)));
+
+    preference::Recorder::Options options;
+    options.learning = &learning;
+    recorder = std::make_unique<preference::Recorder>(state, playCounter, options);
 
     ui.loadUserDefault();
 
@@ -28,7 +35,9 @@ AlfamedomegaProcessor::AlfamedomegaProcessor()
 AlfamedomegaProcessor::~AlfamedomegaProcessor()
 {
     stopTimer();
-    state.removeParameterListener(params::id::modelTier, this);
+    for (const auto& id :
+         {params::id::modelTier, params::id::method, params::id::hybridA, params::id::hybridB})
+        state.removeParameterListener(id, this);
 }
 
 void AlfamedomegaProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
@@ -41,6 +50,7 @@ void AlfamedomegaProcessor::prepareToPlay(double sampleRate, int samplesPerBlock
     telem.blockSize.store(samplesPerBlock);
     keyboard.reset();
     setLatencySamples(backend->latencySamples(sampleRate));
+    recorder->setSampleRate(sampleRate);
 }
 
 bool AlfamedomegaProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -62,6 +72,7 @@ void AlfamedomegaProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
 
     const auto numSamples = buffer.getNumSamples();
     keyboard.processNextMidiBuffer(midi, 0, numSamples, true);
+    playCounter.process(midi, numSamples);
 
     buffer.clear();
     backend->render(buffer, midi, telem);
@@ -87,6 +98,10 @@ void AlfamedomegaProcessor::parameterChanged(const juce::String& parameterID, fl
         requestedTier.store(juce::roundToInt(newValue));
         backend->requestTier(static_cast<params::Tier>(juce::roundToInt(newValue)));
     }
+    else
+    {
+        packedShape.store(params::packShape(params::readShape(state)));
+    }
 }
 
 void AlfamedomegaProcessor::timerCallback()
@@ -104,13 +119,20 @@ params::Tier AlfamedomegaProcessor::loadedTier() const
     return static_cast<params::Tier>(telem.loadedTier.load());
 }
 
-void AlfamedomegaProcessor::loadPreset(int index)
+void AlfamedomegaProcessor::loadPreset(int index, bool browsing)
 {
     if (index < 0 || index >= presets.size())
         return;
     currentPresetIndex = index;
     PresetLibrary::apply(presets.get(index), state, ui.lockedParameters());
     updateHostDisplay(ChangeDetails().withProgramChanged(true));
+    recorder->loaded(browsing ? preference::Recorder::Source::browser : preference::Recorder::Source::user);
+}
+
+void AlfamedomegaProcessor::setLearningEnabled(bool on)
+{
+    learning.setOn(on);
+    recorder->tick();
 }
 
 void AlfamedomegaProcessor::getStateInformation(juce::MemoryBlock& destData)
@@ -118,11 +140,13 @@ void AlfamedomegaProcessor::getStateInformation(juce::MemoryBlock& destData)
     juce::ValueTree root{stateType};
     root.setProperty("kLayoutVersion", params::kLayoutVersion, nullptr);
     root.setProperty("preset", currentPresetIndex, nullptr);
+    root.setProperty("instance", recorder->instanceId(), nullptr);
     root.appendChild(state.copyState(), nullptr);
     root.appendChild(ui.tree().createCopy(), nullptr);
 
     if (auto xml = root.createXml())
         copyXmlToBinary(*xml, destData);
+    recorder->stateSaved();
 }
 
 void AlfamedomegaProcessor::setStateInformation(const void* data, int sizeInBytes)
@@ -145,6 +169,8 @@ void AlfamedomegaProcessor::setStateInformation(const void* data, int sizeInByte
     if (savedUi.isValid())
         ui.restore(savedUi); // hosts restore state on the message thread, where the
                              // UI listens
+
+    recorder->projectRestored(root.getProperty("instance", {}).toString());
 }
 
 juce::AudioProcessorEditor* AlfamedomegaProcessor::createEditor()

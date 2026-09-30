@@ -6,7 +6,8 @@ add_library(alfa_plugin_core INTERFACE)
 add_library(Alfa::pluginCore ALIAS alfa_plugin_core)
 target_sources(alfa_plugin_core INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ParameterLayout.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/PresetLibrary.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/PresetLibrary.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/PreferenceLog.cpp)
 target_include_directories(alfa_plugin_core INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(alfa_plugin_core INTERFACE
