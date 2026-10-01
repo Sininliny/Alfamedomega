@@ -119,7 +119,7 @@ private:
             {
                 for (int i = 0; i < editor->getNumChildComponents(); ++i)
                     if (auto* control = dynamic_cast<juce::Button*>(editor->getChildComponent(i));
-                        control && control->getButtonText() == name)
+                        control && control->getComponentID() == name)
                     {
                         control->triggerClick();
                         return;
@@ -138,11 +138,11 @@ private:
                         "Idle UI changes executable sound");
                 require(processor->samples.load() > interactionSamples_,
                         "Audio device callback is not advancing");
-                button("Instances");
+                button("view.structure");
                 for (auto* child : editor->getChildren())
                     if (auto* list = dynamic_cast<juce::ListBox*>(child))
                         list->selectRow(1);
-                button("Sound library");
+                button("header.library");
             }
             else if (interactionStep_ == 2)
             {
@@ -186,8 +186,8 @@ private:
                 require(processor->programRevision.load() == interactionRevision_ + 1,
                         "Idle UI repeats sound publication");
                 processor->keyboard.noteOff(1, 69, 0);
-                button("Panic");
-                button("Settings");
+                button("header.panic");
+                button("view.settings");
             }
             else if (interactionStep_ == 6)
             {

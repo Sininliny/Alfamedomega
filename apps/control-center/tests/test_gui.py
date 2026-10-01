@@ -25,10 +25,10 @@ def test_window_runs_a_training_job_and_shows_the_model(qapp, ctx):
     from alfacc.gui.app import MainWindow
     win = MainWindow(ctx)
     win.show()
-    for i in range(len(win.pages)):
+    for i in range(win.nav.count()):
         win.nav.setCurrentRow(i)
         qapp.processEvents()
-    training = win.pages[1]
+    training = win.legacy_training_page
     training.check_env()  # the test interpreter has no PyTorch, so local training is off
     assert not training.start_btn.isEnabled()
     training.steps.setValue(4)
@@ -40,8 +40,8 @@ def test_window_runs_a_training_job_and_shows_the_model(qapp, ctx):
         qapp.processEvents()
     win.poll()
     assert ctx.jobs.list()[0]["status"] == "succeeded"
-    assert win.pages[0].table.rowCount() == 1
-    assert win.pages[0].table.item(0, 0).text() == "lite-3.0.0"
+    assert win.models_page.table.rowCount() == 1
+    assert win.models_page.table.item(0, 0).text() == "lite-3.0.0"
     win.jobs_page.refresh()
     assert "step 4/4" in win.jobs_page.log.toPlainText()
     win.close()
@@ -63,15 +63,16 @@ def test_tensor_page_uses_durable_training_jobs(qapp, ctx, tmp_path):
     output = tmp_path / "local-model.json"
     win = MainWindow(ctx)
     win.show()
-    page = win.pages[6]
-    page.fields["repository"].setText(str(Path(__file__).resolve().parents[3]))
-    page.fields["manifest"].setText(str(manifest))
-    page.fields["output"].setText(str(output))
-    page.run("train-preference")
+    ctx.settings.repo_dir = str(Path(__file__).resolve().parents[3])
+    page = win.train_page
+    page.set_role("train-preference")
+    page.manifest.setText(str(manifest))
+    page.output.setText(str(output))
+    page.train()
     first_job_id = page.job_id
     second_output = tmp_path / "second-local-model.json"
-    page.fields["output"].setText(str(second_output))
-    page.run("train-preference")
+    page.output.setText(str(second_output))
+    page.train()
     assert page.job_id != first_job_id
     deadline = time.monotonic() + 25
     while time.monotonic() < deadline and not ctx.jobs.wait(.03):
@@ -84,4 +85,31 @@ def test_tensor_page_uses_durable_training_jobs(qapp, ctx, tmp_path):
     assert ctx.store.models() == []
     assert json.loads(output.read_text())["category"] == "user_preference"
     win.grab().save(str(tmp_path / "aom-centre.png"))
+    win.close()
+
+
+def test_aom_centre_puts_tensor_work_first_and_checks_inputs(qapp, ctx):
+    from alfacc.gui.app import MainWindow
+    win = MainWindow(ctx)
+    win.show()
+    assert win.windowTitle() == "AOM Centre"
+    assert win.stack.currentWidget() is win.import_page
+    names = [win.nav.item(i).text() for i in range(win.nav.count())]
+    assert names.index("Import sound") < names.index("Jobs") < names.index("LEGACY") < names.index("Models")
+    # Section headings cannot be selected and do not change the page.
+    win.nav.setCurrentRow(names.index("LEGACY"))
+    assert win.stack.currentWidget() is win.import_page
+    # A task with missing inputs says which ones instead of queuing a job.
+    win.show_page(win.evaluate_page)
+    win.evaluate_page.evaluate()
+    assert win.evaluate_page.job_id is None
+    assert "WAV model" in win.evaluate_page.panel.status.text()
+    assert ctx.jobs.list() == []
+    # Results chain forward into empty fields only.
+    win.aom_recent.update(manifest="/data/manifest.json", wav_model="/data/model.pt")
+    win.evaluate_page.manifest.setText("/mine/manifest.json")
+    win.show_page(win.datasets_page)
+    win.show_page(win.evaluate_page)
+    assert win.evaluate_page.model.text() == "/data/model.pt"
+    assert win.evaluate_page.manifest.text() == "/mine/manifest.json"
     win.close()

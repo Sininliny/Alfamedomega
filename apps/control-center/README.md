@@ -1,6 +1,6 @@
-# Alfamedomega control center
+# AOM Centre
 
-A standalone app for the work that isn't playing music: training model sizes, installing and
+The Alfamedomega control center (window title **AOM Centre**). A standalone app for the work that isn't playing music: training model sizes, installing and
 moving model weights, running Adaptive Preference Learning in batch over your sample
 libraries, and learning the timbres of the instrument plugins you already own. The plugin (VST3/AAX) stays focused on performance and reads what this app installs.
 
@@ -76,7 +76,8 @@ src/alfacc/
   preference.py  libraries, index, labels, learner batches
   assimilate/    plugin discovery, range finding, densities, harvest jobs, analysis worker
   cli.py         alfa-cc
-  gui/           alfa-cc-gui (PySide6), Graphite theme from docs/ui/ui-design.md
+  gui/           alfa-cc-gui (PySide6): tensor_page.py holds the Audio Tensor Space task pages,
+                 app.py the window, Jobs, Settings and the Legacy pages, widgets.py shared widgets
 render-host/     alfa-render-host (JUCE console app) and AlfaTestSynth, a VST3 used in tests
 tests/           pytest; fake_train.py and fake_render_host.py stand in for the real programs
 ```
