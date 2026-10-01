@@ -420,6 +420,7 @@ TEST_CASE("Closing the actual editor destroys nested composition and primitive d
     REQUIRE(editor != nullptr);
     editor->setVisible(true);
     click(*editor, "Tensor");
+    click(*editor, "Expert tools");
     click(*editor, "Compose fragments");
     auto* composition = dialog<alfa::tensorhost::CompositionPanel>();
     REQUIRE(composition != nullptr);
@@ -437,7 +438,7 @@ TEST_CASE("Closing the actual editor destroys nested composition and primitive d
     std::unique_ptr<juce::AudioProcessorEditor> reopened(processor.createEditor());
     REQUIRE(reopened != nullptr);
     reopened->setVisible(true);
-    click(*reopened, "Compose fragments"); // Tensor-space view was persisted.
+    click(*reopened, "Compose fragments"); // Tensor view and open expert tools were persisted.
     auto* next = dialog<alfa::tensorhost::CompositionPanel>();
     REQUIRE(next != nullptr);
     juce::Component::SafePointer<juce::DialogWindow> nextSafe(next);
