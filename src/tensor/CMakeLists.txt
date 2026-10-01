@@ -50,3 +50,7 @@ endif()
 add_executable(alfa_tensor_precision_bench bench/PrecisionBench.cpp)
 target_link_libraries(alfa_tensor_precision_bench PRIVATE Alfa::tensor)
 alfa_set_compile_options(alfa_tensor_precision_bench)
+
+add_executable(alfa_tensor_sparse_bench bench/SparseRuntimeBench.cpp)
+target_link_libraries(alfa_tensor_sparse_bench PRIVATE Alfa::tensor)
+alfa_set_compile_options(alfa_tensor_sparse_bench)

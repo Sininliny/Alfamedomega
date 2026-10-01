@@ -53,20 +53,22 @@ These mechanisms support a shared representation; they do not implement cross-ti
 
 The migration boundary preserves original bytes and requires a semantic translator to prepare a
 candidate. It is not yet a converter for real legacy model/preset/automation formats. The new runtime
-is not connected to plugin audio buses or a trained compiler. Kernel coverage must be reported from
-implemented code, not inferred from the required primitive-universe list.
+is connected to the native instrument/FX/hybrid host and supports imported GRU compiler models;
+authored default sounds do not contain a trained universal model. Kernel coverage must be reported
+from implemented code, not inferred from the required primitive-universe list.
 
 Still required for the complete mission:
 
-- Host integration for streamed validated predictions and layered semantic lock authority beyond
-  the implemented numeric publication/projection locks.
+- Perceptual and musical lock authority beyond implemented numeric parameter locks and explicit
+  indexed control layers.
 - Complete primitive metadata, executable kernels and numerical/state validation across the universe.
-- Defined tensor serialization, intermediate representation semantics and extension compatibility.
-- Instrument, FX and hybrid host integration with live audio preserved.
-- Learned routing and multi-category performance/context processing.
+- Evolution/compatibility policy for the current versioned tensor serialization and wider
+  intermediate representations.
+- Broad learned routing and multi-category performance/context generalization beyond imported
+  models and explicit authored encodings.
 - Shared padded construction datasets, dual-supervised WAV learning, validated normalization,
   distillation, learned importance and constrained tier compression.
-- Layered UI inspection/overrides and hardware-aware offline import.
+- Product validation of layered controls, overrides and hardware-aware offline import at scale.
 - Measured latency, CPU/memory limits and host-safety evidence beyond callback unit tests.
 
 These are unfinished implementation areas, not unanswered versions of the decisions above.
@@ -76,13 +78,19 @@ New directional ambiguities must be raised with Sinin before committing to a uni
 
 The native `src/tensor_plugin` entry now hosts instrument, FX and hybrid audio
 buses, MIDI/MPE input tensors, off-thread compilation/publication, recurrent DSP
-and independently clocked GRU tensor predictions. Its layered editor supports
-musical intentions, inspection and versioned JSON edits/model import. The legacy
-entry remains available with its original state semantics.
+and independently clocked GRU tensor predictions. The canonical product entry
+uses indexed X control layers, editable many-to-many matrices and semantic names
+only at the primitive parameter level. Tensor composition retains independently
+authored fragments and explicit recurrent bindings. Model training is paused
+during the current native plugin migration. The optional legacy build retains
+its original state semantics; reused DSP/UI components are shared by the product.
 
 `Compiler.h` defines the `aom.tensor/1` / `aom.math/1` JSON boundary; state allocation
 and independent schedules are derived from validated programs. `Universe.h`
-adds 46 executable operations to the four initial mathematical kernels. Explicit
+registers 64 operations: 48 reference, five production ring-state, two streaming
+STFT and nine versioned nonlinear operations. Together with the four initial mathematical
+kernels this is 68 operations. This count does not establish production parity with every
+legacy algorithm or the complete history of audio computation. Explicit
 immutable assets hold tables, IRs, frames, HRTFs and envelope segment definitions.
 `Model.h` implements deterministic CPU inference for `aom.runtime.gru/1`, with
 independent model budget, explicit clock, bounded predictions and user locks.
@@ -94,3 +102,12 @@ candidate search. AOM Centre exposes tensor workflows separately from legacy
 method training. See [validation](validation.md) for reproducible execution and
 remaining generalization/product limits. Earlier foundation-only observations
 above are retained as the audit history, not the current implementation status.
+
+Production extraction now includes constant-time ring history updates, explicit FDN8 and causal
+FIR, streaming windowed FFT/overlap-add with typed numerical workspace, and explicitly selected
+1x/2x/4x nonlinear operations. Existing IDs and factory sounds are not silently converted.
+Preserve each operation's latency, initial state, assets and error semantics when migrating;
+[production composition](production-composition.md) explains the concrete contracts. Optimized
+partitioned convolution, anti-alias resampling and richer legacy physical/phase-vocoder behaviors
+still require adaptation and validation. The primary editor's configuration display is read-only;
+Sound library browsing/inspection leaves playback intact until an explicit Load.

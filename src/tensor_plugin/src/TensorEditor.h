@@ -22,12 +22,6 @@ public:
     }
 
 private:
-    struct BrowserItem
-    {
-        juce::String id, name, category;
-        bool factory = true;
-        size_t index = 0;
-    };
     struct Snapshot
     {
         juce::String document;
@@ -40,14 +34,14 @@ private:
     LiveScope scope_;
     StereoMeter meters_;
     ExplorationPad exploration_;
-    juce::Label brand_, version_, status_, telemetry_, presetName_, paramHeader_, routeHeader_, levelHeader_;
+    juce::Label brand_, version_, status_, telemetry_, configurationName_, paramHeader_, routeHeader_,
+        levelHeader_;
     std::array<juce::TextButton, 4> tabs_;
-    juce::TextButton previous_{"<"}, next_{">"}, savePreset_{"Save as"}, openPreset_{"Open"}, panic_{"Panic"};
-    juce::ComboBox presets_, categories_, mode_, theme_, layerSelect_, xAxis_, yAxis_, tensorSelect_;
+    juce::TextButton library_{"Sound library"}, savePreset_{"Save as"}, openPreset_{"Open"}, panic_{"Panic"};
+    juce::ComboBox mode_, theme_, layerSelect_, xAxis_, yAxis_, tensorSelect_;
     juce::ComboBox accent_, gesture_;
     juce::ComboBox tier_;
     juce::Label precision_, resources_, hostPrecision_;
-    juce::TextEditor search_;
     juce::ToggleButton bypass_{"Bypass"}, showKeyboard_{"Keyboard"};
     juce::TextButton a_{"A"}, b_{"B"}, capture_{"Capture"}, pagePrevious_{"<"}, pageNext_{">"};
     juce::TextButton undo_{"Undo"}, redo_{"Redo"};
@@ -59,7 +53,9 @@ private:
     juce::ListBox primitives_{"Primitive activations", this};
     juce::TextEditor document_, inspection_, tensorValues_;
     juce::TextButton apply_{"Apply JSON"}, exportJSON_{"Export JSON"}, importModel_{"Import runtime model"},
-        addRoute_{"Add relationship"};
+        addRoute_{"Add relationship"}, compose_{"Compose fragments"};
+    juce::Component::SafePointer<juce::DialogWindow> compositionDialog_;
+    juce::Component::SafePointer<juce::DialogWindow> libraryDialog_;
     juce::TextButton refresh_{"Refresh library"}, folder_{"Library folder"}, exportTheme_{"Export theme"};
     juce::TextButton importTheme_{"Import theme"};
     juce::ComboBox sourceKind_, routeDestination_, routeWeight_, routeWeightsTensor_, mappingLayer_,
@@ -72,8 +68,6 @@ private:
     std::unique_ptr<juce::FileChooser> chooser_;
     std::unique_ptr<juce::AlertWindow> saveDialog_;
     std::unique_ptr<PresetStore> store_;
-    std::vector<BrowserItem> browser_;
-    std::vector<size_t> filtered_;
     nlohmann::json sound_;
     std::array<Snapshot, 2> snapshots_;
     uint64_t revision_ = 0;
@@ -87,9 +81,7 @@ private:
     void selectedRowsChanged(int) override;
     void chooseView(int);
     void refreshLibrary();
-    void filterLibrary();
-    void choosePreset(size_t);
-    void stepPreset(int);
+    void openLibrary();
     void savePreset();
     void openPreset();
     void refreshSound();

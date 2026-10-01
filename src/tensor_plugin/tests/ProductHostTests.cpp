@@ -1,4 +1,5 @@
 #include "FactoryPrograms.h"
+#include "TensorEditor.h"
 #include "TensorProcessor.h"
 #include "alfa/ui/Theme.h"
 
@@ -542,28 +543,41 @@ TEST_CASE("Settings tier selector publishes the canonical precision tier",
     CHECK(JSON::parse(processor.document().toStdString())["tier"] == "Standard");
 }
 
-TEST_CASE("Editor message loop stays idle and a preset selection loads only once",
+TEST_CASE("Editor instance and tensor inspection leave executable sound unchanged",
           "[tensor-host][product][ui-loop]")
 {
     juce::ScopedJuceInitialiser_GUI gui;
     Processor processor;
     processor.prepareToPlay(48000, 128);
     std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
+    auto* console = dynamic_cast<alfa::tensorhost::Editor*>(editor.get());
+    REQUIRE(console != nullptr);
     const auto initial = processor.programRevision.load();
+    const auto document = processor.document();
     juce::MessageManager::getInstance()->runDispatchLoopUntil(200);
     REQUIRE(processor.programRevision.load() == initial);
-    juce::ComboBox* browser = nullptr;
-    for (int i = 0; i < editor->getNumChildComponents(); ++i)
-        if (auto* combo = dynamic_cast<juce::ComboBox*>(editor->getChildComponent(i));
-            combo && combo->getNumItems() == static_cast<int>(alfa::tensorhost::factoryPrograms().size()) &&
-            combo->getItemText(0).contains("Harmonic Field"))
-            browser = combo;
-    REQUIRE(browser != nullptr);
-    browser->setSelectedId(browser->getItemId(1), juce::sendNotificationAsync);
-    juce::MessageManager::getInstance()->runDispatchLoopUntil(200);
-    CHECK(processor.programRevision.load() == initial + 1);
-    const auto selected = processor.document();
-    juce::MessageManager::getInstance()->runDispatchLoopUntil(200);
-    CHECK(processor.programRevision.load() == initial + 1);
-    CHECK(processor.document() == selected);
+    console->snapshotView(1);
+    juce::ListBox* instances = nullptr;
+    for (auto* child : console->getChildren())
+        if (auto* list = dynamic_cast<juce::ListBox*>(child))
+            instances = list;
+    REQUIRE(instances != nullptr);
+    instances->selectRow(1);
+    juce::MessageManager::getInstance()->runDispatchLoopUntil(100);
+    CHECK(processor.programRevision.load() == initial);
+    CHECK(processor.document() == document);
+    console->snapshotView(2);
+    juce::ComboBox* tensors = nullptr;
+    for (auto* child : console->getChildren())
+        if (auto* combo = dynamic_cast<juce::ComboBox*>(child);
+            combo && combo->getItemText(0) == "Routing tensor")
+            tensors = combo;
+    REQUIRE(tensors != nullptr);
+    tensors->setSelectedId(3, juce::sendNotificationAsync);
+    juce::MessageManager::getInstance()->runDispatchLoopUntil(100);
+    CHECK(processor.programRevision.load() == initial);
+    CHECK(processor.document() == document);
+    for (auto* child : console->getChildren())
+        if (auto* combo = dynamic_cast<juce::ComboBox*>(child))
+            CHECK_FALSE(combo->getItemText(0).contains("Harmonic Field"));
 }

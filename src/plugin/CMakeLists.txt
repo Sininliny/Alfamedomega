@@ -57,6 +57,9 @@ juce_add_plugin(Alfamedomega
     AU_MAIN_TYPE kAudioUnitType_MusicEffect)
 target_link_libraries(Alfamedomega PRIVATE Alfa::tensorHost
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+if(MSVC)
+    target_compile_options(Alfamedomega PRIVATE /utf-8)
+endif()
 target_sources(Alfamedomega_Standalone PRIVATE ${PROJECT_SOURCE_DIR}/src/tensor_plugin/src/StandaloneMain.cpp)
 target_compile_definitions(Alfamedomega_Standalone PRIVATE JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1)
 

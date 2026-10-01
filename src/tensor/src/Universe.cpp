@@ -3,6 +3,9 @@
 #include "alfa/dsp/detail/DelayInterpolation.h"
 #include "alfa/dsp/detail/FiltersBiquad.h"
 #include "alfa/dsp/detail/FiltersSvf.h"
+#include "alfa/tensor/NonlinearProduction.h"
+#include "alfa/tensor/Production.h"
+#include "alfa/tensor/SpectralProduction.h"
 
 #include <algorithm>
 #include <array>
@@ -386,7 +389,7 @@ Scalar interpolate(std::span<const Scalar> a, double position, bool looping) noe
     const auto first = std::min(static_cast<std::size_t>(index), a.size() - 1);
     const auto second = first + 1 < a.size() ? first + 1 : looping ? 0 : first;
     return safe<Scalar>(a[first] +
-                (index - static_cast<double>(first)) * (static_cast<double>(a[second]) - a[first]));
+                        (index - static_cast<double>(first)) * (static_cast<double>(a[second]) - a[first]));
 }
 template <typename Scalar>
 Scalar interpolatedAsset(std::span<const Scalar> table, double position, Op op) noexcept
@@ -449,7 +452,8 @@ template <typename Scalar>
 double delayValue(const StepT<Scalar>& s) noexcept
 {
     const auto memory = s.localState.subspan(1);
-    const double samples = (s.parameters[0] + s.parameters[1] * std::sin(tau * s.localState[0])) / dt<Scalar>(s);
+    const double samples =
+        (s.parameters[0] + s.parameters[1] * std::sin(tau * s.localState[0])) / dt<Scalar>(s);
     const double index = std::clamp(samples - 1, 0.0, static_cast<double>(memory.size() - 1));
     const auto i = static_cast<std::size_t>(index);
     const auto j = std::min(i + 1, memory.size() - 1);
@@ -499,7 +503,8 @@ bool valid(const StepT<Scalar>& s, Op op) noexcept
         return p.size() == 2 && phaseValid<Scalar>(s) && table.size() >= 2;
     case Op::Additive:
         return n > 0 && p.size() == 2 * n &&
-               std::all_of(s.localState.begin(), s.localState.end(), [](Scalar x) { return x >= 0 && x < 1; });
+               std::all_of(s.localState.begin(), s.localState.end(),
+                           [](Scalar x) { return x >= 0 && x < 1; });
     case Op::Noise:
         return p.empty() && n == 2 && s.localState[0] >= 0 && s.localState[0] <= 65535 &&
                s.localState[1] >= 0 && s.localState[1] <= 65535 &&
@@ -583,8 +588,9 @@ bool valid(const StepT<Scalar>& s, Op op) noexcept
         return p.size() == 2 && p[0] >= 0 && n == 1;
     case Op::ModDelay:
         return p.size() == 5 && n >= 3 && s.localState[0] >= 0 && s.localState[0] < 1 && p[1] >= 0 &&
-               (p[0] - p[1]) / dt<Scalar>(s) >= 1 && (p[0] + p[1]) / dt<Scalar>(s) <= static_cast<double>(n - 1) &&
-               p[3] >= 0 && p[3] <= 1 && std::abs(p[4]) < 1;
+               (p[0] - p[1]) / dt<Scalar>(s) >= 1 &&
+               (p[0] + p[1]) / dt<Scalar>(s) <= static_cast<double>(n - 1) && p[3] >= 0 && p[3] <= 1 &&
+               std::abs(p[4]) < 1;
     case Op::Phaser:
         return p.size() == 2 && n == 2 && std::abs(p[0]) < 1 && p[1] >= 0 && p[1] <= 1;
     case Op::Reverb:
@@ -616,8 +622,9 @@ bool valid(const StepT<Scalar>& s, Op op) noexcept
                std::all_of(table.begin(), table.end(), [](Scalar x) { return x > 0; });
     case Op::Binaural:
         return p.empty() && !table.empty() && !asset<Scalar>(s, 1).empty() && table.size() <= n + 1 &&
-               asset<Scalar>(s, 1).size() <= n + 1 && std::max(table.size(), asset<Scalar>(s, 1).size()) == n + 1 &&
-               allFinite<Scalar>(table) && allFinite<Scalar>(asset<Scalar>(s, 1));
+               asset<Scalar>(s, 1).size() <= n + 1 &&
+               std::max(table.size(), asset<Scalar>(s, 1).size()) == n + 1 && allFinite<Scalar>(table) &&
+               allFinite<Scalar>(asset<Scalar>(s, 1));
     case Op::Room:
         if (p.size() != 16 || n == 0 || p[9] <= 0)
             return false;
@@ -739,8 +746,8 @@ void transition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
             if (s.localState[i] > 0)
             {
                 next[i + 1] = safe<Scalar>(s.localState[i + 1] + dt<Scalar>(s));
-                next[i + 2] =
-                    safe<Scalar>(wrap(s.localState[i + 2] + p[0] * dt<Scalar>(s) / static_cast<double>(table.size())));
+                next[i + 2] = safe<Scalar>(
+                    wrap(s.localState[i + 2] + p[0] * dt<Scalar>(s) / static_cast<double>(table.size())));
                 if (next[i + 1] >= p[1])
                     next[i] = 0.0f;
             }
@@ -769,7 +776,7 @@ void transition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
     {
         for (std::size_t i = 0; i < n; ++i)
             next[i] = safe<Scalar>((1 - static_cast<double>(p[0])) * audio<Scalar>(s, i) +
-                           static_cast<double>(p[0]) * audio<Scalar>(s, n + i));
+                                   static_cast<double>(p[0]) * audio<Scalar>(s, n + i));
     }
     if constexpr (op == Op::SpectralTilt)
     {
@@ -804,7 +811,8 @@ void transition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
             {
                 next[2 * j + c] = safe<Scalar>(next[2 * j + c] + audio<Scalar>(s, 2 * i + c) * (1 - mix));
                 if (j + 1 < n / 2)
-                    next[2 * (j + 1) + c] = safe<Scalar>(next[2 * (j + 1) + c] + audio<Scalar>(s, 2 * i + c) * mix);
+                    next[2 * (j + 1) + c] =
+                        safe<Scalar>(next[2 * (j + 1) + c] + audio<Scalar>(s, 2 * i + c) * mix);
             }
         }
     }
@@ -863,7 +871,9 @@ void transition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
         }
         else if (stage == 2)
         {
-            level = p[2] == 0 ? p[3] : std::max(static_cast<double>(p[3]), level - (1 - p[3]) * dt<Scalar>(s) / p[2]);
+            level = p[2] == 0
+                        ? p[3]
+                        : std::max(static_cast<double>(p[3]), level - (1 - p[3]) * dt<Scalar>(s) / p[2]);
             if (level <= p[3])
                 stage = 3;
         }
@@ -923,8 +933,8 @@ void transition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
     }
     if constexpr (op == Op::NonlinearFeedback)
     {
-        next[0] = safe<Scalar>(
-            std::tanh(static_cast<double>(p[0]) * audio<Scalar>(s) + static_cast<double>(p[1]) * s.localState[0]));
+        next[0] = safe<Scalar>(std::tanh(static_cast<double>(p[0]) * audio<Scalar>(s) +
+                                         static_cast<double>(p[1]) * s.localState[0]));
     }
     if constexpr (op == Op::ModDelay)
     {
@@ -940,7 +950,7 @@ void transition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
     {
         next[0] = audio<Scalar>(s);
         next[1] = safe<Scalar>(-static_cast<double>(p[0]) * audio<Scalar>(s) + s.localState[0] +
-                       static_cast<double>(p[0]) * s.localState[1]);
+                               static_cast<double>(p[0]) * s.localState[1]);
     }
     if constexpr (op == Op::Reverb)
     {
@@ -957,7 +967,8 @@ void transition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
         for (Scalar value : table)
         {
             const auto length = static_cast<std::size_t>(value);
-            next[offset] = safe<Scalar>(audio<Scalar>(s) / norm + p[0] * (s.localState[offset + length - 1] - 2 * mean));
+            next[offset] =
+                safe<Scalar>(audio<Scalar>(s) / norm + p[0] * (s.localState[offset + length - 1] - 2 * mean));
             for (std::size_t i = 1; i < length; ++i)
                 next[offset + i] = s.localState[offset + i - 1];
             offset += length;
@@ -978,7 +989,8 @@ void transition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
         zero<Scalar>(next.subspan(1 + 2 * bins));
         for (std::size_t k = 0; k < bins; ++k)
         {
-            const double real = audio<Scalar>(s, 2 * k), imag = audio<Scalar>(s, 2 * k + 1), phase = std::atan2(imag, real);
+            const double real = audio<Scalar>(s, 2 * k), imag = audio<Scalar>(s, 2 * k + 1),
+                         phase = std::atan2(imag, real);
             const double signedBin =
                 k <= bins / 2 ? static_cast<double>(k) : static_cast<double>(k) - static_cast<double>(bins);
             const double expected = tau * signedBin * p[0] / static_cast<double>(bins);
@@ -999,7 +1011,8 @@ void transition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
             {
                 const double component = magnitude * (c == 0 ? std::cos(synthesis) : std::sin(synthesis));
                 const auto offset = 1 + 2 * bins;
-                next[offset + 2 * first + c] = safe<Scalar>(next[offset + 2 * first + c] + (1 - mix) * component);
+                next[offset + 2 * first + c] =
+                    safe<Scalar>(next[offset + 2 * first + c] + (1 - mix) * component);
                 next[offset + 2 * second + c] = safe<Scalar>(next[offset + 2 * second + c] + mix * component);
             }
         }
@@ -1043,14 +1056,15 @@ void transition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
             if (s.localState[i] > 0)
             {
                 next[i + 1] = safe<Scalar>(s.localState[i + 1] + dt<Scalar>(s));
-                next[i + 2] =
-                    safe<Scalar>(wrap(s.localState[i + 2] + p[1] * dt<Scalar>(s) / static_cast<double>(table.size())));
+                next[i + 2] = safe<Scalar>(
+                    wrap(s.localState[i + 2] + p[1] * dt<Scalar>(s) / static_cast<double>(table.size())));
                 if (next[i + 1] >= p[2])
                     next[i] = 0.0f;
             }
         const double launch = s.localState[0] + dt<Scalar>(s) / p[3];
         next[0] = safe<Scalar>(wrap(launch));
-        next[1] = safe<Scalar>(wrap(s.localState[1] + p[0] * dt<Scalar>(s) / static_cast<double>(table.size())));
+        next[1] =
+            safe<Scalar>(wrap(s.localState[1] + p[0] * dt<Scalar>(s) / static_cast<double>(table.size())));
         if (next[1] >= 1)
             next[1] = 0.0f;
         if (launch >= 1)
@@ -1148,156 +1162,177 @@ void readout(const StepT<Scalar>& s, std::span<Scalar> out) noexcept
     }
     else
     {
-    double y = 0;
-    if (out.size() != 1)
-        return;
-    if constexpr (op == Op::Saw)
-    {
-        double phase = s.localState[0], d = std::abs(p[0]) * dt<Scalar>(s), blep = 0;
-        if (d > 0)
+        double y = 0;
+        if (out.size() != 1)
+            return;
+        if constexpr (op == Op::Saw)
         {
-            if (phase < d)
+            double phase = s.localState[0], d = std::abs(p[0]) * dt<Scalar>(s), blep = 0;
+            if (d > 0)
             {
-                const double x = phase / d;
-                blep = x + x - x * x - 1;
+                if (phase < d)
+                {
+                    const double x = phase / d;
+                    blep = x + x - x * x - 1;
+                }
+                else if (phase > 1 - d)
+                {
+                    const double x = (phase - 1) / d;
+                    blep = x * x + x + x + 1;
+                }
             }
-            else if (phase > 1 - d)
+            y = p[1] * (2 * phase - 1 - blep);
+        }
+        if constexpr (op == Op::Wavetable)
+        {
+            y = static_cast<double>(interpolate<Scalar>(table, s.localState[0], true)) * p[1];
+        }
+        if constexpr (op == Op::Additive)
+        {
+            for (std::size_t i = 0; i < n; ++i)
+                y += p[2 * i + 1] * std::sin(tau * s.localState[i]);
+        }
+        if constexpr (op == Op::Noise)
+        {
+            const auto seed = static_cast<std::uint32_t>(s.localState[0]) |
+                              (static_cast<std::uint32_t>(s.localState[1]) << 16);
+            y = static_cast<double>(seed) / 2147483648.0 - 1;
+        }
+        if constexpr (op == Op::Impulse)
+        {
+            y = p[0] > 0 && s.localState[0] <= 0 ? p[1] : 0;
+        }
+        if constexpr (op == Op::Sample || op == Op::Resample || op == Op::ResampleCubic ||
+                      op == Op::ResampleSinc8)
+        {
+            y = static_cast<double>(op == Op::ResampleCubic || op == Op::ResampleSinc8
+                                        ? interpolatedAsset<Scalar>(table, s.localState[0], op)
+                                        : interpolate<Scalar>(table, s.localState[0], op == Op::Sample)) *
+                p[1];
+        }
+        if constexpr (op == Op::Grain)
+        {
+            for (std::size_t i = 1; i < n; i += 3)
+                if (s.localState[i] > 0 && s.localState[i + 1] >= 0 && s.localState[i + 1] < p[1])
+                    y += 0.5 * (1 - std::cos(tau * s.localState[i + 1] / p[1])) *
+                         interpolate<Scalar>(table, s.localState[i + 2], true) * p[3];
+        }
+        if constexpr (op == Op::Lowpass || op == Op::Highpass || op == Op::Bandpass)
+            y = biquadValue<Scalar>(s, op);
+        if constexpr (op == Op::Comb)
+            y = audio<Scalar>(s) + static_cast<double>(p[0]) * s.localState.back();
+        if constexpr (op == Op::String)
+            y = s.localState.back();
+        if constexpr (op == Op::Diffusion)
+            y = -static_cast<double>(p[0]) * audio<Scalar>(s) + s.localState.back();
+        if constexpr (op == Op::Resonator || op == Op::Modal)
+        {
+            for (std::size_t i = 0; i < n / 2; ++i)
+                y += modalValue<Scalar>(s, i);
+        }
+        if constexpr (op == Op::Adsr || op == Op::GestureFollower || op == Op::NonlinearFeedback)
+            y = s.localState[0];
+        if constexpr (op == Op::Multistage)
+            y = s.localState[1];
+        if constexpr (op == Op::MidiAffine)
+        {
+            const double control = s.inputs.midi.values.empty() ? 0 : s.inputs.midi.values[0];
+            y = control * p[0] + p[1];
+        }
+        if constexpr (op == Op::Saturation)
+            y = std::tanh(static_cast<double>(p[0]) * audio<Scalar>(s));
+        if constexpr (op == Op::Waveshape)
+        {
+            const double x = std::clamp(static_cast<double>(p[0]) * audio<Scalar>(s), -1.0, 1.0);
+            const double index = (x + 1) * 0.5 * static_cast<double>(table.size() - 1);
+            const auto i = static_cast<std::size_t>(index), j = std::min(i + 1, table.size() - 1);
+            y = table[i] + (index - static_cast<double>(i)) * (static_cast<double>(table[j]) - table[i]);
+        }
+        if constexpr (op == Op::Clip)
+            y = std::clamp(audio<Scalar>(s), -p[0], p[0]);
+        if constexpr (op == Op::Cubic)
+        {
+            const double x = std::clamp(static_cast<double>(p[0]) * audio<Scalar>(s), -1.0, 1.0);
+            y = 1.5 * x - 0.5 * x * x * x;
+        }
+        if constexpr (op == Op::ModDelay)
+            y = (1 - static_cast<double>(p[3])) * audio<Scalar>(s) + p[3] * delayValue<Scalar>(s);
+        if constexpr (op == Op::Phaser)
+        {
+            const double wet = -static_cast<double>(p[0]) * audio<Scalar>(s) + s.localState[0] +
+                               static_cast<double>(p[0]) * s.localState[1];
+            y = (1 - static_cast<double>(p[1])) * audio<Scalar>(s) + p[1] * wet;
+        }
+        if constexpr (op == Op::Reverb)
+        {
+            std::size_t offset = 0;
+            for (Scalar length : table)
             {
-                const double x = (phase - 1) / d;
-                blep = x * x + x + x + 1;
+                offset += static_cast<std::size_t>(length);
+                y += s.localState[offset - 1];
+            }
+            y /= std::sqrt(static_cast<double>(table.size()));
+        }
+        if constexpr (op == Op::Convolution)
+        {
+            y = static_cast<double>(audio<Scalar>(s)) * table[0];
+            for (std::size_t i = 0; i < n; ++i)
+                y += static_cast<double>(s.localState[i]) * table[i + 1];
+        }
+        if constexpr (op == Op::Room)
+        {
+            for (std::size_t path = 0; path < 7; ++path)
+            {
+                const double distance = roomDistance<Scalar>(s, path), gain = path == 0 ? 1.0 : p[9 + path];
+                y += gain * pastInput<Scalar>(s, distance / (p[9] * dt<Scalar>(s))) / distance;
             }
         }
-        y = p[1] * (2 * phase - 1 - blep);
-    }
-    if constexpr (op == Op::Wavetable)
-    {
-        y = static_cast<double>(interpolate<Scalar>(table, s.localState[0], true)) * p[1];
-    }
-    if constexpr (op == Op::Additive)
-    {
-        for (std::size_t i = 0; i < n; ++i)
-            y += p[2 * i + 1] * std::sin(tau * s.localState[i]);
-    }
-    if constexpr (op == Op::Noise)
-    {
-        const auto seed =
-            static_cast<std::uint32_t>(s.localState[0]) | (static_cast<std::uint32_t>(s.localState[1]) << 16);
-        y = static_cast<double>(seed) / 2147483648.0 - 1;
-    }
-    if constexpr (op == Op::Impulse)
-    {
-        y = p[0] > 0 && s.localState[0] <= 0 ? p[1] : 0;
-    }
-    if constexpr (op == Op::Sample || op == Op::Resample || op == Op::ResampleCubic ||
-                  op == Op::ResampleSinc8)
-    {
-        y = static_cast<double>(op == Op::ResampleCubic || op == Op::ResampleSinc8
-                                    ? interpolatedAsset<Scalar>(table, s.localState[0], op)
-                                    : interpolate<Scalar>(table, s.localState[0], op == Op::Sample)) *
-            p[1];
-    }
-    if constexpr (op == Op::Grain)
-    {
-        for (std::size_t i = 1; i < n; i += 3)
-            if (s.localState[i] > 0 && s.localState[i + 1] >= 0 && s.localState[i + 1] < p[1])
-                y += 0.5 * (1 - std::cos(tau * s.localState[i + 1] / p[1])) *
-                     interpolate<Scalar>(table, s.localState[i + 2], true) * p[3];
-    }
-    if constexpr (op == Op::Lowpass || op == Op::Highpass || op == Op::Bandpass)
-        y = biquadValue<Scalar>(s, op);
-    if constexpr (op == Op::Comb)
-        y = audio<Scalar>(s) + static_cast<double>(p[0]) * s.localState.back();
-    if constexpr (op == Op::String)
-        y = s.localState.back();
-    if constexpr (op == Op::Diffusion)
-        y = -static_cast<double>(p[0]) * audio<Scalar>(s) + s.localState.back();
-    if constexpr (op == Op::Resonator || op == Op::Modal)
-    {
-        for (std::size_t i = 0; i < n / 2; ++i)
-            y += modalValue<Scalar>(s, i);
-    }
-    if constexpr (op == Op::Adsr || op == Op::GestureFollower || op == Op::NonlinearFeedback)
-        y = s.localState[0];
-    if constexpr (op == Op::Multistage)
-        y = s.localState[1];
-    if constexpr (op == Op::MidiAffine)
-    {
-        const double control = s.inputs.midi.values.empty() ? 0 : s.inputs.midi.values[0];
-        y = control * p[0] + p[1];
-    }
-    if constexpr (op == Op::Saturation)
-        y = std::tanh(static_cast<double>(p[0]) * audio<Scalar>(s));
-    if constexpr (op == Op::Waveshape)
-    {
-        const double x = std::clamp(static_cast<double>(p[0]) * audio<Scalar>(s), -1.0, 1.0);
-        const double index = (x + 1) * 0.5 * static_cast<double>(table.size() - 1);
-        const auto i = static_cast<std::size_t>(index), j = std::min(i + 1, table.size() - 1);
-        y = table[i] + (index - static_cast<double>(i)) * (static_cast<double>(table[j]) - table[i]);
-    }
-    if constexpr (op == Op::Clip)
-        y = std::clamp(audio<Scalar>(s), -p[0], p[0]);
-    if constexpr (op == Op::Cubic)
-    {
-        const double x = std::clamp(static_cast<double>(p[0]) * audio<Scalar>(s), -1.0, 1.0);
-        y = 1.5 * x - 0.5 * x * x * x;
-    }
-    if constexpr (op == Op::ModDelay)
-        y = (1 - static_cast<double>(p[3])) * audio<Scalar>(s) + p[3] * delayValue<Scalar>(s);
-    if constexpr (op == Op::Phaser)
-    {
-        const double wet = -static_cast<double>(p[0]) * audio<Scalar>(s) + s.localState[0] +
-                           static_cast<double>(p[0]) * s.localState[1];
-        y = (1 - static_cast<double>(p[1])) * audio<Scalar>(s) + p[1] * wet;
-    }
-    if constexpr (op == Op::Reverb)
-    {
-        std::size_t offset = 0;
-        for (Scalar length : table)
+        if constexpr (op == Op::GrainStretch)
         {
-            offset += static_cast<std::size_t>(length);
-            y += s.localState[offset - 1];
+            for (std::size_t i = 2; i < n; i += 3)
+                if (s.localState[i] > 0 && s.localState[i + 1] >= 0 && s.localState[i + 1] < p[2])
+                    y += 0.5 * (1 - std::cos(tau * s.localState[i + 1] / p[2])) *
+                         interpolate<Scalar>(table, s.localState[i + 2], true) * p[4];
         }
-        y /= std::sqrt(static_cast<double>(table.size()));
-    }
-    if constexpr (op == Op::Convolution)
-    {
-        y = static_cast<double>(audio<Scalar>(s)) * table[0];
-        for (std::size_t i = 0; i < n; ++i)
-            y += static_cast<double>(s.localState[i]) * table[i + 1];
-    }
-    if constexpr (op == Op::Room)
-    {
-        for (std::size_t path = 0; path < 7; ++path)
-        {
-            const double distance = roomDistance<Scalar>(s, path), gain = path == 0 ? 1.0 : p[9 + path];
-            y += gain * pastInput<Scalar>(s, distance / (p[9] * dt<Scalar>(s))) / distance;
-        }
-    }
-    if constexpr (op == Op::GrainStretch)
-    {
-        for (std::size_t i = 2; i < n; i += 3)
-            if (s.localState[i] > 0 && s.localState[i + 1] >= 0 && s.localState[i + 1] < p[2])
-                y += 0.5 * (1 - std::cos(tau * s.localState[i + 1] / p[2])) *
-                     interpolate<Scalar>(table, s.localState[i + 2], true) * p[4];
-    }
-    out[0] = safe<Scalar>(y * s.activation);
+        out[0] = safe<Scalar>(y * s.activation);
     }
 }
 
 template <Op op, typename Scalar>
 PrimitiveT<Scalar> descriptor(std::size_t states, std::size_t outputs, std::string_view id)
 {
-    return {std::string(id), states, outputs, transition<op,Scalar>, readout<op,Scalar>};
+    return {std::string(id), states, outputs, transition<op, Scalar>, readout<op, Scalar>};
 }
 } // namespace
 
 std::span<const kernels::Metadata> catalog() noexcept
 {
-    return records;
+    // Metadata is prepared off thread; callbacks never enumerate or allocate it.
+    static const auto combined = []
+    {
+        std::vector<kernels::Metadata> result(std::begin(records), std::end(records));
+        const auto added = production::catalog();
+        result.insert(result.end(), added.begin(), added.end());
+        const auto spectral = spectralProduction::catalog();
+        result.insert(result.end(), spectral.begin(), spectral.end());
+        const auto nonlinear = nonlinear::catalog();
+        result.insert(result.end(), nonlinear.begin(), nonlinear.end());
+        return result;
+    }();
+    return combined;
 }
 template <typename Scalar>
 bool createPrimitive(std::string_view id, std::size_t n, PrimitiveT<Scalar>& result, std::string& error)
 {
+    for (const auto& metadata : production::catalog())
+        if (metadata.id == id)
+            return production::createPrimitive(id, n, result, error);
+    for (const auto& metadata : spectralProduction::catalog())
+        if (metadata.id == id)
+            return spectralProduction::createPrimitive(id, n, result, error);
+    for (const auto& metadata : nonlinear::catalog())
+        if (metadata.id == id)
+            return nonlinear::createPrimitive(id, n, result, error);
     error.clear();
     const auto fail = [&](const char* text)
     {
@@ -1314,7 +1349,7 @@ bool createPrimitive(std::string_view id, std::size_t n, PrimitiveT<Scalar>& res
     {                                                                                                        \
         if (!fixed(N))                                                                                       \
             return fail("Incorrect intrinsic state_size for primitive");                                     \
-        result = descriptor<Op::OP,Scalar>(n, OUT, id);                                                             \
+        result = descriptor<Op::OP, Scalar>(n, OUT, id);                                                     \
         return true;                                                                                         \
     }
 #define VARIABLE(ID, OP, VALID, OUT)                                                                         \
@@ -1322,7 +1357,7 @@ bool createPrimitive(std::string_view id, std::size_t n, PrimitiveT<Scalar>& res
     {                                                                                                        \
         if (!(VALID))                                                                                        \
             return fail("Invalid state_size for primitive");                                                 \
-        result = descriptor<Op::OP,Scalar>(n, OUT, id);                                                             \
+        result = descriptor<Op::OP, Scalar>(n, OUT, id);                                                     \
         return true;                                                                                         \
     }
     FIXED("osc.polyblep_saw", Saw, 1, 1)
@@ -1374,7 +1409,7 @@ bool createPrimitive(std::string_view id, std::size_t n, PrimitiveT<Scalar>& res
         (void)alfa::dsp::detail::typedSincTable<Scalar>(); // immutable preparation before callbacks
         if (n != 1)
             return fail("State size must be one");
-        result = descriptor<Op::ResampleSinc8,Scalar>(n, 1, id);
+        result = descriptor<Op::ResampleSinc8, Scalar>(n, 1, id);
         return true;
     }
     VARIABLE("pitchtime.phase_vocoder", PhaseVocoder, n >= 5 && (n - 1) % 4 == 0, (n - 1) / 2)
@@ -1389,8 +1424,8 @@ bool createPrimitive(std::string_view id, std::size_t n, PrimitiveT<Scalar>& res
 template <typename Scalar>
 FactoryT<Scalar>::FactoryT()
 {
-    entries_.reserve(std::size(records));
-    for (const auto& metadata : records)
+    entries_.reserve(catalog().size());
+    for (const auto& metadata : catalog())
     {
         const auto id = metadata.id;
         entries_.push_back({metadata, [id](std::size_t n, PrimitiveT<Scalar>& p, std::string& error)
@@ -1416,7 +1451,8 @@ bool FactoryT<Scalar>::add(kernels::Metadata metadata, Creator creator, std::str
     return true;
 }
 template <typename Scalar>
-bool FactoryT<Scalar>::create(std::string_view id, std::size_t n, PrimitiveT<Scalar>& p, std::string& error) const
+bool FactoryT<Scalar>::create(std::string_view id, std::size_t n, PrimitiveT<Scalar>& p,
+                              std::string& error) const
 {
     const auto it =
         std::find_if(entries_.begin(), entries_.end(), [&](const Entry& e) { return e.metadata.id == id; });
@@ -1427,8 +1463,8 @@ bool FactoryT<Scalar>::create(std::string_view id, std::size_t n, PrimitiveT<Sca
     }
     return it->creator(n, p, error);
 }
-template bool createPrimitive<float>(std::string_view,std::size_t,PrimitiveT<float>&,std::string&);
-template bool createPrimitive<double>(std::string_view,std::size_t,PrimitiveT<double>&,std::string&);
+template bool createPrimitive<float>(std::string_view, std::size_t, PrimitiveT<float>&, std::string&);
+template bool createPrimitive<double>(std::string_view, std::size_t, PrimitiveT<double>&, std::string&);
 template class FactoryT<float>;
 template class FactoryT<double>;
 } // namespace alfa::tensor::universe

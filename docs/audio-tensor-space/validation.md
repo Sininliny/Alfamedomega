@@ -145,10 +145,10 @@ Precision/resource measurements and their scope are in
 
 These checks establish local Windows operation, not validation in every DAW or
 on every platform. Authored factory configurations contain no trained model.
-Reference FFT/STFT, convolution, long delay and several physical operations still
-need the optimized legacy implementations adapted to the typed state contract;
+At that checkpoint, reference FFT/STFT, convolution, long delay and several physical operations still
+needed the optimized legacy implementations adapted to the typed state contract;
 the reuse audits distinguish these from the components already shared. Catalog
-coverage of 52 operations does not establish production CPU bounds for arbitrary
+coverage of 52 operations at that checkpoint did not establish production CPU bounds for arbitrary
 configurations or every requested historical audio technique.
 
 ## Standalone interaction regression, 2026-10-01
@@ -175,3 +175,60 @@ A full-duplex device initialization can also leave no device available. Standalo
 now attempts output-only playback in that case and displays the fallback or actual
 device error in the editor. Audio input remains configurable in the native Settings
 dialog. An unavailable input must not silently prevent instrument playback.
+
+## Production extraction contract update, 2026-10-01
+
+The current registry contains 68 operations: four foundation kernels and 64 Universe operations
+(48 reference, five production ring, two streaming STFT, nine nonlinear). Sparse transactional
+updates preserve large ring history without full copying. Separate typed numerical workspace
+is explicitly budgeted by `scratch_elements`; it has no persistent or inter-primitive meaning.
+The [production contracts](production-composition.md) document latency, normalization, state
+layout and migration differences. This source update is not a claim that every legacy optimized
+algorithm or universal DSP coverage has been completed.
+
+Independent Windows optimized warnings-as-errors checks passed the production ring fixture
+(10 cases / 9932 assertions) and streaming STFT fixture (6 cases / 320981 assertions), including
+both scalar types and actual recurrent runtime transport. Three standalone ring/FDN/FIR JSON
+examples compiled/rendered/reset using the built native runtime. These focused checks are
+distinct from the centrally rebuilt combined suite and real host stress testing; this documentation
+update does not infer new central counts or nonlinear test results from source alone.
+
+The editor now displays current configuration without an implicit-loading selector. Sound library
+selection/search/inspection only changes the candidate preview; explicit Load publishes a sound.
+Earlier selection-driven browser behavior above is historical. Training remains paused during
+this product/production extraction work; authored default sounds contain no trained universal model.
+
+The subsequent central host run passed 53 cases / 218688 assertions before the last added latency
+cases; the independently loaded VST binary check passed 5127 assertions. The updated actual
+Standalone interaction test also passed, including library browsing without sound mutation.
+These results were reported by the coordinating build run; this docs-only pass did not rerun them
+or infer results for later added tests. Sparse duplicate checking now uses bounded structural
+Patricia-trie workspace, reported separately from Scalar numerical storage; no full-state scan
+or clear is needed for large sparse histories.
+
+## Final integrated Windows validation, 2026-10-01
+
+The frozen source built Release targets `Alfamedomega_Standalone`,
+`Alfamedomega_VST3`, `alfa_tensor_c`, `alfa_tensor_tests`,
+`alfa_tensor_host_tests` and `alfa_tensor_sparse_bench` successfully.
+
+- Combined tensor suite: 89 cases / 602424 assertions.
+- Combined native host suite: 55 cases / 218745 assertions, including authored
+  host latency transactions, composition latency declarations and reopened
+  nested editor dialogs.
+- Final VST3 loaded in the independent JUCE plugin host: 5127 assertions.
+- Shared legacy delay/nonlinear suite: 76 cases / 20532228 assertions.
+- Native C ABI: Standard float32 and Pro float64 render/reset/capacity checks;
+  insufficient boundary budget rejected.
+- Minimum-size editor and sound-library snapshots checked for layout; library
+  inspection never publishes a sound, only explicit Load does.
+
+The sparse journal benchmark with bounded duplicate validation measured roughly
+94–107 ns per update for histories of 128, 65536 and 384000 values on this machine.
+This isolated fixture does not establish CPU deadlines for arbitrary compositions.
+Training, every DAW/platform qualification, optimized partitioned convolution,
+large asset deduplication and full DSP universe completion remain separate work.
+
+The final rebuilt Standalone actual-device interaction also passed again, including
+idle stability, nonmutating library/instance inspection, explicit loading, keyboard
+audio, indexed X controls, Panic and Pro tier selection.

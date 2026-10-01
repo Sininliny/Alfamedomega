@@ -17,7 +17,7 @@ namespace alfa::tensor
 template <typename Scalar>
 struct TensorT
 {
-    static_assert(std::is_same_v<Scalar,float> || std::is_same_v<Scalar,double>);
+    static_assert(std::is_same_v<Scalar, float> || std::is_same_v<Scalar, double>);
     std::vector<std::string> axes;
     std::vector<std::size_t> shape;
     std::vector<Scalar> values;
@@ -83,14 +83,30 @@ struct StepT
     TensorViewT<Scalar> routing;
     TensorViewT<Scalar> modulation;
     std::span<const TensorViewT<Scalar>> assets{};
+    // Ephemeral typed workspace; callbacks initialize every element they read.
+    // Contents are unspecified between calls and never represent persistent S_t.
+    std::span<Scalar> scratch{};
 };
 
 // Deterministic primitive implementations own mathematical interpretation of their
 // parameter/routing tensors. Both functions read S_t; neither can read another
 // primitive's uncommitted S_(t+1) or output. All reachable code must be allocation-free,
 // lock-free and noexcept. The runtime copies descriptors during compilation.
-template <typename Scalar> using TransitionT = void (*)(const StepT<Scalar>&, std::span<Scalar> nextState) noexcept;
-template <typename Scalar> using ReadoutT = void (*)(const StepT<Scalar>&, std::span<Scalar> output) noexcept;
+template <typename Scalar>
+using TransitionT = void (*)(const StepT<Scalar>&, std::span<Scalar> nextState) noexcept;
+template <typename Scalar>
+using ReadoutT = void (*)(const StepT<Scalar>&, std::span<Scalar> output) noexcept;
+
+template <typename Scalar>
+struct StateWriteT
+{
+    std::size_t element = 0; // local to the primitive state slice
+    Scalar value = 0;
+};
+// Return the used journal length. A return above capacity rejects the whole tick.
+// Writes are validated then committed together; all callbacks observe old S_t.
+template <typename Scalar>
+using SparseTransitionT = std::size_t (*)(const StepT<Scalar>&, std::span<StateWriteT<Scalar>>) noexcept;
 
 template <typename Scalar>
 struct PrimitiveT
@@ -100,6 +116,9 @@ struct PrimitiveT
     std::size_t outputElements = 0;
     TransitionT<Scalar> transition = nullptr;
     ReadoutT<Scalar> readout = nullptr;
+    std::size_t sparseWriteCapacity = 0;
+    SparseTransitionT<Scalar> sparseTransition = nullptr;
+    std::size_t scratchElements = 0;
 };
 
 struct AudioBinding;
@@ -196,6 +215,10 @@ struct Budget
     // Full padded storage is bounded separately from represented dimensionality.
     std::size_t storedTensorElements = 0;
     std::size_t projectionTerms = 0;
+    // Preallocated sparse journal entries; one Scalar value and structural index each.
+    std::size_t sparseStateWrites = 0;
+    // Reused numerical workspace: maximum required by one active primitive.
+    std::size_t scratchElements = 0;
 };
 
 struct ScheduledUpdate
@@ -209,7 +232,8 @@ struct ScheduledUpdate
 template <typename Scalar>
 class RuntimeT
 {
-    static_assert(std::is_same_v<Scalar,float> || std::is_same_v<Scalar,double>);
+    static_assert(std::is_same_v<Scalar, float> || std::is_same_v<Scalar, double>);
+
 public:
     using Tensor = TensorT<Scalar>;
     using TensorView = TensorViewT<Scalar>;
@@ -235,8 +259,8 @@ public:
     // Publish new predicted values into the existing allocation without allocation.
     // Shapes/masks must match the prepared program. Activating an unallocated primitive
     // or changing capacity requires off-thread recompilation, not a silent approximation.
-    bool updateTensors(TensorViewT<Scalar> activation, TensorViewT<Scalar> parameters, TensorViewT<Scalar> routing,
-                       TensorViewT<Scalar> modulation) noexcept;
+    bool updateTensors(TensorViewT<Scalar> activation, TensorViewT<Scalar> parameters,
+                       TensorViewT<Scalar> routing, TensorViewT<Scalar> modulation) noexcept;
     void reset() noexcept;
     bool adoptStateFrom(const RuntimeT<Scalar>&) noexcept;
 
@@ -248,6 +272,11 @@ public:
     [[nodiscard]] std::uint64_t sample() const noexcept { return sample_; }
     // Numeric backing storage only; structural indices/masks/container overhead excluded.
     [[nodiscard]] std::size_t numericStorageBytes() const noexcept;
+    // Structural scratch, excluding numeric journal values and container overhead.
+    [[nodiscard]] std::size_t sparseValidationStorageBytes() const noexcept
+    {
+        return sparseIndices_.size() * sizeof(SparseIndexNode);
+    }
 
 private:
     ConfigurationT<Scalar> configuration_;
@@ -266,12 +295,25 @@ private:
     std::vector<Scalar> next_;
     std::vector<Scalar> output_;
     std::vector<Scalar> candidateOutput_;
+    std::vector<Scalar> committedOutput_;
+    std::vector<Slice> denseScratch_, journalSlices_;
+    std::vector<StateWriteT<Scalar>> journal_;
+    struct SparseIndexNode
+    {
+        std::size_t key = 0;
+        std::array<std::size_t, 2> children{};
+        unsigned bit = 0;
+        bool leaf = true;
+    };
+    std::vector<SparseIndexNode> sparseIndices_;
+    std::vector<std::size_t> journalCounts_;
+    std::vector<std::uint8_t> denseUpdated_;
     std::vector<Scalar> effectiveParameters_;
+    std::vector<Scalar> scratch_;
     std::uint64_t sample_ = 0;
     double sampleRate_ = 0.0;
     bool prepared_ = false;
 };
-
 
 using Transition = TransitionT<float>;
 using Readout = ReadoutT<float>;

@@ -1,13 +1,13 @@
 #include "alfa/tensor/Compiler.h"
 
 #include "alfa/tensor/Kernels.h"
-#include "alfa/tensor/Universe.h"
 #include "alfa/tensor/Precision.h"
-#include <type_traits>
+#include "alfa/tensor/Universe.h"
 
 #include <limits>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 
 namespace alfa::tensor
@@ -110,7 +110,8 @@ std::string_view sourceName(SourceKind kind)
 }
 
 template <typename Scalar>
-PrimitiveT<Scalar> primitive(std::string_view id, std::size_t stateElements, const PrimitiveResolverT<Scalar>& extension)
+PrimitiveT<Scalar> primitive(std::string_view id, std::size_t stateElements,
+                             const PrimitiveResolverT<Scalar>& extension)
 {
     PrimitiveT<Scalar> result;
     if (id == "math.sine" && stateElements == 1)
@@ -149,9 +150,14 @@ bool parseJSON(std::string_view text, ConfigurationT<Scalar>& output, std::strin
         const auto document = Json::parse(text);
         validateHeader(document);
         PrecisionProfile precision;
-        if(!resolvePrecisionJSON(text,precision,error))return false;
-        constexpr auto actual=std::is_same_v<Scalar,double>?ScalarType::Float64:ScalarType::Float32;
-        if(precision.scalarType!=actual) {error="Compiler scalar type differs from declared tier/type";return false;}
+        if (!resolvePrecisionJSON(text, precision, error))
+            return false;
+        constexpr auto actual = std::is_same_v<Scalar, double> ? ScalarType::Float64 : ScalarType::Float32;
+        if (precision.scalarType != actual)
+        {
+            error = "Compiler scalar type differs from declared tier/type";
+            return false;
+        }
         ConfigurationT<Scalar> candidate;
         const auto& tensors = document.at("tensors");
         candidate.activation = tensor<Scalar>(tensors.at("activation"));
@@ -243,6 +249,10 @@ bool readBudgetJSON(std::string_view text, Budget& output, std::string& error)
                          size(budget.at("parameter_elements")),     size(budget.at("routing_elements")),
                          size(budget.at("modulation_elements")),    size(budget.at("output_elements")),
                          size(budget.at("stored_tensor_elements")), size(budget.at("projection_terms"))};
+        candidate.sparseStateWrites =
+            budget.contains("sparse_state_writes") ? size(budget.at("sparse_state_writes")) : 0;
+        candidate.scratchElements =
+            budget.contains("scratch_elements") ? size(budget.at("scratch_elements")) : 0;
         output = candidate;
         return true;
     }
@@ -306,7 +316,7 @@ std::string serializeJSON(const ConfigurationT<Scalar>& configuration)
              {"weights", projection.weightTensor == WeightTensor::Routing ? "routing" : "modulation"},
              {"weight_element", projection.weightElement},
              {"missing_source", projection.missingSource == MissingSource::Reject ? "reject" : "zero"}});
-    document["scalar_type"]=std::is_same_v<Scalar,double>?"float64":"float32";
+    document["scalar_type"] = std::is_same_v<Scalar, double> ? "float64" : "float32";
     return document.dump(2);
 }
 
@@ -319,10 +329,12 @@ bool compileJSON(std::string_view text, double sampleRate, RuntimeT<Scalar>& run
            runtime.prepare(configuration, budget, sampleRate, error);
 }
 
-template bool parseJSON<float>(std::string_view, ConfigurationT<float>&, std::string&, const PrimitiveResolverT<float>&);
+template bool parseJSON<float>(std::string_view, ConfigurationT<float>&, std::string&,
+                               const PrimitiveResolverT<float>&);
 template std::string serializeJSON<float>(const ConfigurationT<float>&);
-template bool compileJSON<float>(std::string_view,double,RuntimeT<float>&,std::string&);
-template bool parseJSON<double>(std::string_view, ConfigurationT<double>&, std::string&, const PrimitiveResolverT<double>&);
+template bool compileJSON<float>(std::string_view, double, RuntimeT<float>&, std::string&);
+template bool parseJSON<double>(std::string_view, ConfigurationT<double>&, std::string&,
+                                const PrimitiveResolverT<double>&);
 template std::string serializeJSON<double>(const ConfigurationT<double>&);
-template bool compileJSON<double>(std::string_view,double,RuntimeT<double>&,std::string&);
+template bool compileJSON<double>(std::string_view, double, RuntimeT<double>&, std::string&);
 } // namespace alfa::tensor

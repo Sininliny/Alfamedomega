@@ -1,6 +1,7 @@
 #include "alfa/tensor/Runtime.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <limits>
 #include <utility>
@@ -9,6 +10,43 @@ namespace alfa::tensor
 {
 namespace
 {
+// Patricia trie: discriminating bits strictly decrease along every path.
+// Two word-width-bounded walks/index; <=2*k-1 initialized nodes. Old nodes are
+// unreachable, so no capacity-sized clear, timestamp wrap, hash collision chain,
+// or full-history index mask is needed during a callback.
+template <class Node>
+bool insertSparseIndex(std::span<Node> nodes, std::size_t& used, std::size_t& root, std::size_t key) noexcept
+{
+    if (used == 0)
+    {
+        if (nodes.empty())
+            return false;
+        nodes[0] = {key, {}, 0, true};
+        used = 1;
+        root = 0;
+        return true;
+    }
+    auto leaf = root;
+    while (!nodes[leaf].leaf)
+        leaf = nodes[leaf].children[(key >> nodes[leaf].bit) & 1u];
+    const auto different = nodes[leaf].key ^ key;
+    if (different == 0)
+        return false;
+    const auto bit = static_cast<unsigned>(std::bit_width(different) - 1);
+    auto* link = &root;
+    while (!nodes[*link].leaf && nodes[*link].bit > bit)
+        link = &nodes[*link].children[(key >> nodes[*link].bit) & 1u];
+    if (nodes.size() - used < 2)
+        return false;
+    const auto oldChild = *link, newLeaf = used++, branch = used++;
+    nodes[newLeaf] = {key, {}, 0, true};
+    nodes[branch] = {0, {}, bit, false};
+    const auto direction = (key >> bit) & 1u;
+    nodes[branch].children[direction] = newLeaf;
+    nodes[branch].children[1u - direction] = oldChild;
+    *link = branch;
+    return true;
+}
 template <typename Scalar>
 bool finite(std::span<const Scalar> values) noexcept
 {
@@ -94,8 +132,8 @@ struct SourceValuesT
 };
 
 template <typename Scalar>
-SourceValuesT<Scalar> sourceValues(SourceKind source, const InputsT<Scalar>& inputs, std::span<const Scalar> state,
-                          std::span<const Scalar> history) noexcept
+SourceValuesT<Scalar> sourceValues(SourceKind source, const InputsT<Scalar>& inputs,
+                                   std::span<const Scalar> state, std::span<const Scalar> history) noexcept
 {
     switch (source)
     {
@@ -127,8 +165,8 @@ bool represented(const TensorT<Scalar>& tensor, std::size_t index) noexcept
 } // namespace
 
 template <typename Scalar>
-bool RuntimeT<Scalar>::prepare(const ConfigurationT<Scalar>& configuration, const Budget& budget, double sampleRate,
-                      std::string& error)
+bool RuntimeT<Scalar>::prepare(const ConfigurationT<Scalar>& configuration, const Budget& budget,
+                               double sampleRate, std::string& error)
 {
     error.clear();
     const auto fail = [&error](const char* reason)
@@ -138,8 +176,10 @@ bool RuntimeT<Scalar>::prepare(const ConfigurationT<Scalar>& configuration, cons
     };
     if (!std::isfinite(sampleRate) || sampleRate <= 0.0)
         return fail("Sample rate must be finite and positive");
-    if (!validTensor<Scalar>(view<Scalar>(configuration.activation)) || !validTensor<Scalar>(view<Scalar>(configuration.parameters)) ||
-        !validTensor<Scalar>(view<Scalar>(configuration.routing)) || !validTensor<Scalar>(view<Scalar>(configuration.modulation)))
+    if (!validTensor<Scalar>(view<Scalar>(configuration.activation)) ||
+        !validTensor<Scalar>(view<Scalar>(configuration.parameters)) ||
+        !validTensor<Scalar>(view<Scalar>(configuration.routing)) ||
+        !validTensor<Scalar>(view<Scalar>(configuration.modulation)))
         return fail("Tensor shape, axis names or values are invalid");
     if (representedElements<Scalar>(configuration.parameters) > budget.parameterElements ||
         representedElements<Scalar>(configuration.routing) > budget.routingElements ||
@@ -190,9 +230,14 @@ bool RuntimeT<Scalar>::prepare(const ConfigurationT<Scalar>& configuration, cons
     candidate.assets_.resize(configuration.instances.size());
     candidate.audioOperands_.resize(configuration.instances.size());
     candidate.audioShapes_.resize(configuration.instances.size());
+    candidate.denseScratch_.resize(configuration.instances.size());
+    candidate.journalSlices_.resize(configuration.instances.size());
+    candidate.journalCounts_.resize(configuration.instances.size(), 0);
+    candidate.denseUpdated_.resize(configuration.instances.size(), 0);
     candidate.initial_ = configuration.sharedInitialState;
     std::size_t stateCount = configuration.sharedInitialState.size();
     std::size_t outputCount = 0;
+    std::size_t denseCount = 0, journalCount = 0, scratchCount = 0;
     if (stateCount > budget.stateElements)
         return fail("Shared state exceeds the supplied capacity");
 
@@ -200,9 +245,14 @@ bool RuntimeT<Scalar>::prepare(const ConfigurationT<Scalar>& configuration, cons
     {
         const auto& instance = configuration.instances[index];
         const auto* primitive = instance.primitive;
-        if (primitive == nullptr || primitive->id.empty() || primitive->transition == nullptr ||
+        if (primitive == nullptr || primitive->id.empty() ||
+            (primitive->transition == nullptr && primitive->sparseTransition == nullptr) ||
             primitive->readout == nullptr)
             return fail("Primitive must provide an identity, transition and readout");
+        if (primitive->sparseWriteCapacity > primitive->stateElements)
+            return fail("Sparse journal capacity cannot exceed unique local state elements");
+        if (primitive->sparseTransition == nullptr && primitive->sparseWriteCapacity != 0)
+            return fail("Sparse write capacity requires a sparse transition");
         candidate.primitives_.push_back(*primitive);
         candidate.configuration_.instances[index].primitive = &candidate.primitives_.back();
         for (const auto& asset : candidate.configuration_.instances[index].assets)
@@ -226,11 +276,26 @@ bool RuntimeT<Scalar>::prepare(const ConfigurationT<Scalar>& configuration, cons
                     return fail("Active primitive parameters cannot select padding");
         if (candidate.schedule_.size() >= budget.activePrimitives)
             return fail("Active primitives exceed the supplied capacity");
+        if (primitive->scratchElements > budget.scratchElements)
+            return fail("Primitive numerical workspace exceeds explicit scratch capacity");
+        scratchCount = std::max(scratchCount, primitive->scratchElements);
         candidate.states_[index].count = primitive->stateElements;
         candidate.outputs_[index].count = primitive->outputElements;
         if (!append(stateCount, primitive->stateElements, budget.stateElements) ||
             !append(outputCount, primitive->outputElements, budget.outputElements))
             return fail("Primitive state or output exceeds the supplied capacity");
+        if (primitive->sparseTransition)
+        {
+            candidate.journalSlices_[index] = {journalCount, primitive->sparseWriteCapacity};
+            if (!append(journalCount, primitive->sparseWriteCapacity, budget.sparseStateWrites))
+                return fail("Sparse state journal exceeds the supplied scratch capacity");
+        }
+        else
+        {
+            candidate.denseScratch_[index] = {denseCount, primitive->stateElements};
+            if (!append(denseCount, primitive->stateElements, budget.stateElements))
+                return fail("Dense state scratch exceeds state capacity");
+        }
         candidate.initial_.insert(candidate.initial_.end(), localInitial.begin(), localInitial.end());
         candidate.schedule_.push_back({index, instance.clock});
         candidate.allocated_[index] = 1;
@@ -252,7 +317,12 @@ bool RuntimeT<Scalar>::prepare(const ConfigurationT<Scalar>& configuration, cons
             (projection.source == SourceKind::OutputHistory && projection.sourceElement >= outputCount))
             return fail("Affine projection selects missing or padded tensor/state elements");
     }
-    candidate.next_ = candidate.initial_;
+    candidate.next_.resize(denseCount, Scalar{0});
+    candidate.journal_.resize(journalCount);
+    if (journalCount > candidate.sparseIndices_.max_size() / 2)
+        return fail("Sparse index validation capacity overflows structural storage");
+    candidate.sparseIndices_.resize(journalCount * 2);
+    candidate.scratch_.resize(scratchCount, Scalar{0});
     for (size_t i = 0; i < configuration.instances.size(); ++i)
     {
         const auto& instance = configuration.instances[i];
@@ -276,6 +346,7 @@ bool RuntimeT<Scalar>::prepare(const ConfigurationT<Scalar>& configuration, cons
     }
     candidate.output_.resize(outputCount, 0.0f);
     candidate.candidateOutput_.resize(outputCount, 0.0f);
+    candidate.committedOutput_.resize(outputCount, 0.0f);
     candidate.effectiveParameters_ = configuration.parameters.values;
     candidate.prepared_ = true;
     *this = std::move(candidate);
@@ -293,8 +364,9 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
         std::fill(output_.begin(), output_.end(), 0.0f);
         return false;
     }
-    std::copy(state_.begin(), state_.end(), next_.begin());
-    std::copy(output_.begin(), output_.end(), candidateOutput_.begin());
+    std::fill(denseUpdated_.begin(), denseUpdated_.end(), std::uint8_t{0});
+    std::fill(journalCounts_.begin(), journalCounts_.end(), std::size_t{0});
+    std::copy(committedOutput_.begin(), committedOutput_.end(), candidateOutput_.begin());
     std::copy(configuration_.parameters.values.begin(), configuration_.parameters.values.end(),
               effectiveParameters_.begin());
     for (const auto& projection : configuration_.projections)
@@ -302,7 +374,7 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
         if (!configuration_.parameterLocks.empty() &&
             configuration_.parameterLocks[projection.parameterElement] != 0)
             continue;
-        const auto sources = sourceValues<Scalar>(projection.source, inputs, state_, output_);
+        const auto sources = sourceValues<Scalar>(projection.source, inputs, state_, committedOutput_);
         if (projection.sourceElement >= sources.values.size() ||
             (!sources.presence.empty() && sources.presence[projection.sourceElement] == 0))
         {
@@ -346,7 +418,7 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
             std::fill(operands.begin(), operands.end(), 0.0f);
             for (const auto& binding : instance.audioBindings)
             {
-                const auto source = sourceValues<Scalar>(binding.source, inputs, state_, output_);
+                const auto source = sourceValues<Scalar>(binding.source, inputs, state_, committedOutput_);
                 if (binding.sourceElement >= source.values.size() ||
                     (!source.presence.empty() && source.presence[binding.sourceElement] == 0))
                 {
@@ -369,29 +441,87 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
             operandInputs.audio = {audioAxes_, audioShapes_[index], operands, {}};
         }
         const StepT<Scalar> step{sample_,
-                        sampleRate_,
-                        update.clock,
-                        configuration_.activation.values[instance.activationIndex],
-                        operandInputs,
-                        state_,
-                        std::span<const Scalar>(state_).subspan(local.offset, local.count),
-                        states_,
-                        std::span<const Scalar>(effectiveParameters_)
-                            .subspan(instance.parameters.offset, instance.parameters.count),
-                        view<Scalar>(configuration_.routing),
-                        view<Scalar>(configuration_.modulation),
-                        assets_[index]};
+                                 sampleRate_,
+                                 update.clock,
+                                 configuration_.activation.values[instance.activationIndex],
+                                 operandInputs,
+                                 state_,
+                                 std::span<const Scalar>(state_).subspan(local.offset, local.count),
+                                 states_,
+                                 std::span<const Scalar>(effectiveParameters_)
+                                     .subspan(instance.parameters.offset, instance.parameters.count),
+                                 view<Scalar>(configuration_.routing),
+                                 view<Scalar>(configuration_.modulation),
+                                 assets_[index],
+                                 std::span<Scalar>(scratch_).first(instance.primitive->scratchElements)};
         std::fill(output.begin(), output.end(), 0.0f);
         instance.primitive->readout(step, output);
-        instance.primitive->transition(step, std::span<Scalar>(next_).subspan(local.offset, local.count));
+        if (instance.primitive->sparseTransition)
+        {
+            const auto scratch = journalSlices_[index];
+            auto writes = std::span<StateWriteT<Scalar>>(journal_).subspan(scratch.offset, scratch.count);
+            for (auto& write : writes)
+                write = {local.count, Scalar(0)};
+            const auto count = instance.primitive->sparseTransition(step, writes);
+            if (count > writes.size())
+            {
+                std::fill(output_.begin(), output_.end(), Scalar{0});
+                return false;
+            }
+            auto indices =
+                std::span<SparseIndexNode>(sparseIndices_).subspan(scratch.offset * 2, scratch.count * 2);
+            std::size_t used = 0, root = 0;
+            for (size_t i = 0; i < count; ++i)
+            {
+                if (writes[i].element >= local.count || !std::isfinite(writes[i].value) ||
+                    !insertSparseIndex(indices, used, root, writes[i].element))
+                {
+                    std::fill(output_.begin(), output_.end(), Scalar{0});
+                    return false;
+                }
+            }
+            journalCounts_[index] = count;
+        }
+        else
+        {
+            const auto scratch = denseScratch_[index];
+            auto next = std::span<Scalar>(next_).subspan(scratch.offset, scratch.count);
+            std::copy(step.localState.begin(), step.localState.end(), next.begin());
+            instance.primitive->transition(step, next);
+            if (!finite<Scalar>(next))
+            {
+                std::fill(output_.begin(), output_.end(), Scalar{0});
+                return false;
+            }
+            denseUpdated_[index] = 1;
+        }
     }
-    if (!finite<Scalar>(next_) || !finite<Scalar>(candidateOutput_))
+    if (!finite<Scalar>(candidateOutput_))
     {
         std::fill(output_.begin(), output_.end(), 0.0f);
         return false;
     }
-    state_.swap(next_);
+    // Commit only after every due primitive and its output has validated.
+    // No callback can see these writes while another callback still executes.
+    for (const auto& update : schedule_)
+    {
+        const auto index = update.instance;
+        const auto local = states_[index];
+        if (denseUpdated_[index])
+        {
+            const auto scratch = denseScratch_[index];
+            std::copy_n(next_.begin() + static_cast<std::ptrdiff_t>(scratch.offset), scratch.count,
+                        state_.begin() + static_cast<std::ptrdiff_t>(local.offset));
+        }
+        const auto journal = journalSlices_[index];
+        for (size_t i = 0; i < journalCounts_[index]; ++i)
+        {
+            const auto& write = journal_[journal.offset + i];
+            state_[local.offset + write.element] = write.value;
+        }
+    }
     output_.swap(candidateOutput_);
+    std::copy(output_.begin(), output_.end(), committedOutput_.begin());
     ++sample_;
     return true;
 }
@@ -405,9 +535,12 @@ void RuntimeT<Scalar>::reset() noexcept
                              std::pair{&configuration_.modulation.values, &initialModulation_}})
         std::copy(pair.second->begin(), pair.second->end(), pair.first->begin());
     std::copy(initial_.begin(), initial_.end(), state_.begin());
-    std::copy(initial_.begin(), initial_.end(), next_.begin());
+    std::fill(next_.begin(), next_.end(), Scalar{0});
     std::fill(output_.begin(), output_.end(), 0.0f);
     std::fill(candidateOutput_.begin(), candidateOutput_.end(), 0.0f);
+    std::fill(committedOutput_.begin(), committedOutput_.end(), Scalar{0});
+    std::fill(journalCounts_.begin(), journalCounts_.end(), std::size_t{0});
+    std::fill(denseUpdated_.begin(), denseUpdated_.end(), std::uint8_t{0});
     sample_ = 0;
 }
 template <typename Scalar>
@@ -425,7 +558,10 @@ bool RuntimeT<Scalar>::adoptStateFrom(const RuntimeT<Scalar>& previous) noexcept
             outputs_[i].count != previous.outputs_[i].count)
             return false;
     std::copy(previous.state_.begin(), previous.state_.end(), state_.begin());
-    std::copy(state_.begin(), state_.end(), next_.begin());
+    std::fill(next_.begin(), next_.end(), Scalar{0});
+    std::fill(journalCounts_.begin(), journalCounts_.end(), std::size_t{0});
+    std::fill(denseUpdated_.begin(), denseUpdated_.end(), std::uint8_t{0});
+    std::copy(previous.committedOutput_.begin(), previous.committedOutput_.end(), committedOutput_.begin());
     std::copy(previous.output_.begin(), previous.output_.end(), output_.begin());
     std::copy(output_.begin(), output_.end(), candidateOutput_.begin());
     sample_ = previous.sample_;
@@ -433,11 +569,12 @@ bool RuntimeT<Scalar>::adoptStateFrom(const RuntimeT<Scalar>& previous) noexcept
 }
 
 template <typename Scalar>
-bool RuntimeT<Scalar>::updateTensors(TensorViewT<Scalar> activation, TensorViewT<Scalar> parameters, TensorViewT<Scalar> routing,
-                            TensorViewT<Scalar> modulation) noexcept
+bool RuntimeT<Scalar>::updateTensors(TensorViewT<Scalar> activation, TensorViewT<Scalar> parameters,
+                                     TensorViewT<Scalar> routing, TensorViewT<Scalar> modulation) noexcept
 {
     if (!prepared_ || !matches<Scalar>(configuration_.activation, activation) ||
-        !matches<Scalar>(configuration_.parameters, parameters) || !matches<Scalar>(configuration_.routing, routing) ||
+        !matches<Scalar>(configuration_.parameters, parameters) ||
+        !matches<Scalar>(configuration_.routing, routing) ||
         !matches<Scalar>(configuration_.modulation, modulation) ||
         std::any_of(activation.values.begin(), activation.values.end(),
                     [](Scalar value) { return value < 0.0f; }))
@@ -461,14 +598,21 @@ bool RuntimeT<Scalar>::updateTensors(TensorViewT<Scalar> activation, TensorViewT
 template <typename Scalar>
 std::size_t RuntimeT<Scalar>::numericStorageBytes() const noexcept
 {
-    size_t elements=initialActivation_.size()+initialParameters_.size()+initialRouting_.size()+initialModulation_.size()+
-        initial_.size()+state_.size()+next_.size()+output_.size()+candidateOutput_.size()+effectiveParameters_.size();
-    elements+=configuration_.activation.values.size()+configuration_.parameters.values.size()+
-        configuration_.routing.values.size()+configuration_.modulation.values.size()+configuration_.sharedInitialState.size();
-    for(const auto& values:configuration_.initialState)elements+=values.size();
-    for(const auto& instance:configuration_.instances)for(const auto& asset:instance.assets)elements+=asset.values.size();
-    for(const auto& values:audioOperands_)elements+=values.size();
-    return elements*sizeof(Scalar);
+    size_t elements = initialActivation_.size() + initialParameters_.size() + initialRouting_.size() +
+                      initialModulation_.size() + initial_.size() + state_.size() + next_.size() +
+                      output_.size() + candidateOutput_.size() + committedOutput_.size() +
+                      effectiveParameters_.size() + journal_.size() + scratch_.size();
+    elements += configuration_.activation.values.size() + configuration_.parameters.values.size() +
+                configuration_.routing.values.size() + configuration_.modulation.values.size() +
+                configuration_.sharedInitialState.size();
+    for (const auto& values : configuration_.initialState)
+        elements += values.size();
+    for (const auto& instance : configuration_.instances)
+        for (const auto& asset : instance.assets)
+            elements += asset.values.size();
+    for (const auto& values : audioOperands_)
+        elements += values.size();
+    return elements * sizeof(Scalar);
 }
 template class RuntimeT<float>;
 template class RuntimeT<double>;

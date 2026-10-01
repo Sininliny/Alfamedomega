@@ -1,3 +1,4 @@
+#include "SoundLibraryPanel.h"
 #include "TensorEditor.h"
 #include "TensorProcessor.h"
 
@@ -129,57 +130,84 @@ private:
             {
                 interactionRevision_ = processor->programRevision.load();
                 interactionSamples_ = processor->samples.load();
+                interactionDocument_ = processor->document();
             }
             else if (interactionStep_ == 1)
             {
-                require(processor->programRevision.load() == interactionRevision_, "Idle UI reloads presets");
+                require(processor->programRevision.load() == interactionRevision_,
+                        "Idle UI changes executable sound");
                 require(processor->samples.load() > interactionSamples_,
                         "Audio device callback is not advancing");
-                button("Sound design");
-                juce::ComboBox* browser = nullptr;
-                for (int i = 0; i < editor->getNumChildComponents(); ++i)
-                    if (auto* control = dynamic_cast<juce::ComboBox*>(editor->getChildComponent(i));
-                        control && control->getItemText(0).contains("Harmonic Field"))
-                        browser = control;
-                require(browser != nullptr, "Preset browser unavailable");
-                browser->setSelectedId(browser->getItemId(1), juce::sendNotificationAsync);
+                button("Instances");
+                for (auto* child : editor->getChildren())
+                    if (auto* list = dynamic_cast<juce::ListBox*>(child))
+                        list->selectRow(1);
+                button("Sound library");
             }
             else if (interactionStep_ == 2)
             {
+                require(processor->programRevision.load() == interactionRevision_,
+                        "Instance inspection changes sound");
+                auto& desktop = juce::Desktop::getInstance();
+                for (int i = 0; i < desktop.getNumComponents(); ++i)
+                    if (auto* dialog = dynamic_cast<juce::DialogWindow*>(desktop.getComponent(i));
+                        dialog && dynamic_cast<SoundLibraryPanel*>(dialog->getContentComponent()))
+                        interactionLibrary_ = dialog;
+                require(interactionLibrary_ != nullptr, "Sound library window unavailable");
+                auto* list = dynamic_cast<juce::ListBox*>(
+                    interactionLibrary_->getContentComponent()->findChildWithID("library.list"));
+                require(list != nullptr, "Sound library list unavailable");
+                list->selectRow(1);
+            }
+            else if (interactionStep_ == 3)
+            {
+                require(processor->programRevision.load() == interactionRevision_,
+                        "Browsing library changes sound");
+                require(processor->document() == interactionDocument_, "Browsing library modifies tensors");
+                require(interactionLibrary_ != nullptr, "Library closed before explicit load");
+                auto* load = dynamic_cast<juce::Button*>(
+                    interactionLibrary_->getContentComponent()->findChildWithID("library.load"));
+                require(load != nullptr, "Explicit library load unavailable");
+                load->triggerClick();
+            }
+            else if (interactionStep_ == 4)
+            {
                 require(processor->programRevision.load() == interactionRevision_ + 1,
-                        "Preset selection did not load exactly once");
+                        "Explicit load did not publish exactly once");
+                if (interactionLibrary_)
+                    delete interactionLibrary_.getComponent();
                 processor->keyboard.noteOn(1, 69, .8f);
                 processor->setParameterValue("x0", .25f);
             }
-            else if (interactionStep_ == 3)
+            else if (interactionStep_ == 5)
             {
                 require(processor->activeNotes.load() == 1, "Keyboard note did not reach device callback");
                 require(processor->outputPeak[0].load() > 0, "Keyboard note produced no device output");
                 require(processor->programRevision.load() == interactionRevision_ + 1,
-                        "Idle UI resumes preset reloads");
+                        "Idle UI repeats sound publication");
                 processor->keyboard.noteOff(1, 69, 0);
                 button("Panic");
                 button("Settings");
             }
-            else if (interactionStep_ == 4)
+            else if (interactionStep_ == 6)
             {
                 require(processor->activeNotes.load() == 0, "Panic did not release notes");
                 juce::ComboBox* selector = nullptr;
-                for (int i = 0; i < editor->getNumChildComponents(); ++i)
-                    if (auto* control = dynamic_cast<juce::ComboBox*>(editor->getChildComponent(i));
+                for (auto* child : editor->getChildren())
+                    if (auto* control = dynamic_cast<juce::ComboBox*>(child);
                         control && control->getNumItems() == 4 && control->getItemText(0) == "Lite")
                         selector = control;
                 require(selector != nullptr, "Tier selector unavailable");
                 selector->setSelectedId(3, juce::sendNotificationAsync);
             }
-            else if (interactionStep_ == 5)
+            else if (interactionStep_ == 7)
             {
                 require(processor->scalarBytes() == 8, "Tier selection did not publish float64 execution");
                 require(processor->programRevision.load() == interactionRevision_ + 2,
                         "Tier selection repeated compilation");
                 require(processor->failures.load() == 0, "Runtime rejected device execution");
-                finishInteraction(
-                    true, "idle loop, preset, keyboard/audio, X control, tabs, panic and Pro tier passed");
+                finishInteraction(true, "idle, instance/library inspection without mutation, explicit load, "
+                                        "keyboard/audio, X controls, panic and Pro tier passed");
                 return;
             }
             ++interactionStep_;
@@ -207,6 +235,8 @@ private:
         setApplicationReturnValue(success ? 0 : 1);
         quit();
     }
+    juce::String interactionDocument_;
+    juce::Component::SafePointer<juce::DialogWindow> interactionLibrary_;
     int interactionStep_ = 0;
     uint64_t interactionRevision_ = 0, interactionSamples_ = 0;
     std::unique_ptr<juce::StandaloneFilterWindow> window_;

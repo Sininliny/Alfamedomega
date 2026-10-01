@@ -1,6 +1,8 @@
 #include "TensorEditor.h"
 
+#include "CompositionPanel.h"
 #include "FactoryPrograms.h"
+#include "SoundLibraryPanel.h"
 #include "alfa/tensor/Universe.h"
 
 #include <algorithm>
@@ -85,6 +87,7 @@ Editor::Editor(Processor& p)
     setResizable(true, true);
     setResizeLimits(1040, 700, 1920, 1200);
     const auto saved = p.uiSettings();
+    view_ = juce::jlimit(0, 3, static_cast<int>(saved.getProperty("view", 0)));
     setSize(static_cast<int>(saved.getProperty("width", 1280)),
             static_cast<int>(saved.getProperty("height", 800)));
     brand_.setText("ALFAMEDOMEGA", juce::dontSendNotification);
@@ -92,11 +95,10 @@ Editor::Editor(Processor& p)
     version_.setText("AUDIO TENSOR CONSOLE", juce::dontSendNotification);
     version_.setFont(alfa::ui::AlfaLookAndFeel::monoFont(10));
     for (auto* c : std::initializer_list<juce::Component*>{
-             &brand_,  &version_,  &status_,  &telemetry_,  &presets_,    &categories_, &mode_,
-             &search_, &previous_, &next_,    &savePreset_, &openPreset_, &panic_,      &bypass_,
-             &a_,      &b_,        &capture_, &undo_,       &redo_,       &keyboard_,   &meters_})
+             &brand_, &version_, &status_, &telemetry_, &configurationName_, &library_, &savePreset_,
+             &openPreset_, &panic_, &bypass_, &a_, &b_, &capture_, &undo_, &redo_, &keyboard_, &meters_})
         addAndMakeVisible(c);
-    const std::array<juce::String, 4> views{"Perform", "Sound design", "Tensor space", "Settings"};
+    const std::array<juce::String, 4> views{"Control layers", "Instances", "Tensor space", "Settings"};
     for (size_t i = 0; i < tabs_.size(); ++i)
     {
         addAndMakeVisible(tabs_[i]);
@@ -107,7 +109,10 @@ Editor::Editor(Processor& p)
             chooseView(static_cast<int>(i));
         };
     }
-    mode_.addItemList({"Instrument", "FX", "Hybrid"}, 1);
+    mode_.addItemList({"MIDI input only", "Audio input only", "Audio + MIDI inputs"}, 1);
+    addChildComponent(mode_);
+    mode_.setTooltip(
+        "Native input availability and dry mix policy. This changes execution, not the inspected component.");
     modeAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.parameters(),
                                                                                                "mode", mode_);
     bypassAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
@@ -127,14 +132,14 @@ Editor::Editor(Processor& p)
         if (processor_.undoManager().redo())
             refreshSound();
     };
-    previous_.onClick = [this]
+    library_.onClick = [this]
     {
-        stepPreset(-1);
+        openLibrary();
     };
-    next_.onClick = [this]
-    {
-        stepPreset(1);
-    };
+    library_.setTooltip("Browse saved configurations without changing the current sound");
+    configurationName_.setFont(alfa::ui::AlfaLookAndFeel::labelFont(14));
+    configurationName_.setTooltip(
+        "Name of the current executable configuration; viewing it changes no sound");
     openPreset_.onClick = [this]
     {
         openPreset();
@@ -142,21 +147,6 @@ Editor::Editor(Processor& p)
     savePreset_.onClick = [this]
     {
         savePreset();
-    };
-    search_.setTextToShowWhenEmpty("Search sounds", look_.theme().text2);
-    search_.onTextChange = [this]
-    {
-        filterLibrary();
-    };
-    presets_.onChange = [this]
-    {
-        if (!refreshing_ && presets_.getSelectedId() > 0)
-            choosePreset(static_cast<size_t>(presets_.getSelectedId() - 1));
-    };
-    categories_.onChange = [this]
-    {
-        if (!refreshing_)
-            filterLibrary();
     };
     for (int i = 0; i < 8; ++i)
     {
@@ -229,6 +219,7 @@ Editor::Editor(Processor& p)
                                                            &apply_,
                                                            &exportJSON_,
                                                            &importModel_,
+                                                           &compose_,
                                                            &addRoute_,
                                                            &removeRoute_,
                                                            &sourceKind_,
@@ -261,6 +252,46 @@ Editor::Editor(Processor& p)
         highLayer_ = juce::jmax(0, layerSelect_.getSelectedId() - 1);
         highPage_ = 0;
         rebuildHighControls();
+    };
+    compose_.onClick = [this]
+    {
+        if (compositionDialog_)
+        {
+            compositionDialog_->toFront(true);
+            return;
+        }
+        auto safe = juce::Component::SafePointer<Editor>(this);
+        const auto startingDocument = processor_.document();
+        juce::DialogWindow::LaunchOptions options;
+        options.dialogTitle = "Tensor composition";
+        options.dialogBackgroundColour = look_.theme().bg;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        options.componentToCentreAround = this;
+        options.content.setOwned(new CompositionPanel(
+            startingDocument, processor_.getSampleRate() > 0 ? processor_.getSampleRate() : 48000,
+            [safe, expected = startingDocument](const juce::String& document, juce::String& error) mutable
+            {
+                if (!safe)
+                {
+                    error = "Editor closed";
+                    return false;
+                }
+                if (safe->processor_.document() != expected)
+                {
+                    error = "Sound changed while composition was open. Close and reopen composition to "
+                            "retain those edits.";
+                    return false;
+                }
+                if (!safe->processor_.editConfigurationJSON(document, error))
+                    return false;
+                expected = safe->processor_.document();
+                safe->refreshSound();
+                return true;
+            },
+            &look_.theme()));
+        compositionDialog_ = options.launchAsync();
     };
     pagePrevious_.onClick = [this]
     {
@@ -536,11 +567,15 @@ Editor::Editor(Processor& p)
     refreshLibrary();
     refreshSound();
     captureSnapshot(0);
-    chooseView(static_cast<int>(saved.getProperty("view", 0)));
+    chooseView(view_);
     startTimerHz(30);
 }
 Editor::~Editor()
 {
+    if (libraryDialog_)
+        delete libraryDialog_.getComponent();
+    if (compositionDialog_)
+        delete compositionDialog_.getComponent();
     stopTimer();
     parameterViewport_.setViewedComponent(nullptr, false);
     routingViewport_.setViewedComponent(nullptr, false);
@@ -557,7 +592,7 @@ void Editor::paint(juce::Graphics& g)
     if (view_ == 0)
     {
         surface(g, t, highArea_, "CONTROL LAYERS", "X / MANY-TO-MANY");
-        surface(g, t, xyArea_, "EXPLORATION", "EXPLICIT AXES");
+        surface(g, t, xyArea_, "CONTROL COORDINATES", "EXPLICIT AXES");
     }
     if (view_ == 1)
     {
@@ -587,6 +622,8 @@ void Editor::paint(juce::Graphics& g)
                    juce::Justification::centredLeft);
         g.drawText("Knob drag", settingsArea_.getX() + 260, settingsArea_.getY() + 232, 220, 20,
                    juce::Justification::centredLeft);
+        g.drawText("Native input / dry mix policy", settingsArea_.getX() + 24, settingsArea_.getY() + 174,
+                   400, 20, juce::Justification::centredLeft);
         g.drawText("Execution tier / precision", settingsArea_.getX() + 520, settingsArea_.getY() + 120,
                    juce::jmax(220, settingsArea_.getWidth() - 544), 20, juce::Justification::centredLeft);
         g.drawFittedText("Interface settings stay separate from sounds.\nTraining is paused. Device settings "
@@ -619,13 +656,11 @@ void Editor::resized()
     version_.setBounds(brand);
     for (auto& tab : tabs_)
         tab.setBounds(top.removeFromLeft(104).reduced(3, 4));
-    mode_.setBounds(top.removeFromLeft(112).reduced(3, 6));
     bypass_.setBounds(top.removeFromLeft(78).reduced(2, 6));
     panic_.setBounds(top.removeFromLeft(68).reduced(2, 6));
     telemetry_.setBounds(top.reduced(6));
     auto browser = juce::Rectangle<int>(18, 76, getWidth() - 36, 34);
-    previous_.setBounds(browser.removeFromLeft(32));
-    next_.setBounds(browser.removeFromLeft(32));
+    library_.setBounds(browser.removeFromLeft(112).reduced(2, 0));
     redo_.setBounds(browser.removeFromRight(48).reduced(2, 0));
     undo_.setBounds(browser.removeFromRight(48).reduced(2, 0));
     capture_.setBounds(browser.removeFromRight(76).reduced(2, 0));
@@ -633,9 +668,7 @@ void Editor::resized()
     a_.setBounds(browser.removeFromRight(32).reduced(2, 0));
     openPreset_.setBounds(browser.removeFromRight(64).reduced(2, 0));
     savePreset_.setBounds(browser.removeFromRight(80).reduced(2, 0));
-    search_.setBounds(browser.removeFromRight(juce::jmax(130, getWidth() / 7)).reduced(4, 0));
-    categories_.setBounds(browser.removeFromRight(126).reduced(4, 0));
-    presets_.setBounds(browser.reduced(4, 0));
+    configurationName_.setBounds(browser.reduced(8, 0));
     const auto keyboardHeight = showKeyboard_.getToggleState() ? 70 : 0;
     keyboard_.setVisible(keyboardHeight != 0);
     keyboard_.setBounds(18, getHeight() - keyboardHeight - 24, getWidth() - 36, keyboardHeight);
@@ -725,6 +758,7 @@ void Editor::resized()
     exportJSON_.setBounds(tensorTools.removeFromRight(96).reduced(2, 0));
     apply_.setBounds(tensorTools.reduced(2, 0));
     tensorValues_.setBounds(tensor.removeFromTop(100).reduced(0, 6));
+    compose_.setBounds(tensor.removeFromTop(30).reduced(0, 2));
     document_.setBounds(tensor.removeFromTop(tensor.getHeight() * 3 / 5).reduced(0, 5));
     inspection_.setBounds(tensor.reduced(0, 5));
     settingsArea_ = workspace_;
@@ -742,6 +776,7 @@ void Editor::resized()
     gesture_.setBounds(settingsArea_.getX() + 260, settingsArea_.getY() + 254, 220, 32);
     folder_.setBounds(settingsArea_.getX() + 24, settingsArea_.getY() + 144, 220, 32);
     refresh_.setBounds(settingsArea_.getX() + 260, settingsArea_.getY() + 144, 150, 32);
+    mode_.setBounds(settingsArea_.getX() + 24, settingsArea_.getY() + 196, 330, 32);
     const auto bottomY = workspace_.getBottom() + 24;
     if (inputGain_)
         inputGain_->setBounds(34, bottomY, 90, 72);
@@ -774,9 +809,10 @@ void Editor::chooseView(int index)
              &setMatrix_, &document_, &inspection_, &tensorValues_, &tensorSelect_, &apply_, &exportJSON_,
              &importModel_})
         c->setVisible(view_ == 2);
+    compose_.setVisible(view_ == 2);
     for (auto* c : std::initializer_list<juce::Component*>{
              &theme_, &refresh_, &folder_, &exportTheme_, &importTheme_, &accent_, &gesture_, &tier_,
-             &precision_, &resources_, &hostPrecision_, &showKeyboard_})
+             &precision_, &resources_, &hostPrecision_, &showKeyboard_, &mode_})
         c->setVisible(view_ == 3);
     processor_.uiSettings().setProperty("view", view_, nullptr);
     resized();
@@ -800,104 +836,55 @@ void Editor::applyTheme()
         chosen.accent = juce::Colour::fromString("ff" + accent.removeCharacters("#"));
     look_.setTheme(chosen);
     processor_.uiSettings().setProperty("theme", ids[index], nullptr);
-    search_.setTextToShowWhenEmpty("Search sounds", look_.theme().text2);
     repaint();
 }
 void Editor::refreshLibrary()
 {
     juce::String error;
     store_->refresh(error);
-    browser_.clear();
-    const auto factory = factoryPrograms();
-    for (size_t i = 0; i < factory.size(); ++i)
-        browser_.push_back({js(factory[i].id), js(factory[i].name), js(factory[i].category), true, i});
-    const auto& users = store_->entries();
-    for (size_t i = 0; i < users.size(); ++i)
-        browser_.push_back({users[i].id, users[i].name, users[i].category, false, i});
-    refreshing_ = true;
-    const auto prior = categories_.getText();
-    categories_.clear(juce::dontSendNotification);
-    categories_.addItem("All categories", 1);
-    juce::StringArray categories;
-    for (const auto& item : browser_)
-        categories.addIfNotAlreadyThere(item.category);
-    categories.sort(true);
-    for (int i = 0; i < categories.size(); ++i)
-        categories_.addItem(categories[i], i + 2);
-    categories_.setSelectedId(juce::jmax(1, categories.indexOf(prior) + 2), juce::dontSendNotification);
-    refreshing_ = false;
-    filterLibrary();
+    configurationName_.setText("Configuration: " + PresetStore::presetName(processor_.document()),
+                               juce::dontSendNotification);
     if (error.isNotEmpty())
         showStatus(error, true);
 }
-void Editor::filterLibrary()
+void Editor::openLibrary()
 {
-    if (refreshing_)
-        return;
-    refreshing_ = true;
-    filtered_.clear();
-    // Rebuilding choices must not enqueue a user selection: that reloads the
-    // preset after refreshing_ is cleared and creates a self-sustaining loop.
-    presets_.clear(juce::dontSendNotification);
-    const auto query = search_.getText().trim();
-    const auto category = categories_.getSelectedId() > 1 ? categories_.getText() : juce::String{};
-    for (size_t i = 0; i < browser_.size(); ++i)
+    if (libraryDialog_)
     {
-        const auto& item = browser_[i];
-        if ((category.isEmpty() || item.category == category) &&
-            (query.isEmpty() || item.name.containsIgnoreCase(query) ||
-             item.category.containsIgnoreCase(query)))
+        libraryDialog_->toFront(true);
+        return;
+    }
+    refreshLibrary();
+    std::vector<SoundLibraryPanel::Entry> entries;
+    for (const auto& program : factoryPrograms())
+        entries.push_back({js(program.id), js(program.name), js(program.category), {}, js(program.document)});
+    for (const auto& entry : store_->entries())
+        entries.push_back({entry.id, entry.name, entry.category, entry.file, {}});
+    auto safe = juce::Component::SafePointer<Editor>(this);
+    juce::DialogWindow::LaunchOptions options;
+    options.dialogTitle = "Sound library";
+    options.dialogBackgroundColour = look_.theme().bg;
+    options.escapeKeyTriggersCloseButton = true;
+    options.useNativeTitleBar = true;
+    options.resizable = false;
+    options.componentToCentreAround = this;
+    options.content.setOwned(new SoundLibraryPanel(
+        std::move(entries),
+        [safe](const juce::String& document, juce::String& error)
         {
-            filtered_.push_back(i);
-            presets_.addItem(item.name + "  /  " + item.category, static_cast<int>(i) + 1);
-        }
-    }
-    presets_.setTextWhenNothingSelected(filtered_.empty() ? "No matching sounds" : "Current tensor sound");
-    try
-    {
-        const auto current = nlohmann::json::parse(processor_.document().toStdString());
-        const auto id = current.value("preset", nlohmann::json::object()).value("id", std::string{});
-        const auto name = PresetStore::presetName(processor_.document());
-        if (name.isNotEmpty())
-            presets_.setTextWhenNothingSelected(name);
-        for (const auto index : filtered_)
-            if (browser_[index].id == js(id))
-                presets_.setSelectedId(static_cast<int>(index) + 1, juce::dontSendNotification);
-    }
-    catch (const std::exception&)
-    {
-    }
-    refreshing_ = false;
-    previous_.setEnabled(!filtered_.empty());
-    next_.setEnabled(!filtered_.empty());
-}
-void Editor::choosePreset(size_t index)
-{
-    if (index >= browser_.size())
-        return;
-    const auto item = browser_[index];
-    juce::String error;
-    const auto text =
-        item.factory ? js(factoryPrograms()[item.index].document) : store_->load(item.index, error);
-    if (error.isNotEmpty() || !processor_.loadPresetJSON(text, error))
-    {
-        showStatus(error, true);
-        return;
-    }
-    showStatus(item.name + " / " + item.category);
-    refreshSound();
-}
-void Editor::stepPreset(int direction)
-{
-    if (filtered_.empty())
-        return;
-    const auto current = static_cast<size_t>(juce::jmax(0, presets_.getSelectedId() - 1));
-    const auto position = std::find(filtered_.begin(), filtered_.end(), current);
-    const auto found =
-        position == filtered_.end() ? 0 : static_cast<int>(std::distance(filtered_.begin(), position));
-    const auto count = static_cast<int>(filtered_.size());
-    const auto next = (found + direction + count) % count;
-    presets_.setSelectedId(static_cast<int>(filtered_[static_cast<size_t>(next)]) + 1);
+            if (!safe)
+            {
+                error = "Editor closed";
+                return false;
+            }
+            if (!safe->processor_.loadPresetJSON(document, error))
+                return false;
+            safe->refreshSound();
+            safe->showStatus("Loaded configuration: " + PresetStore::presetName(safe->processor_.document()));
+            return true;
+        },
+        &look_.theme()));
+    libraryDialog_ = options.launchAsync();
 }
 void Editor::savePreset()
 {
@@ -1045,7 +1032,8 @@ void Editor::refreshSound()
         rebuildLayers();
         rebuildHighControls();
         refreshTensor();
-        filterLibrary();
+        configurationName_.setText("Configuration: " + PresetStore::presetName(processor_.document()),
+                                   juce::dontSendNotification);
         chooseView(view_);
     }
     catch (const std::exception& e)

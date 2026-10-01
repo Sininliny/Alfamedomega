@@ -41,6 +41,11 @@ backing for float32 and 2688 bytes for float64. One run measured 344.877 and
 The final integrated benchmark run measured 360.864 and 343.523 microseconds
 respectively, with the same storage counts. The result supports a storage/precision
 choice and does not establish a float32 CPU advantage.
+The recurrent output-history rollback buffer introduced during sparse-state
+migration increases this fixture's numerical backing to 1408 and 2816 bytes.
+Earlier measurements above describe the preceding runtime layout. The sparse
+state benchmark and its allocation accounting are documented in
+[sparse state execution](../runtime/sparse-state.md).
 `alfa_tensor_precision_bench` reproduces the resource/timing fixture;
 `PrecisionTests.cpp` verifies response accuracy and exact integer-state encoding.
 After building `alfa_tensor_c`, `python src/tensor/tools/precision_smoke.py`

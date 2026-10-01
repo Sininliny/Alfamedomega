@@ -51,7 +51,8 @@ std::size_t positiveSize(const nlohmann::json& value, bool allowZero = false)
 } // namespace
 
 template <typename Scalar>
-bool TensorModelT<Scalar>::prepare(std::string_view json, const ConfigurationT<Scalar>& controls, std::string& error)
+bool TensorModelT<Scalar>::prepare(std::string_view json, const ConfigurationT<Scalar>& controls,
+                                   std::string& error)
 {
     error.clear();
     try
@@ -142,8 +143,9 @@ bool TensorModelT<Scalar>::prepare(std::string_view json, const ConfigurationT<S
         read("presence.bias", outputs, 1, candidate.maskBias_);
         if (parameters != positiveSize(budget.at("parameter_elements")))
             throw std::invalid_argument("Compiler model parameter count differs from its budget");
-        const long double minimumBytes = static_cast<long double>(sizeof(Scalar)) * (static_cast<long double>(parameters) + inputWidth +
-                                                 8.0L * candidate.hidden_ + 6.0L * outputs);
+        const long double minimumBytes =
+            static_cast<long double>(sizeof(Scalar)) *
+            (static_cast<long double>(parameters) + inputWidth + 8.0L * candidate.hidden_ + 6.0L * outputs);
         if (estimatedBytes > availableBytes || minimumBytes > availableBytes)
             throw std::invalid_argument("Compiler model exceeds its independent RAM allowance");
         candidate.bounds_ = document.at("output_bounds").get<std::vector<std::array<Scalar, 2>>>();
@@ -177,8 +179,8 @@ bool TensorModelT<Scalar>::infer(const InputsT<Scalar>& inputs) noexcept
 {
     if (hidden_ == 0)
         return false;
-    const std::array<TensorViewT<Scalar>, 6> sources{inputs.audio,          inputs.midi,        inputs.gesture,
-                                            inputs.userPreference, inputs.latentSound, inputs.context};
+    const std::array<TensorViewT<Scalar>, 6> sources{
+        inputs.audio, inputs.midi, inputs.gesture, inputs.userPreference, inputs.latentSound, inputs.context};
     std::size_t offset = 0;
     for (std::size_t category = 0; category < sources.size(); ++category)
     {
@@ -249,6 +251,26 @@ bool TensorModelT<Scalar>::apply(const InputsT<Scalar>& inputs, RuntimeT<Scalar>
     return true;
 }
 
+template <typename Scalar>
+bool TensorModelT<Scalar>::canAdoptStateFrom(const TensorModelT& previous) const noexcept
+{
+    return hidden_ > 0 && hidden_ == previous.hidden_ && widths_ == previous.widths_ &&
+           clock_.periodSamples == previous.clock_.periodSamples &&
+           clock_.phaseSamples == previous.clock_.phaseSamples && state_.size() == previous.state_.size() &&
+           nextState_.size() == previous.nextState_.size() && values_.size() == previous.values_.size() &&
+           logits_.size() == previous.logits_.size();
+}
+template <typename Scalar>
+bool TensorModelT<Scalar>::adoptStateFrom(const TensorModelT& previous) noexcept
+{
+    if (!canAdoptStateFrom(previous))
+        return false;
+    std::copy(previous.state_.begin(), previous.state_.end(), state_.begin());
+    std::copy(previous.nextState_.begin(), previous.nextState_.end(), nextState_.begin());
+    std::copy(previous.values_.begin(), previous.values_.end(), values_.begin());
+    std::copy(previous.logits_.begin(), previous.logits_.end(), logits_.begin());
+    return true;
+}
 template <typename Scalar>
 void TensorModelT<Scalar>::reset() noexcept
 {

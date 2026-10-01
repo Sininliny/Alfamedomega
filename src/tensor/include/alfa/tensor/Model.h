@@ -17,6 +17,10 @@ public:
     bool infer(const InputsT<Scalar>& inputs) noexcept;
     bool apply(const InputsT<Scalar>& inputs, RuntimeT<Scalar>& runtime) noexcept;
     void reset() noexcept;
+    // Caller verifies immutable model identity before transferring recurrence.
+    // These checks only establish typed workspace/clock compatibility.
+    bool canAdoptStateFrom(const TensorModelT& previous) const noexcept;
+    bool adoptStateFrom(const TensorModelT& previous) noexcept;
     [[nodiscard]] std::span<const Scalar> state() const noexcept { return state_; }
     [[nodiscard]] std::span<const Scalar> values() const noexcept { return values_; }
     [[nodiscard]] std::span<const Scalar> presenceLogits() const noexcept { return logits_; }

@@ -540,6 +540,11 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
         for (int channel = 0; channel < juce::jmin(2, getTotalNumInputChannels()); ++channel)
         {
             dry[static_cast<size_t>(channel)] = buffer.getSample(channel, sample);
+            if (!std::isfinite(dry[static_cast<size_t>(channel)]))
+            {
+                dry[static_cast<size_t>(channel)] = 0;
+                failures.fetch_add(1, std::memory_order_relaxed);
+            }
             inPeak[static_cast<size_t>(channel)] =
                 std::max(inPeak[static_cast<size_t>(channel)], std::abs(dry[static_cast<size_t>(channel)]));
         }
@@ -578,15 +583,15 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
             const auto wet = buffer.getSample(channel, sample);
             const auto original = selectedMode == 0 ? 0.0f : dry[static_cast<size_t>(juce::jmin(channel, 1))];
             auto value = bypass ? original : (dryWet * wet + (1 - dryWet) * original) * gainCurrent_;
+            if (!std::isfinite(value))
+            {
+                value = 0;
+                failures.fetch_add(1, std::memory_order_relaxed);
+            }
             buffer.setSample(channel, sample, value);
             if (channel < 2)
                 outPeak[static_cast<size_t>(channel)] =
                     std::max(outPeak[static_cast<size_t>(channel)], std::abs(value));
-            if (!std::isfinite(buffer.getSample(channel, sample)))
-            {
-                buffer.setSample(channel, sample, 0);
-                failures.fetch_add(1, std::memory_order_relaxed);
-            }
         }
         waveformSnapshot[waveformWrite_++ % waveformSnapshot.size()].store(
             buffer.getNumChannels() > 0 ? buffer.getSample(0, sample) : 0);
@@ -711,6 +716,16 @@ bool Processor::loadJSONImpl(const juce::String& text, juce::String& error, bool
         const auto newTail = data.value("tail_seconds", proposed->releaseSeconds);
         if (!std::isfinite(newTail) || newTail < 0 || newTail > 600)
             throw std::invalid_argument("Invalid declared audio tail");
+        int latency = 0;
+        if (data.contains("host_latency_samples"))
+        {
+            const auto& value = data.at("host_latency_samples");
+            if ((!value.is_number_unsigned() && !value.is_number_integer()) || value.get<double>() < 0 ||
+                value.get<double>() > std::numeric_limits<int>::max())
+                throw std::invalid_argument(
+                    "Declared host latency must be a nonnegative supported sample count");
+            latency = value.get<int>();
+        }
         const auto defaults = proposed->execution->highestDefaults();
         const auto report = proposed->execution->inspection();
         auto* publication = proposed.get();
@@ -724,6 +739,7 @@ bool Processor::loadJSONImpl(const juce::String& text, juce::String& error, bool
             for (size_t i = 0; i < std::min(size_t{8}, defaults.size()); ++i)
                 setParameterValue("x" + juce::String(static_cast<int>(i)), defaults[i]);
         tailSeconds_.store(newTail);
+        setLatencySamples(latency);
         programRevision.fetch_add(1);
         error.clear();
         return true;
@@ -784,20 +800,65 @@ void Processor::setStateInformation(const void* bytes, int length)
     {
         auto data =
             nlohmann::json::parse(static_cast<const char*>(bytes), static_cast<const char*>(bytes) + length);
-        juce::String error;
-        if (!loadJSON(data.at("configuration").get<std::string>(), error))
+        if (!data.is_object())
             return;
+        const auto schema = data.value("state_schema", std::string{});
+        if (!schema.empty() && schema != "aom.host/1" && schema != "aom.host/2")
+            return;
+        const auto configuration = data.at("configuration").get<std::string>();
+        if (data.contains("mode") && !data.at("mode").is_number_integer())
+            return;
+        const auto restoredMode = data.value("mode", 2);
+        if (restoredMode < 0 || restoredMode > 2)
+            return;
+        const auto values = data.contains("x_controls") ? data.at("x_controls").get<std::vector<float>>()
+                                                        : data.value("intentions", std::vector<float>{});
+        if (values.size() > xControls.size() ||
+            std::any_of(values.begin(), values.end(),
+                        [](float value) { return !std::isfinite(value) || value < -1 || value > 1; }))
+            return;
+        juce::ValueTree restoredParameters, restoredUI;
         if (data.contains("parameters"))
-            if (auto xml = juce::parseXML(juce::String(data["parameters"].get<std::string>())))
-                if (xml->hasTagName("TensorParameters"))
-                    parameters_.replaceState(juce::ValueTree::fromXml(*xml));
+        {
+            const auto xml = juce::parseXML(juce::String(data.at("parameters").get<std::string>()));
+            if (!xml || !xml->hasTagName("TensorParameters"))
+                return;
+            restoredParameters = juce::ValueTree::fromXml(*xml);
+            if (!restoredParameters.isValid())
+                return;
+            for (const auto& child : restoredParameters)
+            {
+                const auto* parameter = parameters_.getParameter(child.getProperty("id").toString());
+                if (!parameter || !child.hasProperty("value"))
+                    return;
+                const auto text = child.getProperty("value").toString().toStdString();
+                size_t consumed = 0;
+                const auto value = std::stod(text, &consumed);
+                const auto& range = parameter->getNormalisableRange();
+                if (consumed != text.size() || !std::isfinite(value) || value < range.start ||
+                    value > range.end)
+                    return;
+            }
+        }
         if (data.contains("ui_settings"))
-            if (auto xml = juce::parseXML(juce::String(data["ui_settings"].get<std::string>())))
-                if (xml->hasTagName("TensorUI"))
-                    uiSettings_.copyPropertiesAndChildrenFrom(juce::ValueTree::fromXml(*xml), nullptr);
-        mode.store(juce::jlimit(0, 2, data.value("mode", 2)));
+        {
+            const auto xml = juce::parseXML(juce::String(data.at("ui_settings").get<std::string>()));
+            if (!xml || !xml->hasTagName("TensorUI"))
+                return;
+            restoredUI = juce::ValueTree::fromXml(*xml);
+            if (!restoredUI.isValid())
+                return;
+        }
+        // Validate every wrapper field before publishing any sound or host state.
+        juce::String error;
+        if (!loadJSON(configuration, error))
+            return;
+        if (restoredParameters.isValid())
+            parameters_.replaceState(restoredParameters);
+        if (restoredUI.isValid())
+            uiSettings_.copyPropertiesAndChildrenFrom(restoredUI, nullptr);
+        mode.store(restoredMode);
         setParameterValue("mode", static_cast<float>(mode.load()));
-        const auto values = data.value("x_controls", data.value("intentions", std::vector<float>{}));
         for (size_t i = 0; i < juce::jmin(values.size(), xControls.size()); ++i)
             if (std::isfinite(values[i]))
                 setParameterValue("x" + juce::String(static_cast<int>(i)), values[i]);

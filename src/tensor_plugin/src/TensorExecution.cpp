@@ -3,6 +3,8 @@
 #include "alfa/tensor/Compiler.h"
 #include "alfa/tensor/Model.h"
 
+#include <juce_cryptography/juce_cryptography.h>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -97,6 +99,7 @@ class Execution final : public TensorExecution
     std::vector<Layer> layers_;
     std::vector<Mix> mix_;
     std::unique_ptr<TensorModelT<Scalar>> model_;
+    juce::String modelIdentity_;
     Clock modelClock_;
     TensorT<Scalar> latent_;
     std::array<std::vector<Scalar>, 6> boundary_;
@@ -108,6 +111,13 @@ public:
         try
         {
             const auto data = JSON::parse(text);
+            if (data.contains("host_latency_samples"))
+            {
+                const auto& latency = data.at("host_latency_samples");
+                if ((!latency.is_number_unsigned() && !latency.is_number_integer()) ||
+                    latency.get<double>() < 0 || latency.get<double>() > std::numeric_limits<int>::max())
+                    throw std::invalid_argument("Invalid explicit native host latency");
+            }
             Budget budget;
             if (!parseJSON(text, controls_, error) || !readBudgetJSON(text, budget, error) ||
                 !runtime_.prepare(controls_, budget, rate, error))
@@ -156,6 +166,8 @@ public:
                 latent_ = inputTensor<Scalar>(data.at("latentSound"));
             if (data.contains("runtimeModel"))
             {
+                const auto serializedModel = data.at("runtimeModel").dump();
+                modelIdentity_ = juce::SHA256(serializedModel.data(), serializedModel.size()).toHexString();
                 model_ = std::make_unique<TensorModelT<Scalar>>();
                 if (!model_->prepare(data.at("runtimeModel").dump(), controls_, error))
                     return false;
@@ -192,6 +204,7 @@ public:
             report << "\nCompiled state elements: " << runtime_.state().size()
                    << " | output elements: " << runtime_.output().size()
                    << " | scheduled primitives: " << runtime_.schedule().size();
+            report << "\nDeclared host latency: " << data.value("host_latency_samples", 0) << " samples";
             report
                 << "\nDeclared budgets, routing, activation, allocation and clocks are inspectable in JSON.";
             report << (model_ ? "\nRuntime GRU compiler model loaded; explicit model clock."
@@ -301,7 +314,14 @@ public:
     bool adopt(const TensorExecution& old) noexcept override
     {
         const auto* previous = dynamic_cast<const Execution*>(&old);
-        return previous && !model_ && !previous->model_ && runtime_.adoptStateFrom(previous->runtime_);
+        if (!previous || static_cast<bool>(model_) != static_cast<bool>(previous->model_))
+            return false;
+        if (model_ &&
+            (modelIdentity_ != previous->modelIdentity_ || !model_->canAdoptStateFrom(*previous->model_)))
+            return false;
+        if (!runtime_.adoptStateFrom(previous->runtime_))
+            return false;
+        return !model_ || model_->adoptStateFrom(*previous->model_);
     }
     void snapshot(std::span<std::atomic<float>> destination) const noexcept override
     {

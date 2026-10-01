@@ -21,7 +21,8 @@ shared initial state, local initial state, optional affine projections and a bin
 mask. Each instance identifies a deterministic
 primitive, activation element, parameter slice, explicit clock and between-update output
 policy. Instance count and parameter width are configuration-dependent; they are not fixed
-processing slots. Primitive descriptors declare state/output size and F/G callbacks.
+processing slots. Primitive descriptors declare state/output size, F/G callbacks, optional
+sparse-journal capacity and typed numerical workspace capacity.
 
 `Runtime::prepare` validates and copies a configuration off the audio thread, allocates
 persistent state/output storage, and produces inspectable allocation maps and a schedule.
@@ -76,6 +77,24 @@ rate; different periods represent independent control and slow updates. The conf
 chooses frequencies. Between updates an output explicitly holds its previous value or becomes
 zero. Fractional clocks, asynchronous events and timestamp interpolation are not implemented.
 
+Dense transitions write a prepared next-state slice. Sparse transitions instead return a
+list of local index/value writes into a prepared journal; untouched state persists. Every
+returned write must be finite, in range and unique within its local slice. Outputs and all
+due dense/sparse updates commit together after validation. `sparse_state_writes` budgets the
+sum of allocated journal capacities; it is not the length of persistent history.
+Duplicate validation uses a bounded Patricia trie with at most twice the declared sparse-write
+capacity in structural nodes. Each index takes bounded word-bit walks; validation neither scans
+nor clears the full persistent state. `sparseValidationStorageBytes()` reports this allocated
+structural workspace separately from Scalar numeric storage. Structural indices are not audio
+memory or a second precision choice.
+
+`Step::scratch` is temporary typed numerical workspace. `scratch_elements` bounds the
+maximum descriptor workspace, reused sequentially across callbacks rather than summed across
+instances. Each callback must initialize every scratch value it reads. F and G must not
+assume scratch persists between them, between events or after a rejected update. Workspace
+is neither persistent S nor a communication channel between primitives. Its numeric storage
+uses the same Scalar as state and is included in the runtime storage report.
+
 `tick` allocates no memory. Invalid inputs or nonfinite next state/output silence the output,
 preserve committed state and do not advance time. Callback implementations must themselves
 be allocation-free, lock-free and noexcept. Finite values alone do not establish stability of
@@ -92,7 +111,8 @@ The test target `alfa_tensor_tests` exercises recurrence, simultaneous shared-st
 independent clocks, malformed configurations, budget refusal, inactive padded instances,
 invalid-state atomicity, six input categories, projection/lock behavior, allocation-free ticking
 and migration retention.
-These tests do not demonstrate trained inference, plugin integration or full primitive coverage.
+Foundation tests alone do not demonstrate trained inference, plugin integration or full primitive
+coverage; later native/model evidence is recorded separately in validation.md.
 
 ## Current limits
 
@@ -128,7 +148,13 @@ prediction tensors, dynamically described primitive instances, assets, explicit
 projection terms, clocks, initial state, locks and independent capacity limits.
 The compiler validates them and derives state allocation and an execution
 schedule. Instance descriptors own their primitive callbacks for the program's
-lifetime. `Universe.h` extends the four original kernels by 48 operations. Cubic and normalized Kaiser-windowed sinc8 asset interpolation reuse the legacy numerical kernels; neither is a ratio-dependent anti-alias downsampler.
+lifetime. The current registry contains 64 Universe operations plus four original mathematical
+kernels, for 68 total: 48 reference operations, five production ring operations, two streaming
+STFT operations and nine versioned nonlinear operations. This catalog count is implementation
+coverage, not proof that universal production DSP is complete. Cubic and normalized
+Kaiser-windowed sinc8 asset interpolation reuse the legacy numerical kernels; neither is a
+ratio-dependent anti-alias downsampler. [Production composition](production-composition.md)
+records state layouts, workspace, frame transport and migration differences.
 
 The host's explicit `outputMix` rows are `[primitive_output_element, channel,
 gain]`. Mixing is performed after simultaneous recurrent updates; it does not
@@ -192,3 +218,9 @@ Numerical execution uses one scalar type per tier, including assets, learned
 compiler weights and recurrent state. Lite/Standard use float32; Pro/Studio use
 float64. See [the measured precision policy](../tiers/runtime-precision.md) for
 storage, accuracy evidence and explicit native host conversion boundaries.
+
+The primary editor shows the current configuration and inspection without a loading selector.
+Its Sound library browses and inspects candidates independently; only an explicit Load action
+publishes the selected sound. Opening the browser, selecting a row or viewing details does
+not mutate the current executable configuration. Parameter edits, X gestures, explicit imports
+and loading remain distinct actions with their own state/publication semantics.

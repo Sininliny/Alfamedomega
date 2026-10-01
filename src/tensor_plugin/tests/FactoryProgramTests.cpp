@@ -1,4 +1,5 @@
 #include "FactoryPrograms.h"
+#include "TensorProcessor.h"
 #include "alfa/tensor/Compiler.h"
 
 #include <catch2/catch_approx.hpp>
@@ -251,5 +252,50 @@ TEST_CASE("Export the authored factory documents when explicitly requested", "[.
         std::ofstream output(target / (p.id + ".aom.json"), std::ios::binary);
         output << p.document << '\n';
         REQUIRE(output.good());
+    }
+}
+
+TEST_CASE("Production fragments import render and round trip through the native plugin",
+          "[tensor-host][production]")
+{
+    juce::ScopedJuceInitialiser_GUI gui;
+    for (const auto* file : {"ring-delay", "fdn-hadamard8", "causal-fir"})
+    {
+        INFO(file);
+        const auto document = juce::File(juce::String(ALFA_SOURCE_DIR))
+                                  .getChildFile("programs/primitives")
+                                  .getChildFile(juce::String(file) + ".aom.json")
+                                  .loadFileAsString();
+        REQUIRE(document.isNotEmpty());
+        alfa::tensorhost::Processor processor;
+        processor.prepareToPlay(48000, 128);
+        juce::String error;
+        INFO(error.toStdString());
+        REQUIRE(processor.loadJSON(document, error));
+        processor.mode.store(1);
+        juce::AudioBuffer<float> audio(2, 128);
+        juce::MidiBuffer midi;
+        double energy = 0;
+        for (int block = 0; block < 16; ++block)
+        {
+            audio.clear();
+            if (block == 0)
+                audio.setSample(0, 0, 1);
+            processor.processBlock(audio, midi);
+            for (int channel = 0; channel < 2; ++channel)
+                for (int sample = 0; sample < 128; ++sample)
+                {
+                    const auto value = audio.getSample(channel, sample);
+                    REQUIRE(std::isfinite(value));
+                    energy += static_cast<double>(value) * value;
+                }
+        }
+        REQUIRE(energy > 0);
+        REQUIRE(processor.failures.load() == 0);
+        juce::MemoryBlock state;
+        processor.getStateInformation(state);
+        alfa::tensorhost::Processor restored;
+        restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+        REQUIRE(restored.document() == processor.document());
     }
 }
