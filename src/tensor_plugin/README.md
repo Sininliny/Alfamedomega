@@ -71,6 +71,12 @@ buffer is preallocated; oversized blocks are rejected rather than allocating.
 
 ## Local checks
 
+`--standalone-interaction-test` validates the sustained native window/device loop,
+preset selection, X automation, keyboard audio, pages, Panic and Pro selection.
+Set `ALFA_INTERACTION_RESULT` to save its result. This requires a working output
+device. Programmatic choice refreshes suppress selection notifications; they must
+never repeatedly reload presets while idle.
+
 Build `Alfamedomega_Standalone`, `Alfamedomega_VST3`, `alfa_tensor_host_tests` and
 `alfa_tensor_tests`. `--tensor-smoke-test` initializes the actual editor/processor,
 renders MIDI and native audio and verifies project restore without an audio device.

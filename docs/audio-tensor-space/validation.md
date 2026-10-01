@@ -150,3 +150,28 @@ need the optimized legacy implementations adapted to the typed state contract;
 the reuse audits distinguish these from the components already shared. Catalog
 coverage of 52 operations does not establish production CPU bounds for arbitrary
 configurations or every requested historical audio technique.
+
+## Standalone interaction regression, 2026-10-01
+
+The preceding screenshot smoke did not exercise a sustained event loop. A user
+reported an unusable Standalone. The new idle-editor regression reproduced five
+unrequested preset reloads in 200 ms (revision 2 became 7). Programmatic ComboBox
+clears queued asynchronous user-selection notifications; after rebuilding the
+choices, the preset callback reloaded the sound and repeated the refresh forever.
+All programmatic choice rebuilds now suppress these notifications. A user preset
+selection still sends its notification and loads exactly once.
+
+The host suite now passes 31 cases / 204,493 assertions, including sustained idle
+dispatch and exactly-one preset publication. The final VST3 binary host check
+again passes 5,127 assertions. The Standalone additionally supports
+`--standalone-interaction-test`: it opens the actual native window and device,
+runs the regular message loop and audio callbacks, verifies idle revision stability,
+selects a preset, changes an X control, triggers keyboard audio, changes pages,
+releases notes with Panic and selects Pro through the editor. This actual-device
+test passed after the fix; `ALFA_INTERACTION_RESULT` records its result. It needs
+a working output device and is separate from the device-independent smoke.
+
+A full-duplex device initialization can also leave no device available. Standalone
+now attempts output-only playback in that case and displays the fallback or actual
+device error in the editor. Audio input remains configurable in the native Settings
+dialog. An unavailable input must not silently prevent instrument playback.

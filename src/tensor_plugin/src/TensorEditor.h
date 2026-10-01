@@ -14,6 +14,7 @@ public:
     ~Editor() override;
     void paint(juce::Graphics&) override;
     void resized() override;
+    void reportDeviceStatus(const juce::String& text, bool error) { showStatus(text, error); }
     void snapshotView(int index)
     {
         chooseView(index);

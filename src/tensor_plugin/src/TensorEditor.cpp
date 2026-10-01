@@ -816,7 +816,7 @@ void Editor::refreshLibrary()
         browser_.push_back({users[i].id, users[i].name, users[i].category, false, i});
     refreshing_ = true;
     const auto prior = categories_.getText();
-    categories_.clear();
+    categories_.clear(juce::dontSendNotification);
     categories_.addItem("All categories", 1);
     juce::StringArray categories;
     for (const auto& item : browser_)
@@ -836,7 +836,9 @@ void Editor::filterLibrary()
         return;
     refreshing_ = true;
     filtered_.clear();
-    presets_.clear();
+    // Rebuilding choices must not enqueue a user selection: that reloads the
+    // preset after refreshing_ is cleared and creates a self-sustaining loop.
+    presets_.clear(juce::dontSendNotification);
     const auto query = search_.getText().trim();
     const auto category = categories_.getSelectedId() > 1 ? categories_.getText() : juce::String{};
     for (size_t i = 0; i < browser_.size(); ++i)
@@ -1005,8 +1007,8 @@ void Editor::refreshSound()
         primitives_.selectRow(selectedPrimitive_, true, false);
         refreshing_ = true;
         const auto level = layerSelect_.getSelectedId(), matrixLayer = mappingLayer_.getSelectedId();
-        layerSelect_.clear();
-        mappingLayer_.clear();
+        layerSelect_.clear(juce::dontSendNotification);
+        mappingLayer_.clear(juce::dontSendNotification);
         const auto layers = sound_.value("control_layers", nlohmann::json::array());
         for (size_t i = 0; i < layers.size(); ++i)
         {
@@ -1024,8 +1026,8 @@ void Editor::refreshSound()
         const auto highest = layers.empty() ? size_t(0) : layers.at(0).at("values").size();
         refreshing_ = true;
         const auto previousX = xAxis_.getSelectedId(), previousY = yAxis_.getSelectedId();
-        xAxis_.clear();
-        yAxis_.clear();
+        xAxis_.clear(juce::dontSendNotification);
+        yAxis_.clear(juce::dontSendNotification);
         for (size_t i = 0; i < juce::jmin(size_t(8), highest); ++i)
         {
             const auto title = "X[0," + juce::String(static_cast<int>(i)) + "]";
@@ -1252,14 +1254,14 @@ void Editor::rebuildRoutes()
             routeRows_.push_back(std::move(row));
         }
         const auto destination = routeDestination_.getSelectedId(), weight = routeWeight_.getSelectedId();
-        routeDestination_.clear();
+        routeDestination_.clear(juce::dontSendNotification);
         const auto& params = sound_.at("tensors").at("parameters").at("values");
         for (size_t i = 0; i < params.size(); ++i)
             routeDestination_.addItem(parameterLabel(i), static_cast<int>(i) + 1);
         routeDestination_.setSelectedId(
             juce::jlimit(1, juce::jmax(1, static_cast<int>(params.size())), destination),
             juce::dontSendNotification);
-        routeWeight_.clear();
+        routeWeight_.clear(juce::dontSendNotification);
         const auto field = routeWeightsTensor_.getSelectedId() == 2 ? "modulation" : "routing";
         const auto& weights = sound_.at("tensors").at(field).at("values");
         for (size_t i = 0; i < weights.size(); ++i)
@@ -1311,8 +1313,8 @@ void Editor::rebuildLayers()
         const auto layer = juce::jmax(0, mappingLayer_.getSelectedId() - 1),
                    previousSource = mappingSource_.getSelectedId(),
                    previousDestination = mappingDestination_.getSelectedId();
-        mappingSource_.clear();
-        mappingDestination_.clear();
+        mappingSource_.clear(juce::dontSendNotification);
+        mappingDestination_.clear(juce::dontSendNotification);
         if (static_cast<size_t>(layer) < layers.size())
         {
             const auto& current = layers[static_cast<size_t>(layer)];

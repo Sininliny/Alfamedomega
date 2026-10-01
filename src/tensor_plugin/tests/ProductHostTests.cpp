@@ -541,3 +541,29 @@ TEST_CASE("Settings tier selector publishes the canonical precision tier",
     CHECK(processor.scalarBytes() == 4);
     CHECK(JSON::parse(processor.document().toStdString())["tier"] == "Standard");
 }
+
+TEST_CASE("Editor message loop stays idle and a preset selection loads only once",
+          "[tensor-host][product][ui-loop]")
+{
+    juce::ScopedJuceInitialiser_GUI gui;
+    Processor processor;
+    processor.prepareToPlay(48000, 128);
+    std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
+    const auto initial = processor.programRevision.load();
+    juce::MessageManager::getInstance()->runDispatchLoopUntil(200);
+    REQUIRE(processor.programRevision.load() == initial);
+    juce::ComboBox* browser = nullptr;
+    for (int i = 0; i < editor->getNumChildComponents(); ++i)
+        if (auto* combo = dynamic_cast<juce::ComboBox*>(editor->getChildComponent(i));
+            combo && combo->getNumItems() == static_cast<int>(alfa::tensorhost::factoryPrograms().size()) &&
+            combo->getItemText(0).contains("Harmonic Field"))
+            browser = combo;
+    REQUIRE(browser != nullptr);
+    browser->setSelectedId(browser->getItemId(1), juce::sendNotificationAsync);
+    juce::MessageManager::getInstance()->runDispatchLoopUntil(200);
+    CHECK(processor.programRevision.load() == initial + 1);
+    const auto selected = processor.document();
+    juce::MessageManager::getInstance()->runDispatchLoopUntil(200);
+    CHECK(processor.programRevision.load() == initial + 1);
+    CHECK(processor.document() == selected);
+}

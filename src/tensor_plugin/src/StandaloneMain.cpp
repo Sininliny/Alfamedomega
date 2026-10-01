@@ -7,7 +7,7 @@
 
 namespace alfa::tensorhost
 {
-class TensorApplication final : public juce::JUCEApplication
+class TensorApplication final : public juce::JUCEApplication, private juce::Timer
 {
 public:
     const juce::String getApplicationName() override { return "Alfamedomega"; }
@@ -74,13 +74,141 @@ public:
         window_ = std::make_unique<juce::StandaloneFilterWindow>(
             getApplicationName(), juce::Colour(0xff20242b), nullptr, false, juce::String{}, nullptr,
             juce::Array<juce::StandalonePluginHolder::PluginInOuts>{}, true);
+        auto& devices = window_->getDeviceManager();
+        if (devices.getCurrentAudioDevice() == nullptr)
+        {
+            // A missing/unavailable capture device must not prevent instrument
+            // playback. The device settings still allow enabling audio inputs.
+            const auto error = devices.initialise(0, 2, nullptr, true);
+            if (auto* processor = window_->getPluginHolder()->processor.get())
+                if (auto* editor = dynamic_cast<Editor*>(processor->getActiveEditor()))
+                    editor->reportDeviceStatus(error.isEmpty() ? "Audio input unavailable; output playback "
+                                                                 "enabled. Configure inputs in Settings..."
+                                                               : "Audio device unavailable: " + error +
+                                                                     ". Open Settings...",
+                                               error.isNotEmpty());
+        }
         window_->setUsingNativeTitleBar(true);
         window_->setVisible(true);
+        if (arguments.contains("--standalone-interaction-test"))
+            startTimer(500);
     }
-    void shutdown() override { window_.reset(); }
+    void shutdown() override
+    {
+        stopTimer();
+        window_.reset();
+    }
     void systemRequestedQuit() override { quit(); }
 
 private:
+    void timerCallback() override
+    {
+        try
+        {
+            auto* processor = dynamic_cast<Processor*>(window_->getPluginHolder()->processor.get());
+            auto* editor = processor ? processor->getActiveEditor() : nullptr;
+            if (!processor || !editor)
+                throw std::runtime_error("Standalone processor/editor unavailable");
+            const auto require = [](bool value, const char* reason)
+            {
+                if (!value)
+                    throw std::runtime_error(reason);
+            };
+            const auto button = [editor](const char* name)
+            {
+                for (int i = 0; i < editor->getNumChildComponents(); ++i)
+                    if (auto* control = dynamic_cast<juce::Button*>(editor->getChildComponent(i));
+                        control && control->getButtonText() == name)
+                    {
+                        control->triggerClick();
+                        return;
+                    }
+                throw std::runtime_error("Interaction button unavailable");
+            };
+            if (interactionStep_ == 0)
+            {
+                interactionRevision_ = processor->programRevision.load();
+                interactionSamples_ = processor->samples.load();
+            }
+            else if (interactionStep_ == 1)
+            {
+                require(processor->programRevision.load() == interactionRevision_, "Idle UI reloads presets");
+                require(processor->samples.load() > interactionSamples_,
+                        "Audio device callback is not advancing");
+                button("Sound design");
+                juce::ComboBox* browser = nullptr;
+                for (int i = 0; i < editor->getNumChildComponents(); ++i)
+                    if (auto* control = dynamic_cast<juce::ComboBox*>(editor->getChildComponent(i));
+                        control && control->getItemText(0).contains("Harmonic Field"))
+                        browser = control;
+                require(browser != nullptr, "Preset browser unavailable");
+                browser->setSelectedId(browser->getItemId(1), juce::sendNotificationAsync);
+            }
+            else if (interactionStep_ == 2)
+            {
+                require(processor->programRevision.load() == interactionRevision_ + 1,
+                        "Preset selection did not load exactly once");
+                processor->keyboard.noteOn(1, 69, .8f);
+                processor->setParameterValue("x0", .25f);
+            }
+            else if (interactionStep_ == 3)
+            {
+                require(processor->activeNotes.load() == 1, "Keyboard note did not reach device callback");
+                require(processor->outputPeak[0].load() > 0, "Keyboard note produced no device output");
+                require(processor->programRevision.load() == interactionRevision_ + 1,
+                        "Idle UI resumes preset reloads");
+                processor->keyboard.noteOff(1, 69, 0);
+                button("Panic");
+                button("Settings");
+            }
+            else if (interactionStep_ == 4)
+            {
+                require(processor->activeNotes.load() == 0, "Panic did not release notes");
+                juce::ComboBox* selector = nullptr;
+                for (int i = 0; i < editor->getNumChildComponents(); ++i)
+                    if (auto* control = dynamic_cast<juce::ComboBox*>(editor->getChildComponent(i));
+                        control && control->getNumItems() == 4 && control->getItemText(0) == "Lite")
+                        selector = control;
+                require(selector != nullptr, "Tier selector unavailable");
+                selector->setSelectedId(3, juce::sendNotificationAsync);
+            }
+            else if (interactionStep_ == 5)
+            {
+                require(processor->scalarBytes() == 8, "Tier selection did not publish float64 execution");
+                require(processor->programRevision.load() == interactionRevision_ + 2,
+                        "Tier selection repeated compilation");
+                require(processor->failures.load() == 0, "Runtime rejected device execution");
+                finishInteraction(
+                    true, "idle loop, preset, keyboard/audio, X control, tabs, panic and Pro tier passed");
+                return;
+            }
+            ++interactionStep_;
+        }
+        catch (const std::exception& failure)
+        {
+            auto diagnostic = juce::String(failure.what());
+            if (auto* device = window_->getDeviceManager().getCurrentAudioDevice())
+                diagnostic += " | device=" + device->getName() +
+                              " open=" + juce::String(static_cast<int>(device->isOpen())) +
+                              " playing=" + juce::String(static_cast<int>(device->isPlaying())) +
+                              " rate=" + juce::String(device->getCurrentSampleRate()) +
+                              " error=" + device->getLastError();
+            else
+                diagnostic += " | no current audio device";
+            finishInteraction(false, diagnostic);
+        }
+    }
+    void finishInteraction(bool success, const juce::String& result)
+    {
+        stopTimer();
+        const auto path = juce::SystemStats::getEnvironmentVariable("ALFA_INTERACTION_RESULT", {});
+        if (path.isNotEmpty())
+            juce::File(path).replaceWithText((success ? "PASS: " : "FAIL: ") + result);
+        setApplicationReturnValue(success ? 0 : 1);
+        quit();
+    }
+    int interactionStep_ = 0;
+    uint64_t interactionRevision_ = 0, interactionSamples_ = 0;
     std::unique_ptr<juce::StandaloneFilterWindow> window_;
 };
 } // namespace alfa::tensorhost
