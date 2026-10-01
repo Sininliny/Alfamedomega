@@ -460,7 +460,13 @@ TEST_CASE("Precision tier switches execute real notes and restore the same tenso
     CHECK(peak > .0001f);
     CHECK(processor.scalarBytes() == 8);
     CHECK(processor.inspection().contains("float64"));
+    // Without authored tier_profiles a tier changes precision only; the sound's own capacity
+    // budget is retained and reported next to what the sound uses.
+    CHECK(processor.inspection().contains("Used / budget: primitives"));
+    CHECK(processor.inspection().contains("tier sets precision only"));
     const auto pro = JSON::parse(processor.document().toStdString());
+    CHECK(pro["budget"]["state_elements"] == original["budget"]["state_elements"]);
+    CHECK(pro["budget"]["active_primitives"] == original["budget"]["active_primitives"]);
     CHECK(pro["tier"] == "Pro");
     CHECK(pro["scalar_type"] == "float64");
     for (const auto* name : {"activation", "parameters", "routing", "modulation"})
