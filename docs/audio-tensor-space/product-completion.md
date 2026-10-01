@@ -59,6 +59,20 @@ Recurrent binding coefficients likewise remain editable. Structural edits requir
 performance/latent policies; local model latent inputs remain independent. Nested fragments
 and arbitrarily deep control stacks are subject to explicit aggregate capacities.
 
+Runtime predictions update base tensors before the authored control stack is mapped.
+Held predictions remain the base between model events and host blocks, so X mappings are
+not overwritten or accumulated repeatedly. Locked bottom parameters bypass model changes
+and matrix contributions. Scoped compiler timing is measured only on due events. Explicit
+execution reset restores authored base tensors, X defaults and GRU context before the next
+(possibly delayed) compiler event.
+
+The library, composition and native publication share complete lowering/policy validation.
+Scoped model containers are arrays; IDs must be unique/nonempty and offsets exactly four
+nonnegative integers. Global/scoped latent tensors count toward stored tensor capacity.
+Model widths must fit native source capacities and available local latent storage. Explicit
+global `compiler_model_bytes` is enforced; legacy independent model RAM allowances remain
+supported. Output mixes require exact output/channel/gain triples with integer stereo indices.
+
 ## Four authored tier profiles
 
 Settings can import a JSON object with `Lite`, `Standard`, `Pro`, `Studio` keys. Each value owns
@@ -78,16 +92,21 @@ eligible. This is exact common recurrence elimination, not automatic arbitrary s
 
 Changed candidates require `validation`:
 
-- `cases`: each has `frames`, `fundamental_hz`, `timing_search_samples`, optional constant
-  `inputs` for the six input categories, and optional `audio_frames`.
-- `maximum_errors`: nonnegative `relative_error`, `pitch_error_cents`, `timing_error_samples`.
+- `cases`: each has `frames`, `timing_search_samples`, optional constant `inputs` for the
+  six input categories, and optional `audio_frames`. Default `signal_type="pitched"` requires
+  `fundamental_hz`; explicit `signal_type="unpitched"` supports noise/transient/FX fixtures.
+- `maximum_errors`: nonnegative `relative_error` and `timing_error_samples`, plus
+  `pitch_error_cents` for pitched cases.
 - `evaluation_bytes`: allowance for source/candidate stereo comparison arrays.
 - `evaluation_ticks`: total render-update allowance across all evaluated candidates/cases.
 
 Evaluation renders the native execution off thread, measures normalized waveform RMS error,
-autocorrelation pitch and timing correlation, rejects silence/unmeasurable pitch, and selects
+autocorrelation pitch on the more energetic channel and stereo timing correlation, rejects
+silence and unmeasurable pitched fixtures, and selects
 the lowest-error admissible candidate. `tier_conversion` stores metrics and rejected reasons.
 Insufficient capacity or failed identity constraints leave the active program/document unchanged.
 Fixtures are reset-state explicit-input evidence, not guarantees for all future musical input.
-Arbitrary trained topology search, perceptual listening certification and unpitched fixture
-metrics remain future extensions; authored numerical capacities still require product decisions.
+Unpitched metrics report `pitch_measured=false` and `pitch_error_cents=null`, while still
+protecting waveform and timing. Arbitrary trained topology search, silence fixture policy
+and perceptual listening certification remain extensions; authored numerical capacities
+still require product decisions.

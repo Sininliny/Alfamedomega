@@ -211,6 +211,11 @@ double pitch(const std::vector<double>& signal, double rate, double nominal)
     if (!std::isfinite(nominal) || nominal <= 0 || nominal >= rate / 2)
         throw std::invalid_argument("Explicit valid fundamental required");
     const auto n = signal.size() / 2;
+    std::array<double, 2> channelEnergy{};
+    for (size_t i = 0; i < n; ++i)
+        for (size_t channel = 0; channel < 2; ++channel)
+            channelEnergy[channel] += signal[2 * i + channel] * signal[2 * i + channel];
+    const size_t channel = channelEnergy[1] > channelEnergy[0] ? 1 : 0;
     const auto lo = static_cast<size_t>(std::max(2., std::floor(rate / nominal * .8)));
     const auto hi = static_cast<size_t>(std::ceil(rate / nominal * 1.2));
     if (hi + 2 >= n / 2)
@@ -220,7 +225,7 @@ double pitch(const std::vector<double>& signal, double rate, double nominal)
         double ab = 0, aa = 0, bb = 0;
         for (size_t i = hi + 2; i < n; ++i)
         {
-            const auto a = signal[2 * i], b = signal[2 * (i - lag)];
+            const auto a = signal[2 * i + channel], b = signal[2 * (i - lag) + channel];
             ab += a * b;
             aa += a * a;
             bb += b * b;
@@ -257,9 +262,14 @@ JSON evaluate(const std::vector<double>& original, const std::vector<double>& ca
     if (energy < 1e-20)
         throw std::invalid_argument("Identity validation requires a non-silent original");
     const auto relative = std::sqrt(difference / energy);
-    const auto cents =
-        1200. * std::abs(std::log2(pitch(candidate, rate, fixture.at("fundamental_hz").get<double>()) /
-                                   pitch(original, rate, fixture.at("fundamental_hz").get<double>())));
+    const auto signalType = fixture.value("signal_type", std::string("pitched"));
+    if (signalType != "pitched" && signalType != "unpitched")
+        throw std::invalid_argument("Tier fixture signal_type must be pitched or unpitched");
+    JSON cents;
+    if (signalType == "pitched")
+        cents =
+            1200. * std::abs(std::log2(pitch(candidate, rate, fixture.at("fundamental_hz").get<double>()) /
+                                       pitch(original, rate, fixture.at("fundamental_hz").get<double>())));
     const auto search = fixture.at("timing_search_samples").get<int>();
     if (search < 0 || static_cast<size_t>(search) >= original.size() / 4)
         throw std::invalid_argument("Invalid timing search range");
@@ -271,11 +281,14 @@ JSON evaluate(const std::vector<double>& original, const std::vector<double>& ca
         double ab = 0, aa = 0, bb = 0;
         for (int i = search; i < frames - search; ++i)
         {
-            const auto a = original[2 * static_cast<size_t>(i)],
-                       b = candidate[2 * static_cast<size_t>(i + lag)];
-            ab += a * b;
-            aa += a * a;
-            bb += b * b;
+            for (size_t channel = 0; channel < 2; ++channel)
+            {
+                const auto a = original[2 * static_cast<size_t>(i) + channel],
+                           b = candidate[2 * static_cast<size_t>(i + lag) + channel];
+                ab += a * b;
+                aa += a * a;
+                bb += b * b;
+            }
         }
         const auto c = ab / std::sqrt(std::max(aa * bb, 1e-30));
         if (c > score)
@@ -284,8 +297,11 @@ JSON evaluate(const std::vector<double>& original, const std::vector<double>& ca
             best = lag;
         }
     }
-    return {
-        {"relative_error", relative}, {"pitch_error_cents", cents}, {"timing_error_samples", std::abs(best)}};
+    return {{"relative_error", relative},
+            {"pitch_error_cents", cents},
+            {"pitch_measured", signalType == "pitched"},
+            {"signal_type", signalType},
+            {"timing_error_samples", std::abs(best)}};
 }
 } // namespace
 bool convertTier(std::string_view sound, std::string_view tier, double rate, std::string& converted,
@@ -370,6 +386,10 @@ bool convertTier(std::string_view sound, std::string_view tier, double rate, std
                         for (const auto* name :
                              {"relative_error", "pitch_error_cents", "timing_error_samples"})
                         {
+                            // An explicitly unpitched fixture protects waveform and
+                            // timing; an absent pitch measurement is never reported as zero.
+                            if (metric.at(name).is_null())
+                                continue;
                             const auto maximum = validation.at("maximum_errors").at(name).get<double>();
                             if (!std::isfinite(maximum) || maximum < 0 ||
                                 metric.at(name).get<double>() > maximum)

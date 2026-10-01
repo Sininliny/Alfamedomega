@@ -728,39 +728,12 @@ bool Processor::loadJSONImpl(const juce::String& text, juce::String& error, bool
             return false;
         }
         proposed->preserveState = preserveState;
-        if (data.contains("performance"))
-        {
-            const auto& performance = data.at("performance");
-            const auto layout = performance.value("midi_layout", std::string("compact"));
-            if (layout == "voice_indexed")
-            {
-                const auto capacity = performance.at("voice_capacity").get<int>();
-                if (capacity < 1 || capacity > 128)
-                    throw std::invalid_argument("Voice capacity must be between 1 and 128");
-                proposed->voiceCapacity = static_cast<size_t>(capacity);
-                proposed->releaseSeconds = performance.at("release_seconds").get<double>();
-                proposed->bendSemitones = performance.value("bend_range_semitones", 0.0f);
-                if (!std::isfinite(proposed->releaseSeconds) || proposed->releaseSeconds < 0 ||
-                    proposed->releaseSeconds > 600 || !std::isfinite(proposed->bendSemitones) ||
-                    proposed->bendSemitones < 0 || proposed->bendSemitones > 96)
-                    throw std::invalid_argument("Invalid performance release or pitch movement range");
-            }
-            else if (layout != "compact")
-                throw std::invalid_argument("Unknown MIDI layout");
-        }
-        const auto newTail = data.value("tail_seconds", proposed->releaseSeconds);
-        if (!std::isfinite(newTail) || newTail < 0 || newTail > 600)
-            throw std::invalid_argument("Invalid declared audio tail");
-        int latency = 0;
-        if (data.contains("host_latency_samples"))
-        {
-            const auto& value = data.at("host_latency_samples");
-            if ((!value.is_number_unsigned() && !value.is_number_integer()) || value.get<double>() < 0 ||
-                value.get<double>() > std::numeric_limits<int>::max())
-                throw std::invalid_argument(
-                    "Declared host latency must be a nonnegative supported sample count");
-            latency = value.get<int>();
-        }
+        const auto policy = readNativePolicy(data);
+        proposed->voiceCapacity = policy.voiceCapacity;
+        proposed->releaseSeconds = policy.releaseSeconds;
+        proposed->bendSemitones = policy.bendSemitones;
+        const auto newTail = policy.tailSeconds;
+        const auto latency = policy.latencySamples;
         proposed->latencySamples = latency;
         const auto alignmentBytes = static_cast<uint64_t>(latency) * sizeof(std::array<float, 2>);
         const auto alignmentBudget = data.at("budget").value("host_alignment_bytes", uint64_t{0});

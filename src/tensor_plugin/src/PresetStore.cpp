@@ -1,5 +1,6 @@
 #include "PresetStore.h"
 
+#include "TensorExecution.h"
 #include "alfa/tensor/Compiler.h"
 #include "alfa/tensor/Model.h"
 #include "alfa/tensor/Precision.h"
@@ -106,43 +107,10 @@ bool PresetStore::validateDocument(const juce::String& document, juce::String& e
                 throw std::invalid_argument("Preset category must be text");
         }
         std::string diagnostic;
-        alfa::tensor::PrecisionProfile precision;
-        if (!alfa::tensor::resolvePrecisionJSON(document.toStdString(), precision, diagnostic))
+        // The library and native host share one complete lowering validator,
+        // including layers, scoped models, host transport and output mixing.
+        if (!prepareExecution(document.toStdString(), 48000, diagnostic))
             throw std::invalid_argument(diagnostic);
-        // Off-thread reference validation only. Loading into a host revalidates
-        // against its actual sample rate and registered primitive implementations.
-        const auto validateTyped = [&]<typename Scalar>()
-        {
-            alfa::tensor::ConfigurationT<Scalar> configuration;
-            alfa::tensor::Budget budget;
-            alfa::tensor::RuntimeT<Scalar> runtime;
-            if (!alfa::tensor::parseJSON(document.toStdString(), configuration, diagnostic) ||
-                !alfa::tensor::readBudgetJSON(document.toStdString(), budget, diagnostic) ||
-                !runtime.prepare(configuration, budget, 48000, diagnostic))
-                throw std::invalid_argument(diagnostic);
-            if (object.contains("runtimeModel"))
-            {
-                alfa::tensor::TensorModelT<Scalar> model;
-                if (!model.prepare(object.at("runtimeModel").dump(), configuration, diagnostic))
-                    throw std::invalid_argument(diagnostic);
-            }
-            return runtime.output().size();
-        };
-        const auto outputs = precision.scalarType == alfa::tensor::ScalarType::Float64
-                                 ? validateTyped.template operator()<double>()
-                                 : validateTyped.template operator()<float>();
-        if (!object.contains("outputMix") || !object.at("outputMix").is_array())
-            throw std::invalid_argument("Preset requires explicit outputMix");
-        for (const auto& row : object.at("outputMix"))
-        {
-            if (!row.is_array() || row.size() != 3 || !row.at(0).is_number_integer() ||
-                !row.at(1).is_number_integer() || !row.at(2).is_number())
-                throw std::invalid_argument("outputMix requires output/channel/gain triples");
-            const auto output = row.at(0).get<std::int64_t>();
-            if (output < 0 || static_cast<std::size_t>(output) >= outputs ||
-                row.at(1).get<std::int64_t>() < 0 || !std::isfinite(row.at(2).get<double>()))
-                throw std::invalid_argument("Invalid outputMix index, channel or gain");
-        }
         error.clear();
         return true;
     }

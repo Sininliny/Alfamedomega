@@ -51,16 +51,33 @@
 
 当前主界面的配置名称和 inspection 是只读呈现。独立 `SoundLibraryPanel` 可搜索、筛选、选择并查看完整配置，只有显式 Load 才调用声音发布；浏览或检查不更换正在播放的声音。其 preview 也是只读。直接控件调整、导入与加载是独立操作，不能用“浏览预设”概括成隐式加载。
 
-当前注册表为 68 个数学操作：64 个 Universe 操作加 4 个基础操作。新增 production ring、流式 STFT 和显式 1x/2x/4x nonlinear 算法都有独立版本、Scalar state、资产与预算契约。稀疏 journal 按修改项分配；FFT 临时工作空间使用独立 `scratch_elements`，不冒充共享持久状态。数量增加不表示完整通用音频历史、所有旧 DSP parity 或所有配置的实时性能已经完成。详见 [production 契约](production-composition.md)。
+当前注册表为 73 个数学操作：64 个 Universe 操作、4 个基础操作和 5 个 Advanced production 操作。新增 production ring、流式 STFT 和显式 1x/2x/4x nonlinear 算法都有独立版本、Scalar state、资产与预算契约。稀疏 journal 按修改项分配；FFT 临时工作空间使用独立 `scratch_elements`，不冒充共享持久状态。数量增加不表示完整通用音频历史、所有旧 DSP parity 或所有配置的实时性能已经完成。详见 [production 契约](production-composition.md)。
 
 已有测试涵盖真实 MIDI 多声部/踏板/释放/panic、原始参数编辑 phase 连续性、锁、自动化 X fanout、FX 增益/mix/bypass、状态保存/恢复、主题恢复、f32/f64 tier 切换、双精度 JSON、预设存储、组合 offset/feedback、可编辑 recipe 和 primitive/WAV 导入。每项最终状态应以中央测试结果为准，不能仅因测试源码存在而标为通过。
 
-目前没有新的完整宿主回调 heap-allocation 捕捉证明；旧 inference 的 AllocationGuard 也没有自动覆盖这个新 Processor。仍需带实际 VST3 的有界 MIDI/重编译压力、多个实例、长时播放和实际宿主保存/关闭/重新打开工程验证。JSON/DSP 预算验证不是实测 CPU deadline 保证。
+完整 native Processor 回调已通过线程局部 C++ new/delete（含对齐版本）捕捉：8 个工厂声音的 f32/f64、首块、MIDI、编辑发布、Panic、mix 和 DAW bypass；另有两个独立 384000 样本环形历史模型实例，交错使用 32/64/128 样本块并编辑/锁定/重置。检查不覆盖直接 C malloc/free、第三方 DLL 或操作系统分配。仍需长时播放与 CPU deadline 资格；FL Studio 工程保存/关闭/重新打开由用户验收。
 
 Creator 展示参数域与 repeated layout 描述，检查列出的必要参数数量；部分参考 primitive 对越域值采用保持/静音而不是统一报错。仅通过 `prepareExecution` 不能声称所有数学操作的所有参数组合都已验证可发声。生产 journal 操作有明确拒绝路径，参考操作和生产操作的错误语义仍需产品化一致。
 
 WAV import 使用显式 source channel、不重采样、不混音、不改参数，并在解码前检查剩余 tensor capacity。JUCE reader 的 float32 解码边界在界面和 `asset_sources` 中公开；f64 存储不会恢复导入时已经丢失的源精度。用户手动编辑资产后，来源记录应视为来源历史，不能当作当前数组的完整校验保证。
 
-组合 recipe 对整个 flattened sound 有指纹；直接 X/raw 编辑后不会静默重放旧 recipe，而需要明确将当前声音作为新 base。原始 fragment 保存在 recipe 中，因此序列化规模随组成内容增长；这还不是针对巨大工程的资产去重或压缩格式。
+组合 recipe 对 flattened sound 有指纹；数值张量、X、矩阵及跨 fragment 关系编辑会协调回原 recipe，结构编辑才需要明确将当前声音作为新 base。原始 fragment 保存在 recipe 中，因此序列化规模随组成内容增长；这还不是针对巨大工程的资产去重或压缩格式。
 
 以上问题按已经存在的行为审计，不引入新的音色方向、tier 数值、语义宏映射或训练默认。这些源码修复和中央回归仍需实际宿主/长时资源验证；测试通过也不等于任意配置的 CPU deadline 保证。
+
+
+## 核心完成度复核 — 2026-10-01
+
+用户将 FL Studio 实机验收留给自己，本轮聚焦 DSP、自由链接、张量载入和多层参数。
+修复模型发布覆盖控制矩阵的问题：模型生成当前 base tensors，用户矩阵随后作用，
+跨模型时钟和音频块保持，底层 locks 保持权威；显式 reset 同时恢复 authored tensors，
+避免下一次延迟模型事件前残留预测值。数值回归比较独立无模型参考，覆盖三层矩阵、
+不同深度组合、两种精度、锁和延迟模型时钟。
+
+库与执行器共用完整 lowering/policy 校验，覆盖模型身份、offsets、latent 容量、模型
+原生输入容量、整数宿主预算、声部数、尾音、首选模式及输出混合。Tier 使用双声道
+时序相关性与较强声道音高；无音高 FX 必须显式声明，未测音高用 null 表示。
+
+最终本地证据见 [validation.md](validation.md)。这次修复关闭的是上述具体核心缺口；
+资产去重/压缩、偏好输入桥、更多局部可视化、静音 Tier fixture、完整历史 DSP 算法 parity、
+长时资源资格与其他平台验收仍应按独立完成标准推进，不能宣称全部产品设计已完美实现。

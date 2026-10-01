@@ -49,6 +49,7 @@ TEST_CASE("Double precision preset storage retains tier and full numerical JSON"
     auto original = JSON::parse(document().toStdString());
     original["tier"] = "Pro";
     original["scalar_type"] = "float64";
+    original["budget"]["boundary_conversion_bytes"] = 16384;
     constexpr double frequency = 400.123456789011;
     original["tensors"]["parameters"]["values"][0] = frequency;
     juce::String error;
@@ -194,4 +195,55 @@ TEST_CASE("Preset validation respects compiler and optional host capacity refusa
     CHECK_FALSE(hostRefusal.save("Host Rejected", "", document(), error));
     CHECK(error.contains("Host refuses"));
     CHECK_FALSE(temporary.file.exists());
+}
+
+TEST_CASE("Preset library rejects sounds that fail complete native lowering",
+          "[tensor-host][presets][validation]")
+{
+    juce::String error;
+    auto invalid = JSON::parse(document().toStdString());
+    invalid["outputMix"][0][1] = 2;
+    CHECK_FALSE(alfa::tensorhost::PresetStore::validateDocument(invalid.dump(), error));
+    for (const auto& mix :
+         {JSON::array({JSON::array({0.5, 0, 1.})}), JSON::array({JSON::array({0, 0.5, 1.})}),
+          JSON::array({JSON::array({0, 0, 1., 2.})}), JSON::object()})
+    {
+        invalid["outputMix"] = mix;
+        CHECK_FALSE(alfa::tensorhost::PresetStore::validateDocument(invalid.dump(), error));
+    }
+    invalid = JSON::parse(document().toStdString());
+    invalid["control_layers"] = JSON::array(
+        {{{"values", {0.}},
+          {"ranges", {{-1., 1.}}},
+          {"matrix", {{"axes", {"destination", "source"}}, {"shape", {1, 1}}, {"values", {1.}}}}}});
+    CHECK_FALSE(alfa::tensorhost::PresetStore::validateDocument(invalid.dump(), error));
+    invalid = JSON::parse(document().toStdString());
+    invalid["runtimeModels"] = JSON::array({{{"id", "bad"}}});
+    CHECK_FALSE(alfa::tensorhost::PresetStore::validateDocument(invalid.dump(), error));
+    invalid = JSON::parse(document().toStdString());
+    invalid["tier"] = "Pro";
+    CHECK_FALSE(alfa::tensorhost::PresetStore::validateDocument(invalid.dump(), error));
+}
+
+TEST_CASE("Preset and execution validation share strict native performance policies",
+          "[tensor-host][presets][validation]")
+{
+    const auto source = JSON::parse(document().toStdString());
+    juce::String error;
+    for (const auto& performance :
+         {JSON(0), JSON{{"midi_layout", "unknown"}},
+          JSON{{"midi_layout", "voice_indexed"}, {"voice_capacity", 1.5}, {"release_seconds", .1}},
+          JSON{{"midi_layout", "voice_indexed"}, {"voice_capacity", 129}, {"release_seconds", .1}},
+          JSON{{"midi_layout", "voice_indexed"}, {"voice_capacity", 8}, {"release_seconds", 601}}})
+    {
+        auto invalid = source;
+        invalid["performance"] = performance;
+        CHECK_FALSE(alfa::tensorhost::PresetStore::validateDocument(invalid.dump(), error));
+    }
+    auto invalid = source;
+    invalid["tail_seconds"] = -1;
+    CHECK_FALSE(alfa::tensorhost::PresetStore::validateDocument(invalid.dump(), error));
+    invalid = source;
+    invalid["preferred_mode"] = .5;
+    CHECK_FALSE(alfa::tensorhost::PresetStore::validateDocument(invalid.dump(), error));
 }

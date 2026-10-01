@@ -814,7 +814,7 @@ void Editor::resized()
     accent_.setBounds(settingsArea_.getX() + 24, settingsArea_.getY() + 254, 220, 32);
     gesture_.setBounds(settingsArea_.getX() + 260, settingsArea_.getY() + 254, 220, 32);
     folder_.setBounds(settingsArea_.getX() + 24, settingsArea_.getY() + 144, 220, 32);
-    importTiers_.setBounds(settingsArea_.getX() + 440, settingsArea_.getY() + 144, 200, 32);
+    importTiers_.setBounds(precisionX + 216, settingsArea_.getY() + 144, 200, 32);
     refresh_.setBounds(settingsArea_.getX() + 260, settingsArea_.getY() + 144, 150, 32);
     mode_.setBounds(settingsArea_.getX() + 24, settingsArea_.getY() + 196, 330, 32);
     const auto bottomY = workspace_.getBottom() + 24;
