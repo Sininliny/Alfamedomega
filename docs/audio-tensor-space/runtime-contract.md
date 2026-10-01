@@ -195,6 +195,11 @@ layer adds into the parameter tensor. Parameter locks restore the locked base va
 after these transformations. Current matrices are authored defaults, not trained
 semantic mappings. Eight stable host automation ports address the first eight
 highest coordinates; all remaining coordinates and layers remain directly editable.
+A layer may also carry presentation-only fields that never reach the DSP: `labels`
+(one user name per control, at most 64 bytes, empty for the default `X[layer,index]`)
+and `ranking` (`model` hash, optional `name`, one finite `importance` per control) from a
+trained context importance model. Composition keeps labels with their controls and drops
+fragment rankings.
 
 An instance can declare `input_channels` and `audio_bindings`. Each binding names
 an input, persistent state or `output_history` element, an operand channel, and a

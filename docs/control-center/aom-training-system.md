@@ -166,6 +166,11 @@ relationship in the feature schema. Examples of both are checked in beside the
 controlled dataset plan. Synthetic example targets do not stand in for actual user
 ratings or measured musical importance.
 
+`rank-controls` evaluates a context importance model whose dimension count equals the
+controls of one X layer, for the features in CONTEXT.json, and writes a copy of the sound
+with `control_layers[layer].ranking` (`model` SHA-256, `name`, `importance`). The plugin's
+Play view orders that layer by it. The input sound is never overwritten.
+
 ## Cancel and resume
 
 Centre training jobs default to `OUTPUT.checkpoint.pt`. Checkpoints contain model,
@@ -198,6 +203,7 @@ python -m training.aom train build/aom-training-dataset/manifest.json build/aom-
 python -m training.aom evaluate-wav build/aom-training.pt build/aom-training-dataset/manifest.json build/aom-reconstruction.json
 python -m training.aom train-preference training/aom/examples/preference-manifest.json build/aom-preference.json
 python -m training.aom train-importance training/aom/examples/importance-manifest.json build/aom-importance.json
+python -m training.aom rank-controls SOUND.json build/aom-importance.json CONTEXT.json RANKED.json --layer 0
 ```
 
 The Centre CLI records the same durable jobs:

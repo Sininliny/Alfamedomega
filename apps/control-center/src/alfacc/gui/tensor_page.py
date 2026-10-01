@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QHBoxLayout,
-                               QPlainTextEdit, QProgressBar)
+                               QPlainTextEdit, QProgressBar, QSpinBox)
 
 from ..aom import create_tensor_job
 from ..jobs import FINISHED
@@ -28,13 +28,15 @@ ROLES = [
     ("train-preference", "User preference", "user_preference", "preference-model.json", "JSON (*.json)",
      "Learns local taste from pairwise feedback. Stays on this computer."),
     ("train-importance", "Context importance", "context_importance", "importance-model.json", "JSON (*.json)",
-     "Learns which tensor details matter in which musical context, for tier conversion."),
+     "Learns which tensor details matter in which musical context, for tier conversion and the "
+     "order of controls in the plugin's Play view (see Rank controls)."),
 ]
 
 
 NAMES = {"wav_model": "WAV model", "recording": "Recording", "tensor_template": "Tensor template",
          "parameter_bounds": "Parameter bounds", "output": "Save as", "dataset_plan": "Dataset plan",
-         "output_folder": "Output folder", "manifest": "Manifest", "report": "Save report as"}
+         "output_folder": "Output folder", "manifest": "Manifest", "report": "Save report as",
+         "sound": "Sound", "importance_model": "Importance model", "context": "Context features"}
 
 
 def default_repository(win) -> str:
@@ -350,6 +352,8 @@ class TrainPage(AomPage):
         action, output = getattr(self, "pending", (None, None))
         if action == "train" and output:
             self.win.aom_recent["wav_model"] = output
+        elif action == "train-importance" and output:
+            self.win.aom_recent["importance_model"] = output
 
 
 class EvaluatePage(AomPage):
@@ -375,3 +379,38 @@ class EvaluatePage(AomPage):
         paths = self.require(wav_model=self.model, manifest=self.manifest, report=self.report)
         if paths:
             self.run_task("evaluate-wav", list(paths.values()))
+
+
+class RankControlsPage(AomPage):
+    def __init__(self, win):
+        super().__init__(win, "Rank controls",
+                         "Order a sound's X controls by learned importance. A context importance model scores "
+                         "each control of one layer for the context you describe; the plugin's Play view can then "
+                         "show the most important controls first and names the model it came from.")
+        form, lay = self.form_card("Learned control order",
+                                   "The model must rank exactly as many dimensions as the layer has controls. "
+                                   "The context file holds the model's named features (state, preference, "
+                                   "context, relationship). The original sound is not changed.")
+        self.sound = PathField(filter="JSON (*.json)", placeholder="sound saved from the plugin")
+        self.model = PathField(filter="JSON (*.json)", placeholder="trained context importance model")
+        self.context = PathField(filter="JSON (*.json)", placeholder="features describing the musical context")
+        self.layer = QSpinBox()
+        self.layer.setRange(0, 63)
+        self.layer.setToolTip("X layer to rank; 0 is the top layer shown first in the plugin")
+        self.output = PathField(filter="JSON (*.json)", placeholder="ranked copy of the sound", save=True)
+        form.addRow("Sound", self.sound)
+        form.addRow("Importance model", self.model)
+        form.addRow("Context features", self.context)
+        form.addRow("Layer", self.layer)
+        form.addRow("Save sound as", self.output)
+        self.actions(lay, button("Rank controls", self.rank, "primary"))
+        self.finish()
+
+    def fill(self):
+        self.recent("importance_model", self.model)
+
+    def rank(self):
+        paths = self.require(sound=self.sound, importance_model=self.model, context=self.context,
+                             output=self.output)
+        if paths:
+            self.run_task("rank-controls", [*paths.values(), "--layer", str(self.layer.value())])

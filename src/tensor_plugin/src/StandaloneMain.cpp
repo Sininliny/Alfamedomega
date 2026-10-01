@@ -24,6 +24,14 @@ public:
                 Processor processor;
                 processor.setPlayConfigDetails(2, 2, 48000, 64);
                 processor.prepareToPlay(48000, 64);
+                // Optional sound for UI review snapshots.
+                if (const auto sound = juce::SystemStats::getEnvironmentVariable("ALFA_UI_DOCUMENT", {});
+                    sound.isNotEmpty())
+                {
+                    juce::String error;
+                    if (!processor.loadJSON(juce::File(sound).loadFileAsString(), error))
+                        throw std::runtime_error(error.toStdString());
+                }
                 std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
                 juce::AudioBuffer<float> audio(2, 64);
                 audio.clear();

@@ -45,6 +45,26 @@ inline void surface(juce::Graphics& g, const alfa::ui::Theme& t, juce::Rectangle
 {
     alfa::ui::visuals::panel(g, t, r, title, subtitle);
 }
+// Double-click a control's title to rename it. `raw` is the editable name without decorations such
+// as the rank; an empty entry restores the X[layer,index] default.
+inline void allowRename(juce::Label& label, const juce::String& raw,
+                        std::function<void(const juce::String&)> rename)
+{
+    label.setEditable(false, true, false);
+    label.setTooltip("Double-click to rename");
+    label.onEditorShow = [&label, raw]
+    {
+        if (auto* editor = label.getCurrentTextEditor())
+        {
+            editor->setText(raw, false);
+            editor->selectAll();
+        }
+    };
+    label.onTextChange = [&label, rename = std::move(rename)]
+    {
+        rename(label.getText().trim());
+    };
+}
 class ParameterKnob final : public juce::Component
 {
 public:
@@ -102,6 +122,7 @@ public:
         slider.setBounds(r);
     }
     juce::Slider& control() { return slider; }
+    juce::Label& title() { return name; }
     std::function<void()> onTouched;
     void mouseDown(const juce::MouseEvent&) override
     {
@@ -335,6 +356,8 @@ public:
     {
     }
     juce::String xId{"x0"}, yId{"x1"};
+    // Display names of the two axes (user control names); the IDs are shown when empty.
+    juce::String xName, yName;
     void paint(juce::Graphics& g) override
     {
         const auto& t = look.theme();
@@ -358,8 +381,8 @@ public:
         g.fillEllipse(px - 4, py - 4, 8, 8);
         g.setColour(t.text2);
         g.setFont(alfa::ui::AlfaLookAndFeel::monoFont(11));
-        g.drawText(xId.toUpperCase() + "  " + juce::String(x, 2) + "  /  " + yId.toUpperCase() + "  " +
-                       juce::String(y, 2),
+        g.drawText((xName.isEmpty() ? xId.toUpperCase() : xName) + "  " + juce::String(x, 2) + "  /  " +
+                       (yName.isEmpty() ? yId.toUpperCase() : yName) + "  " + juce::String(y, 2),
                    r.removeFromBottom(18), juce::Justification::centred);
     }
     void mouseDown(const juce::MouseEvent& e) override

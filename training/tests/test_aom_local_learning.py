@@ -39,6 +39,34 @@ class LocalLearningTests(unittest.TestCase):
             restored = load_local_model(path, available_ram_bytes=1000000)
             self.assertEqual(model.score(warm), restored.score(warm))
 
+    def test_ranking_writes_learned_importance_into_one_control_layer(self):
+        import json
+        from training.aom.ranking import rank_controls
+        widths = {name: 1 for name in ("state", "preference", "context", "relationship")}
+        model = ContextImportanceModel(widths, 8, 2)
+        context = {"state": [1.], "preference": [.5], "context": [0.], "relationship": [1.]}
+        model.fit([(context, [.1, 1.])], steps=150, learning_rate=.03, available_ram_bytes=1000000)
+        layer = {"values": [0., 0.], "ranges": [[-1, 1], [-1, 1]],
+                 "matrix": {"axes": ["destination", "source"], "shape": [1, 2], "values": [1., 1.]}}
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            save_local_model(folder / "importance.json", model)
+            (folder / "sound.json").write_text(json.dumps({"schema": "aom.tensor/1", "control_layers": [layer]}))
+            (folder / "context.json").write_text(json.dumps(context))
+            result = rank_controls(folder / "sound.json", folder / "importance.json", folder / "context.json",
+                                   folder / "ranked.json", layer=0)
+            self.assertEqual(result["order"], [1, 0])
+            ranking = json.loads((folder / "ranked.json").read_text())["control_layers"][0]["ranking"]
+            self.assertEqual(ranking["name"], "importance")
+            self.assertEqual(len(ranking["model"]), 64)
+            self.assertGreater(ranking["importance"][1], ranking["importance"][0])
+            with self.assertRaises(ValueError):
+                rank_controls(folder / "sound.json", folder / "importance.json", folder / "context.json",
+                              folder / "ranked.json", layer=1)
+            with self.assertRaises(ValueError):
+                rank_controls(folder / "sound.json", folder / "importance.json", folder / "context.json",
+                              folder / "sound.json", layer=0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,7 +19,8 @@ def create_tensor_job(manager, repository, action, arguments, *, python=None,
                       checkpoint=None, resume=False, checkpoint_every=100):
     """Queue independent AOM work with durable history and cooperative cancellation."""
     from .jobs import cmd_step, FINISHED
-    if action not in (*TRAINING_CATEGORIES, "preflight", "infer", "import-wav", "build-dataset", "evaluate-wav"):
+    if action not in (*TRAINING_CATEGORIES, "preflight", "infer", "import-wav", "build-dataset", "evaluate-wav",
+                      "rank-controls"):
         raise ValueError("Unsupported AOM task")
     repository = Path(repository).resolve()
     if not (repository / "training/aom/__main__.py").is_file():
@@ -34,7 +35,7 @@ def create_tensor_job(manager, repository, action, arguments, *, python=None,
              "train-preference": "Train user preference", "train-importance": "Train context importance",
              "preflight": "Check training manifest", "build-dataset": "Build labelled dataset",
              "evaluate-wav": "Evaluate native reconstruction", "infer": "Inspect WAV prediction",
-             "import-wav": "Import editable WAV preset"}[action]
+             "import-wav": "Import editable WAV preset", "rank-controls": "Rank sound controls"}[action]
     step = cmd_step(argv, cwd=repository, label=title, env={"PYTHONUTF8": "1"})
     if action in TRAINING_CATEGORIES:
         if len(arguments) != 2:
