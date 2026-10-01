@@ -121,23 +121,6 @@ struct PrimitiveT
     std::size_t scratchElements = 0;
 };
 
-struct AudioBinding;
-template <typename Scalar>
-struct InstanceT
-{
-    const PrimitiveT<Scalar>* primitive = nullptr;
-    std::size_t activationIndex = 0;
-    Slice parameters;
-    Clock clock;
-    OutputBetweenUpdates outputBetweenUpdates = OutputBetweenUpdates::Zero;
-    std::vector<TensorT<Scalar>> assets{};
-    // Serialized programs own factory descriptors through this optional pointer.
-    std::shared_ptr<const PrimitiveT<Scalar>> descriptor{};
-    std::size_t inputChannels = 0;
-    std::vector<AudioBinding> audioBindings{};
-    std::string instanceId{};
-};
-
 enum class SourceKind
 {
     Audio,
@@ -168,6 +151,22 @@ struct AudioBinding
     WeightTensor weightTensor = WeightTensor::Routing;
     std::size_t weightElement = 0;
     MissingSource missingSource = MissingSource::Reject;
+};
+
+template <typename Scalar>
+struct InstanceT
+{
+    const PrimitiveT<Scalar>* primitive = nullptr;
+    std::size_t activationIndex = 0;
+    Slice parameters;
+    Clock clock;
+    OutputBetweenUpdates outputBetweenUpdates = OutputBetweenUpdates::Zero;
+    std::vector<TensorT<Scalar>> assets{};
+    // Serialized programs own factory descriptors through this optional pointer.
+    std::shared_ptr<const PrimitiveT<Scalar>> descriptor{};
+    std::size_t inputChannels = 0;
+    std::vector<AudioBinding> audioBindings{};
+    std::string instanceId{};
 };
 
 // Explicit lowering for the mathematical affine projection operation:

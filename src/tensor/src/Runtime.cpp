@@ -376,8 +376,9 @@ bool RuntimeT<Scalar>::prepare(const ConfigurationT<Scalar>& configuration, cons
     identity.erase("parameter_locks");
     const auto bytes = identity.dump();
     candidate.stateIdentity_ = {14695981039346656037ULL, 7809847782465536322ULL};
-    for (const unsigned char byte : bytes)
+    for (const char value : bytes)
     {
+        const auto byte = static_cast<unsigned char>(value);
         candidate.stateIdentity_[0] = (candidate.stateIdentity_[0] ^ byte) * 1099511628211ULL;
         candidate.stateIdentity_[1] = (candidate.stateIdentity_[1] ^ byte) * 14029467366897019727ULL;
     }
