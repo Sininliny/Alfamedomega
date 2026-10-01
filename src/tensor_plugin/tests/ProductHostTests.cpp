@@ -460,10 +460,9 @@ TEST_CASE("Precision tier switches execute real notes and restore the same tenso
     CHECK(peak > .0001f);
     CHECK(processor.scalarBytes() == 8);
     CHECK(processor.inspection().contains("float64"));
-    // Without authored tier_profiles a tier changes precision only; the sound's own capacity
-    // budget is retained and reported next to what the sound uses.
+    // The sound's own capacity budget is retained and reported next to what the sound uses.
     CHECK(processor.inspection().contains("Used / budget: primitives"));
-    CHECK(processor.inspection().contains("tier sets precision only"));
+    CHECK(processor.inspection().contains("Budget source: the loaded sound"));
     const auto pro = JSON::parse(processor.document().toStdString());
     CHECK(pro["budget"]["state_elements"] == original["budget"]["state_elements"]);
     CHECK(pro["budget"]["active_primitives"] == original["budget"]["active_primitives"]);
@@ -527,35 +526,32 @@ TEST_CASE("Double raw parameter edits retain precision and inadequate boundary m
     CHECK(processor.failures.load() == 0);
 }
 
-TEST_CASE("Settings tier selector publishes the canonical precision tier",
+TEST_CASE("Editor has no tier selector and precision follows the loaded sound",
           "[tensor-host][product][precision]")
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    juce::String error;
+    Processor source;
+    source.prepareToPlay(48000, 128);
+    REQUIRE(source.loadJSON(juce::String(sineFixture().dump()), error));
+    REQUIRE(source.setTier("Pro", error));
+    const auto float64Sound = source.document();
+
     Processor processor;
     processor.prepareToPlay(48000, 128);
     std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
-    juce::ComboBox* selector = nullptr;
     for (int i = 0; i < editor->getNumChildComponents(); ++i)
-        if (auto* combo = dynamic_cast<juce::ComboBox*>(editor->getChildComponent(i));
-            combo && combo->getNumItems() == 4 && combo->getItemText(0) == "Lite" &&
-            combo->getItemText(3) == "Studio")
-            selector = combo;
-    REQUIRE(selector != nullptr);
-    CHECK(selector->getSelectedId() == 2);
-    selector->setSelectedId(3, juce::sendNotificationSync);
-    CHECK(JSON::parse(processor.document().toStdString())["tier"] == "Pro");
+        if (auto* combo = dynamic_cast<juce::ComboBox*>(editor->getChildComponent(i)))
+            CHECK_FALSE(combo->getItemText(0) == "Lite");
+    CHECK(processor.scalarBytes() == 4);
+    REQUIRE(processor.loadJSON(float64Sound, error));
     juce::AudioBuffer<float> audio(2, 128);
     juce::MidiBuffer midi;
-    midi.addEvent(juce::MidiMessage::noteOn(1, 69, .8f), 0);
     audio.clear();
     render(processor, audio, midi);
     CHECK(processor.scalarBytes() == 8);
+    CHECK(processor.inspection().contains("float64 (from the loaded sound)"));
     CHECK(processor.failures.load() == 0);
-    selector->setSelectedId(2, juce::sendNotificationSync);
-    audio.clear();
-    render(processor, audio, midi);
-    CHECK(processor.scalarBytes() == 4);
-    CHECK(JSON::parse(processor.document().toStdString())["tier"] == "Standard");
 }
 
 TEST_CASE("Editor instance and tensor inspection leave executable sound unchanged",

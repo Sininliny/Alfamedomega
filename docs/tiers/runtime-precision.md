@@ -61,5 +61,7 @@ can change numerical output and starts fresh state if the scalar type changes.
 JSON uses `"tier": "Pro"` and optionally `"scalar_type": "float64"`. Contradictory
 types, unknown tiers and unsupported scalar formats are rejected transactionally.
 Legacy documents without either field retain float32. Unnamed documents may
-explicitly request a supported scalar type. Settings tier changes add the native
-boundary allocation budget and preserve the rest of the tensor configuration.
+explicitly request a supported scalar type. The plugin has no tier selector
+(Sinin, 2026-10-01): the loaded sound's `tier` / `scalar_type` and `budget` decide
+precision and capacity, and the Tensor report shows used / budget for each resource.
+`Processor::setTier` remains as a programmatic conversion API.

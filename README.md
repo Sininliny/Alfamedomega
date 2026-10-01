@@ -20,8 +20,8 @@ mappings; semantic names appear only on the bottom DSP instance parameters. A se
 recurrent neural compiler predicts tensor controls; DSP generates audio.
 Free composition retains scoped fragment compiler models and numeric edits. Authored latency
 aligns the host dry/wet and bypass paths; compatible edits transfer live buffers without copying
-large histories. Four explicitly supplied tier resource profiles enable measured capacity
-conversion with protected locks, pitch and timing. See the [completion contracts](docs/audio-tensor-space/product-completion.md).
+large histories. Precision and capacity follow the loaded sound; programmatic conversion against four explicit
+tier resource profiles protects locks, pitch and timing. See the [completion contracts](docs/audio-tensor-space/product-completion.md).
 
 `training/aom` supplies dual-supervised WAV learning, native DSP rendering, runtime model
 export, local preference learning and constrained tier candidate optimization. These are

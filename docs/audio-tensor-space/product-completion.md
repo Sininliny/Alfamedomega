@@ -75,7 +75,9 @@ supported. Output mixes require exact output/channel/gain triples with integer s
 
 ## Four authored tier profiles
 
-Settings can import a JSON object with `Lite`, `Standard`, `Pro`, `Studio` keys. Each value owns
+The plugin UI no longer offers tier switching or profile import (Sinin, 2026-10-01: the loaded
+sound decides). A sound document may still carry `tier_profiles`, a JSON object with `Lite`,
+`Standard`, `Pro`, `Studio` keys, for the programmatic `setTier` / `convertTier` path. Each value owns
 a `budget` using the runtime capacity fields, including host alignment, compiler-model and
 float64 boundary transport bytes where applicable. No new product default quotas are invented.
 Old documents without profiles retain precision-only switching. Lite/Standard use float32;

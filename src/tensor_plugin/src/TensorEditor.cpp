@@ -112,8 +112,7 @@ Editor::Editor(Processor& p)
     version_.setFont(alfa::ui::AlfaLookAndFeel::monoFont(10));
     for (auto* c : std::initializer_list<juce::Component*>{
              &brand_, &version_, &status_, &telemetry_, &library_, &previousSound_, &nextSound_, &savePreset_,
-             &openPreset_, &panic_, &bypass_, &a_, &b_, &capture_, &undo_, &redo_, &keyboard_, &meters_,
-             &tier_})
+             &openPreset_, &panic_, &bypass_, &a_, &b_, &capture_, &undo_, &redo_, &keyboard_, &meters_})
         addAndMakeVisible(c);
     // Play, Structure and Tensor are depths of one sound; Settings sits apart at the right.
     const std::array<juce::String, 4> views{"Play", "Structure", "Tensor", "Settings"};
@@ -122,7 +121,7 @@ Editor::Editor(Processor& p)
         "Play the sound: X controls, what each one reaches, XY and output",
         "Instances, their parameters, locks and the relationships that drive them",
         "Control matrices as heat maps, raw tensors and the compiled report",
-        "Interface, library and tier resources; never changes the sound"};
+        "Interface, library and the loaded sound's resources; never changes the sound"};
     for (size_t i = 0; i < tabs_.size(); ++i)
     {
         addAndMakeVisible(tabs_[i]);
@@ -520,79 +519,15 @@ Editor::Editor(Processor& p)
             "accent", accents[juce::jlimit(0, accents.size() - 1, accent_.getSelectedId() - 1)], nullptr);
         applyTheme();
     };
-    tier_.addItemList({"Lite", "Standard", "Pro", "Studio"}, 1);
-    tier_.onChange = [this]
-    {
-        if (refreshing_)
-            return;
-        const juce::StringArray tierIds{"Lite", "Standard", "Pro", "Studio"};
-        juce::String error;
-        if (processor_.setTier(tierIds[juce::jlimit(0, 3, tier_.getSelectedId() - 1)], error))
-        {
-            refreshSound();
-            const auto precision = processor_.scalarBytes() == 8
-                                       ? juce::String("float64 (8 bytes per value)")
-                                       : juce::String("float32 (4 bytes per value)");
-            showStatus(sound_.contains("tier_profiles")
-                           ? "Tier converted within its authored budget; precision " + precision
-                           : "Tier changed precision to " + precision +
-                                 "; capacity is this sound's own budget (no tier profiles imported)");
-        }
-        else
-        {
-            showStatus(error, true);
-            refreshSound();
-        }
-    };
     precision_.setFont(alfa::ui::AlfaLookAndFeel::monoFont(12));
     resources_.setFont(alfa::ui::AlfaLookAndFeel::labelFont(12));
     hostPrecision_.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11));
-    resources_.setText(
-        "Lite / Standard: float32. Pro / Studio: float64.\nImport four explicit resource profiles to enable "
-        "capacity conversion.\nChanged candidates require sound, pitch and timing checks.\nWithout profiles, "
-        "tier selection changes precision only.",
-        juce::dontSendNotification);
+    resources_.setText("Precision and capacity come from the loaded sound.\nThe Tensor view's report shows "
+                       "used / budget for each resource.",
+                       juce::dontSendNotification);
     hostPrecision_.setText("Highest 8 host automation ports use float32.\nManual tensor and deeper-layer "
                            "editing preserve double values.",
                            juce::dontSendNotification);
-    addAndMakeVisible(importTiers_);
-    importTiers_.setComponentID("tier.import_profiles");
-    importTiers_.onClick = [this]
-    {
-        chooser_ =
-            std::make_unique<juce::FileChooser>("Import explicit tier profiles", juce::File{}, "*.json");
-        auto safe = juce::Component::SafePointer<Editor>(this);
-        chooser_->launchAsync(
-            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-            [safe](const juce::FileChooser& chooser)
-            {
-                if (!safe || !chooser.getResult().existsAsFile())
-                    return;
-                try
-                {
-                    const auto profiles =
-                        nlohmann::json::parse(chooser.getResult().loadFileAsString().toStdString());
-                    auto sound = nlohmann::json::parse(safe->processor_.document().toStdString());
-                    for (const auto* tier : {"Lite", "Standard", "Pro", "Studio"})
-                        if (!profiles.contains(tier) || !profiles.at(tier).at("budget").is_object())
-                            throw std::invalid_argument("Four named tier budgets are required");
-                    sound["tier_profiles"] = profiles;
-                    juce::String error;
-                    if (!safe->changeDocument(std::move(sound), error))
-                        safe->showStatus(error, true);
-                    else
-                    {
-                        safe->refreshSound();
-                        safe->showStatus(
-                            "Explicit tier budgets imported; conversion validates each candidate");
-                    }
-                }
-                catch (const std::exception& error)
-                {
-                    safe->showStatus(error.what(), true);
-                }
-            });
-    };
     gesture_.addItemList({"Vertical drag", "Horizontal drag", "Circular drag"}, 1);
     const juce::StringArray gestures{"vertical", "horizontal", "circular"};
     gesture_.setSelectedId(
@@ -797,7 +732,7 @@ void Editor::resized()
 {
     if (getWidth() < 1)
         return;
-    // Header: brand, depths, input mode, tier, bypass, panic and settings on one line.
+    // Header: brand, depths, input mode, bypass, panic and settings on one line.
     auto top = juce::Rectangle<int>(18, 10, getWidth() - 36, 44);
     auto brand = top.removeFromLeft(150);
     brand_.setBounds(brand.removeFromTop(25));
@@ -807,7 +742,6 @@ void Editor::resized()
     tabs_[3].setBounds(top.removeFromRight(84).reduced(2, 5));
     panic_.setBounds(top.removeFromRight(64).reduced(2, 5));
     bypass_.setBounds(top.removeFromRight(80).reduced(2, 7));
-    tier_.setBounds(top.removeFromRight(104).reduced(2, 7));
     auto modes = top.removeFromRight(252).reduced(4, 5);
     const auto modeWidth = modes.getWidth() / static_cast<int>(modes_.size());
     for (auto& mode : modes_)
@@ -990,9 +924,7 @@ void Editor::layoutSettings()
     row.removeFromLeft(10);
     refresh_.setBounds(row.removeFromLeft(150));
 
-    label(right, "Tier resources and precision");
-    importTiers_.setBounds(right.removeFromTop(32).withWidth(200));
-    right.removeFromTop(10);
+    label(right, "Sound resources and precision");
     precision_.setBounds(right.removeFromTop(24));
     resources_.setBounds(right.removeFromTop(84));
     hostPrecision_.setBounds(right.removeFromTop(44));
@@ -1000,7 +932,6 @@ void Editor::layoutSettings()
 void Editor::chooseView(int index)
 {
     view_ = juce::jlimit(0, 3, index);
-    importTiers_.setVisible(view_ == 3);
     for (size_t i = 0; i < tabs_.size(); ++i)
         tabs_[i].setToggleState(static_cast<int>(i) == view_, juce::dontSendNotification);
     for (auto* c :
@@ -1189,12 +1120,6 @@ void Editor::refreshSound()
     {
         sound_ = nlohmann::json::parse(processor_.document().toStdString());
         document_.setText(js(sound_.dump(2)), false);
-        refreshing_ = true;
-        const juce::StringArray tierIds{"Lite", "Standard", "Pro", "Studio"};
-        tier_.setSelectedId(
-            juce::jmax(0, tierIds.indexOf(js(sound_.value("tier", std::string("Standard"))))) + 1,
-            juce::dontSendNotification);
-        refreshing_ = false;
         precision_.setText(processor_.scalarBytes() == 8 ? "Uniform DSP precision: float64"
                                                          : "Uniform DSP precision: float32",
                            juce::dontSendNotification);

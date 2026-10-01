@@ -373,12 +373,11 @@ public:
                                     controls_.routing.values, controls_.modulation.values};
             std::ostringstream report;
             report << "Uniform scalar type: " << (std::is_same_v<Scalar, double> ? "float64" : "float32")
-                   << " | tier: " << data.value("tier", std::string("legacy / explicit"));
+                   << " (from the loaded sound)";
             report << "\nCompiled state elements: " << runtime_.state().size()
                    << " | output elements: " << runtime_.output().size()
                    << " | scheduled primitives: " << runtime_.schedule().size();
-            // Used / cap against the capacity this sound declares; tiers change it only through
-            // authored tier_profiles, otherwise a tier selects the scalar type alone.
+            // Used / cap against the capacity the loaded sound declares; the sound is the authority.
             const auto cap = [&](const char* name)
             {
                 return std::to_string(data.at("budget").value(name, size_t(0)));
@@ -395,9 +394,7 @@ public:
                    << cap("output_elements") << " | parameters " << represented(controls_.parameters) << "/"
                    << cap("parameter_elements") << " | routing " << represented(controls_.routing) << "/"
                    << cap("routing_elements");
-            report << (data.contains("tier_profiles")
-                           ? "\nBudget source: this sound's authored tier profile"
-                           : "\nBudget source: this sound (no tier profiles; tier sets precision only)");
+            report << "\nBudget source: the loaded sound";
             report << "\nDeclared host latency: " << data.value("host_latency_samples", 0) << " samples";
             report
                 << "\nDeclared budgets, routing, activation, allocation and clocks are inspectable in JSON.";

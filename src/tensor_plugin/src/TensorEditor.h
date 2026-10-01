@@ -45,7 +45,6 @@ private:
     juce::TextButton order_{"Learned order"};
     juce::ComboBox theme_, layerSelect_, xAxis_, yAxis_, tensorSelect_;
     juce::ComboBox accent_, gesture_;
-    juce::ComboBox tier_;
     juce::Label precision_, resources_, hostPrecision_;
     juce::ToggleButton bypass_{"Bypass"}, showKeyboard_{"Keyboard"};
     juce::TextButton a_{"A"}, b_{"B"}, capture_{"Capture"}, pagePrevious_{"<"}, pageNext_{">"};
@@ -63,7 +62,6 @@ private:
     juce::Component::SafePointer<juce::DialogWindow> libraryDialog_;
     juce::TextButton refresh_{"Refresh library"}, folder_{"Library folder"}, exportTheme_{"Export theme"};
     juce::TextButton importTheme_{"Import theme"};
-    juce::TextButton importTiers_{"Import tier profiles"};
     juce::ComboBox sourceKind_, routeDestination_, routeWeight_, routeWeightsTensor_, mappingLayer_;
     juce::TextEditor sourceElement_, matrixValue_;
     juce::TextButton rawPrevious_{"Previous dimensions"}, rawNext_{"Next dimensions"};
