@@ -151,6 +151,9 @@ public:
     {
         name.setText(title, juce::dontSendNotification);
         name.setTooltip(title);
+        // One size for every row: long names wrap or end in "..." instead of shrinking.
+        name.setFont(alfa::ui::AlfaLookAndFeel::labelFont(13));
+        name.setMinimumHorizontalScale(1.0f);
         addAndMakeVisible(name);
         units.setText(unit, juce::dontSendNotification);
         units.setJustificationType(juce::Justification::centredRight);
@@ -504,7 +507,7 @@ public:
     {
     }
     std::function<void(int source, int destination)> onSelect;
-    static constexpr int rowHeight = 18, headerHeight = 22;
+    static constexpr int headerHeight = 24, legendHeight = 34;
     void setMatrix(std::vector<double> data, juce::StringArray rows, juce::StringArray columns)
     {
         values = std::move(data);
@@ -523,44 +526,66 @@ public:
         selectedRow = destination;
         repaint();
     }
-    int preferredHeight() const { return headerHeight + rowLabels.size() * rowHeight + 4; }
+    // Rows grow with the available height so small matrices fill their panel; large ones scroll.
+    int preferredHeight(int available) const
+    {
+        const auto rows = juce::jmax(1, rowLabels.size());
+        const auto fitted = (available - headerHeight - legendHeight) / rows;
+        return headerHeight + rows * juce::jlimit(minimumRow, maximumRow, fitted) + legendHeight;
+    }
     void paint(juce::Graphics& g) override
     {
         const auto& t = look.theme();
-        g.setFont(alfa::ui::AlfaLookAndFeel::monoFont(10));
+        const auto rows = rowHeight();
+        g.setFont(alfa::ui::AlfaLookAndFeel::monoFont(11));
         for (int c = 0; c < columnLabels.size(); ++c)
         {
             g.setColour(c == selectedColumn ? t.accent : t.text2);
             g.drawText(juce::String(c), column(c).withY(0).withHeight(headerHeight),
                        juce::Justification::centred, false);
         }
-        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11));
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(juce::jlimit(11.0f, 13.0f, rows * 0.55f)));
         for (int r = 0; r < rowLabels.size(); ++r)
         {
-            const auto y = headerHeight + r * rowHeight;
+            const auto y = headerHeight + r * rows;
+            if (r == selectedRow)
+            {
+                g.setColour(t.accent.withAlpha(0.08f));
+                g.fillRect(0, y, labelWidth() + columnLabels.size() * columnWidth(), rows);
+            }
             g.setColour(r == selectedRow ? t.accent : t.text2);
-            g.drawText(rowLabels[r], 4, y, labelWidth() - 8, rowHeight, juce::Justification::centredLeft,
-                       true);
+            g.drawFittedText(rowLabels[r], 4, y, labelWidth() - 10, rows, juce::Justification::centredRight,
+                             1, 0.9f);
             for (int c = 0; c < columnLabels.size(); ++c)
             {
                 const auto index = static_cast<size_t>(r * columnLabels.size() + c);
                 const auto v = index < values.size() ? values[index] : 0.0;
-                auto box = column(c).withY(y).withHeight(rowHeight).reduced(1).toFloat();
+                auto box = column(c).withY(y).withHeight(rows).reduced(1).toFloat();
                 g.setColour(t.bg);
-                g.fillRect(box);
+                g.fillRoundedRectangle(box, 2);
                 if (std::abs(v) > 0.0)
                 {
-                    const auto amount = static_cast<float>(std::abs(v) / scale);
-                    g.setColour(weightColour(t, v).withAlpha(0.18f + 0.82f * amount));
-                    g.fillRect(box);
+                    // Square-root scale keeps small but real coefficients visible next to large ones.
+                    const auto amount = static_cast<float>(std::sqrt(std::abs(v) / scale));
+                    g.setColour(weightColour(t, v).withAlpha(0.22f + 0.78f * amount));
+                    g.fillRoundedRectangle(box, 2);
+                    if (box.getWidth() >= 34 && box.getHeight() >= 18)
+                    {
+                        g.setColour(amount > 0.6f ? t.bg : t.text);
+                        g.setFont(alfa::ui::AlfaLookAndFeel::monoFont(10));
+                        g.drawText(compactText(v), box, juce::Justification::centred, false);
+                        g.setFont(
+                            alfa::ui::AlfaLookAndFeel::labelFont(juce::jlimit(11.0f, 13.0f, rows * 0.55f)));
+                    }
                 }
                 if (r == selectedRow && c == selectedColumn)
                 {
                     g.setColour(t.text);
-                    g.drawRect(box, 1.5f);
+                    g.drawRoundedRectangle(box, 2, 1.5f);
                 }
             }
         }
+        paintLegend(g, t);
     }
     void mouseDown(const juce::MouseEvent& e) override
     {
@@ -585,29 +610,152 @@ public:
     }
 
 private:
+    static constexpr int minimumRow = 20, maximumRow = 34;
     alfa::ui::AlfaLookAndFeel& look;
     std::vector<double> values;
     juce::StringArray rowLabels, columnLabels;
     double scale = 1;
     int selectedRow = -1, selectedColumn = -1;
-    int labelWidth() const { return juce::jmin(220, getWidth() / 3); }
+    int rowHeight() const
+    {
+        const auto rows = juce::jmax(1, rowLabels.size());
+        return juce::jlimit(minimumRow, maximumRow, (getHeight() - headerHeight - legendHeight) / rows);
+    }
+    int labelWidth() const
+    {
+        // Wide enough for the longest destination name, never more than 45% of the view.
+        const auto font = alfa::ui::AlfaLookAndFeel::labelFont(13);
+        float widest = 40;
+        for (const auto& label : rowLabels)
+            widest = juce::jmax(widest, juce::GlyphArrangement::getStringWidth(font, label));
+        return juce::jmin(static_cast<int>(widest) + 18, getWidth() * 45 / 100);
+    }
     juce::Rectangle<int> cellArea() const { return getLocalBounds().withTrimmedLeft(labelWidth()); }
     int columnWidth() const
     {
-        return columnLabels.isEmpty() ? 0 : juce::jlimit(12, 44, cellArea().getWidth() / columnLabels.size());
+        return columnLabels.isEmpty() ? 0 : juce::jlimit(14, 72, cellArea().getWidth() / columnLabels.size());
     }
     juce::Rectangle<int> column(int c) const
     {
         return {labelWidth() + c * columnWidth(), 0, columnWidth(), getHeight()};
     }
+    void paintLegend(juce::Graphics& g, const alfa::ui::Theme& t)
+    {
+        if (columnLabels.isEmpty())
+            return;
+        // Diverging scale: blue negative, amber positive, both relative to this matrix's largest |weight|.
+        const auto top = headerHeight + rowLabels.size() * rowHeight() + 10;
+        auto area =
+            juce::Rectangle<int>(labelWidth(), top, juce::jmin(260, columnLabels.size() * columnWidth()), 12);
+        const auto half = area.getWidth() / 2;
+        for (int x = 0; x < area.getWidth(); ++x)
+        {
+            const auto value = (x - half) / static_cast<double>(juce::jmax(1, half));
+            const auto amount = static_cast<float>(std::sqrt(std::abs(value)));
+            g.setColour(std::abs(value) < 0.02 ? t.bg
+                                               : weightColour(t, value).withAlpha(0.22f + 0.78f * amount));
+            g.fillRect(area.getX() + x, area.getY(), 1, area.getHeight());
+        }
+        g.setColour(t.text2);
+        g.setFont(alfa::ui::AlfaLookAndFeel::monoFont(10));
+        const auto text = area.translated(0, 13).withHeight(12);
+        g.drawText("-" + compactText(scale), text, juce::Justification::left, false);
+        g.drawText("0", text, juce::Justification::centred, false);
+        g.drawText("+" + compactText(scale), text, juce::Justification::right, false);
+    }
     std::pair<int, int> hitCell(juce::Point<int> p) const
     {
         if (p.x < labelWidth() || p.y < headerHeight || columnWidth() == 0)
             return {-1, -1};
-        const auto c = (p.x - labelWidth()) / columnWidth(), r = (p.y - headerHeight) / rowHeight;
+        const auto c = (p.x - labelWidth()) / columnWidth(), r = (p.y - headerHeight) / rowHeight();
         if (c >= columnLabels.size() || r >= rowLabels.size())
             return {-1, -1};
         return {c, r};
     }
+};
+// Used / budget per resource of the compiled sound, as bars. Budgets come from the sound (or its
+// authored tier profile); a full bar is normal, it means the sound uses all it declared.
+class CapacityView final : public juce::Component
+{
+public:
+    struct Entry
+    {
+        juce::String name;
+        double used = 0, budget = 0;
+    };
+    explicit CapacityView(alfa::ui::AlfaLookAndFeel& l)
+        : look(l)
+    {
+    }
+    void setEntries(std::vector<Entry> e, juce::String note)
+    {
+        entries = std::move(e);
+        caption = std::move(note);
+        repaint();
+    }
+    // Reads the "Used / budget:" and "Budget source:" lines of the compiled inspection report.
+    static std::vector<Entry> parse(const juce::String& report, juce::String& source)
+    {
+        std::vector<Entry> result;
+        for (const auto& line : juce::StringArray::fromLines(report))
+        {
+            if (line.startsWith("Budget source: "))
+                source = line.fromFirstOccurrenceOf("Budget source: ", false, false);
+            if (!line.startsWith("Used / budget: "))
+                continue;
+            for (auto part :
+                 juce::StringArray::fromTokens(line.fromFirstOccurrenceOf(": ", false, false), "|", ""))
+            {
+                part = part.trim();
+                const auto name = part.upToLastOccurrenceOf(" ", false, false);
+                const auto pair = part.fromLastOccurrenceOf(" ", false, false);
+                if (name.isNotEmpty() && pair.containsChar('/'))
+                    result.push_back({name.substring(0, 1).toUpperCase() + name.substring(1),
+                                      pair.upToFirstOccurrenceOf("/", false, false).getDoubleValue(),
+                                      pair.fromFirstOccurrenceOf("/", false, false).getDoubleValue()});
+            }
+        }
+        return result;
+    }
+    void paint(juce::Graphics& g) override
+    {
+        const auto& t = look.theme();
+        auto r = getLocalBounds();
+        if (entries.empty())
+        {
+            g.setColour(t.text2);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(12));
+            g.drawFittedText("No capacity report for this sound", r, juce::Justification::topLeft, 2);
+            return;
+        }
+        const auto rowHeight = juce::jlimit(20, 26, (r.getHeight() - 40) / static_cast<int>(entries.size()));
+        for (const auto& entry : entries)
+        {
+            auto row = r.removeFromTop(rowHeight);
+            g.setColour(t.text);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(12.5f));
+            g.drawText(entry.name, row.removeFromLeft(90), juce::Justification::centredLeft, true);
+            g.setColour(t.text2);
+            g.setFont(alfa::ui::AlfaLookAndFeel::monoFont(11));
+            g.drawText(compactText(entry.used) + " / " + compactText(entry.budget), row.removeFromRight(86),
+                       juce::Justification::centredRight, true);
+            auto bar = row.reduced(8, rowHeight / 2 - 4).toFloat();
+            g.setColour(t.bg);
+            g.fillRoundedRectangle(bar, 4);
+            const auto amount = entry.budget > 0
+                                    ? static_cast<float>(juce::jlimit(0.0, 1.0, entry.used / entry.budget))
+                                    : 0.f;
+            g.setColour(entry.used > entry.budget ? t.warn : t.accent.withAlpha(0.85f));
+            g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * amount), 4);
+        }
+        g.setColour(t.text2);
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11.5f));
+        g.drawFittedText(caption, r.withTrimmedTop(6), juce::Justification::topLeft, 3);
+    }
+
+private:
+    alfa::ui::AlfaLookAndFeel& look;
+    std::vector<Entry> entries;
+    juce::String caption;
 };
 } // namespace alfa::tensorhost

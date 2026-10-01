@@ -36,13 +36,14 @@ private:
     ExplorationPad exploration_;
     InfluenceView influence_;
     MatrixView matrix_;
+    CapacityView capacity_;
     juce::Label brand_, version_, status_, telemetry_, paramHeader_, routeHeader_, levelHeader_,
         matrixSelection_;
     std::array<juce::TextButton, 4> tabs_;
     std::array<juce::TextButton, 3> modes_;
     juce::TextButton library_{"Sound library"}, savePreset_{"Save as"}, openPreset_{"Open"}, panic_{"Panic"};
     juce::TextButton previousSound_{"<"}, nextSound_{">"}, newRoute_{"New relationship"};
-    juce::TextButton order_{"Learned order"};
+    juce::TextButton order_{"Learned order"}, expert_{"Expert tools"};
     juce::ComboBox theme_, layerSelect_, xAxis_, yAxis_, tensorSelect_;
     juce::ComboBox accent_, gesture_;
     juce::ComboBox tier_;
@@ -77,10 +78,12 @@ private:
     uint64_t revision_ = 0;
     int view_ = 0, selectedPrimitive_ = 0, highLayer_ = 0, highPage_ = 0, selectedSnapshot_ = 0, rawPage_ = 0;
     int focusedControl_ = 0, matrixSource_ = 0, matrixDestination_ = 0;
-    bool refreshing_ = false, routeFormOpen_ = false, indexOrder_ = false, ranked_ = false;
+    bool refreshing_ = false, routeFormOpen_ = false, expertOpen_ = false, indexOrder_ = false,
+         ranked_ = false;
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> settingsLabels_;
     juce::Rectangle<int> workspace_, highArea_, influenceArea_, xyArea_, scopeArea_, primitiveArea_,
-        parameterArea_, routingArea_, layerArea_, tensorArea_, settingsArea_, footer_;
+        parameterArea_, routingArea_, layerArea_, tensorArea_, selectionArea_, capacityArea_, settingsArea_,
+        footer_;
     void timerCallback() override;
     int getNumRows() override;
     void paintListBoxItem(int, juce::Graphics&, int, int, bool) override;
