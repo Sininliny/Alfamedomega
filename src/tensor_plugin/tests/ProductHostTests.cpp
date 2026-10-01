@@ -660,3 +660,44 @@ TEST_CASE("Play view names controls, follows a learned ranking and renames into 
     REQUIRE(processor.undoManager().undo());
     CHECK(JSON::parse(processor.document().toStdString())["control_layers"][0]["labels"][1] == "");
 }
+
+TEST_CASE("Tensor view shows the matrix and capacity first and opens expert tools on request",
+          "[tensor-host][product][ui-loop]")
+{
+    juce::ScopedJuceInitialiser_GUI gui;
+    Processor processor;
+    processor.prepareToPlay(48000, 128);
+    std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
+    auto* console = dynamic_cast<alfa::tensorhost::Editor*>(editor.get());
+    REQUIRE(console != nullptr);
+    console->snapshotView(2);
+    juce::TextEditor* json = nullptr;
+    alfa::tensorhost::CapacityView* capacity = nullptr;
+    juce::Button* expert = nullptr;
+    for (auto* child : console->getChildren())
+    {
+        if (auto* text = dynamic_cast<juce::TextEditor*>(child); text && text->isMultiLine() && !json)
+            json = text;
+        if (auto* view = dynamic_cast<alfa::tensorhost::CapacityView*>(child))
+            capacity = view;
+        if (child->getComponentID() == "view.expert")
+            expert = dynamic_cast<juce::Button*>(child);
+    }
+    REQUIRE(json != nullptr);
+    REQUIRE(capacity != nullptr);
+    REQUIRE(expert != nullptr);
+    CHECK(capacity->isVisible());
+    CHECK_FALSE(json->isVisible());
+    const auto revision = processor.programRevision.load();
+    expert->triggerClick();
+    juce::MessageManager::getInstance()->runDispatchLoopUntil(50);
+    CHECK(json->isVisible());
+    CHECK_FALSE(capacity->isVisible());
+    CHECK(processor.programRevision.load() == revision);
+    juce::String source;
+    const auto usage = alfa::tensorhost::CapacityView::parse(processor.inspection(), source);
+    REQUIRE(usage.size() == 5);
+    CHECK(usage[0].name == "Primitives");
+    CHECK(usage[0].budget >= usage[0].used);
+    CHECK(source.startsWith("this sound"));
+}

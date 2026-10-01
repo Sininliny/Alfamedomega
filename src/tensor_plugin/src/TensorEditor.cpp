@@ -105,6 +105,7 @@ Editor::Editor(Processor& p)
     setResizeLimits(1040, 700, 1920, 1200);
     const auto saved = p.uiSettings();
     view_ = juce::jlimit(0, 3, static_cast<int>(saved.getProperty("view", 0)));
+    expertOpen_ = static_cast<bool>(saved.getProperty("expert_tools", false));
     setSize(static_cast<int>(saved.getProperty("width", 1280)),
             static_cast<int>(saved.getProperty("height", 800)));
     brand_.setText("ALFAMEDOMEGA", juce::dontSendNotification);
@@ -261,10 +262,12 @@ Editor::Editor(Processor& p)
     // The matrix is the Tensor view; raw JSON, model import and composition open on request.
     expert_.setComponentID("view.expert");
     expert_.setClickingTogglesState(true);
+    expert_.setToggleState(expertOpen_, juce::dontSendNotification);
     expert_.setTooltip("Raw tensors as JSON, runtime model import, composition and the compiled report");
     expert_.onClick = [this]
     {
         expertOpen_ = expert_.getToggleState();
+        processor_.uiSettings().setProperty("expert_tools", expertOpen_, nullptr);
         chooseView(view_);
     };
     matrixSelection_.setJustificationType(juce::Justification::topLeft);
