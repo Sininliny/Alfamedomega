@@ -253,6 +253,12 @@ Local Windows Release, warnings-as-errors:
 - Full first-party clang-format 18 check passed after correcting historical formatting in
   twelve files. These additional changes are formatting only.
 
+PR checks additionally exposed strict GCC/Clang signed conversion and complete-type issues,
+two pre-existing STFT test index conversions, and the pre-existing UI use of floating-point
+`to_chars` above the macOS 11 deployment target. These were repaired explicitly; UI formatting
+now uses the portable shortest-round-trip JSON formatter. The complete core source/test set
+was also checked with the local Clang frontend. CI results are authoritative for platform builds.
+
 New signal fixtures independently compare multi-partition convolution with direct summation,
 verify playback alias suppression/passband, modal long decay, waveguide tuning with damping
 and dispersion, and frame phase-locking/flags. Migration verifies buffer ownership, clock,

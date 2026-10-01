@@ -252,8 +252,8 @@ TEST_CASE("STFT double frame retains coefficient distinctions and matches indepe
         for (std::size_t i = 0; i < 8; ++i)
         {
             const double angle = -2 * std::numbers::pi * static_cast<double>(k * i) / 8;
-            re += (i + 1) * stream.window[i] * std::cos(angle);
-            im += (i + 1) * stream.window[i] * std::sin(angle);
+            re += static_cast<double>(i + 1) * stream.window[i] * std::cos(angle);
+            im += static_cast<double>(i + 1) * stream.window[i] * std::sin(angle);
         }
         REQUIRE(std::abs(stream.frame[2 * k] - re) < 1e-13);
         REQUIRE(std::abs(stream.frame[2 * k + 1] - im) < 1e-13);

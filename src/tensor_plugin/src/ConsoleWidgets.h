@@ -6,10 +6,10 @@
 #include <juce_dsp/juce_dsp.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
-#include <charconv>
 #include <cmath>
 #include <functional>
 #include <limits>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <stdexcept>
 
@@ -17,13 +17,11 @@ namespace alfa::tensorhost
 {
 inline juce::String scalarText(double value)
 {
-    std::array<char, 128> buffer{};
     // The shortest round-trip representation keeps exact doubles without turning
     // ordinary decimal controls into unreadable 17-digit binary artifacts.
-    const auto result =
-        std::to_chars(buffer.data(), buffer.data() + buffer.size(), value, std::chars_format::general);
-    return result.ec == std::errc{} ? juce::String(std::string(buffer.data(), result.ptr))
-                                    : juce::String(value, 17);
+    // The JSON formatter is portable to the product's macOS 11 deployment target;
+    // floating-point std::to_chars requires macOS 13.3 in Apple libc++.
+    return std::isfinite(value) ? juce::String(nlohmann::json(value).dump()) : juce::String(value, 17);
 }
 inline void surface(juce::Graphics& g, const alfa::ui::Theme& t, juce::Rectangle<int> r,
                     const juce::String& title, const juce::String& subtitle = {})
