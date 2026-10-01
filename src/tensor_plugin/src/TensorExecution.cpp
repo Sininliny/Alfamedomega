@@ -129,8 +129,8 @@ public:
                 {
                     const auto& capacity = data.at("budget").at(name);
                     if (!capacity.is_number_integer() ||
-                        (!capacity.is_number_unsigned() && capacity.get<int64_t>() < 0) ||
-                        capacity.get<uint64_t>() > std::numeric_limits<size_t>::max())
+                        (!capacity.is_number_unsigned() && capacity.template get<int64_t>() < 0) ||
+                        capacity.template get<uint64_t>() > std::numeric_limits<size_t>::max())
                         throw std::invalid_argument("Native host capacities must be nonnegative integers");
                 }
             if (data.contains("host_latency_samples"))

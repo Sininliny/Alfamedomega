@@ -1,4 +1,4 @@
-"""alfa-cc-gui: the control center window (PySide6).
+"""alfa-cc-gui: the AOM Centre window (PySide6).
 
 A thin layer over the core: every button creates a job or calls the model store, so the GUI and
 the CLI always agree. Jobs run one at a time in the background; the window polls their records.
@@ -27,40 +27,14 @@ from ..tiers import DEFAULT_TIER, STAGES, TIERS
 from ..training import (TrainSpec, check_environment, create_export_job, create_training_job,
                         write_colab_notebook)
 from .theme import TOKENS, stylesheet
-from .tensor_page import TensorPage
+from .widgets import Page, PathField, button, card, label
+from .tensor_page import DatasetsPage, EvaluatePage, ImportSoundPage, TrainPage
 
 STATUS_TEXT = {jobs.QUEUED: "Queued", jobs.RUNNING: "Running", jobs.SUCCEEDED: "Done",
                jobs.FAILED: "Failed", jobs.CANCELLED: "Cancelled", jobs.INTERRUPTED: "Interrupted"}
 
 
 # ---------------------------------------------------------------------- small widgets
-
-def label(text: str, name: str = "", wrap: bool = False) -> QLabel:
-    w = QLabel(text)
-    if name:
-        w.setObjectName(name)
-    w.setWordWrap(wrap)
-    return w
-
-
-def button(text: str, slot, name: str = "", tip: str = "") -> QPushButton:
-    b = QPushButton(text)
-    if name:
-        b.setObjectName(name)
-    if tip:
-        b.setToolTip(tip)
-    b.clicked.connect(slot)
-    return b
-
-
-def card() -> tuple:
-    f = QFrame()
-    f.setObjectName("card")
-    lay = QVBoxLayout(f)
-    lay.setContentsMargins(16, 14, 16, 14)
-    lay.setSpacing(6)
-    return f, lay
-
 
 def item(text, align_right=False, mono=False) -> QTableWidgetItem:
     it = QTableWidgetItem(str(text))
@@ -94,62 +68,6 @@ def ago(iso: str | None) -> str:
         return iso
     return dt.strftime("%Y-%m-%d %H:%M")
 
-
-class PathField(QWidget):
-    """A line edit with a Browse button, for files or folders."""
-
-    def __init__(self, folder: bool = False, filter: str = "", placeholder: str = ""):
-        super().__init__()
-        self.folder, self.filter = folder, filter
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        self.edit = QLineEdit()
-        self.edit.setPlaceholderText(placeholder)
-        lay.addWidget(self.edit, 1)
-        lay.addWidget(button("Browse…", self.browse))
-
-    def browse(self):
-        if self.folder:
-            path = QFileDialog.getExistingDirectory(self, "Choose a folder", self.edit.text())
-        else:
-            path, _ = QFileDialog.getOpenFileName(self, "Choose a file", self.edit.text(), self.filter)
-        if path:
-            self.edit.setText(path)
-
-    def text(self) -> str:
-        return self.edit.text().strip()
-
-    def setText(self, t: str):
-        self.edit.setText(t)
-
-
-class Page(QWidget):
-    def __init__(self, win: "MainWindow", title: str, subtitle: str):
-        super().__init__()
-        self.setObjectName("page")
-        self.win, self.ctx = win, win.ctx
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        body = QWidget()
-        body.setObjectName("page")
-        self.lay = QVBoxLayout(body)
-        self.lay.setContentsMargins(28, 24, 28, 24)
-        self.lay.setSpacing(14)
-        self.lay.addWidget(label(title, "h1"))
-        self.lay.addWidget(label(subtitle, "muted", wrap=True))
-        scroll.setWidget(body)
-        outer.addWidget(scroll)
-
-    def refresh(self):
-        pass
-
-    def start(self, job: dict):
-        self.ctx.jobs.enqueue(job["id"])
-        self.win.jobs_changed(job["id"])
 
 
 # ---------------------------------------------------------------------- Models
@@ -1040,7 +958,7 @@ class JobsPage(Page):
 
 class SettingsPage(Page):
     def __init__(self, win):
-        super().__init__(win, "Settings", f"Control center {__version__}. Data folder: {win.ctx.home}")
+        super().__init__(win, "Settings", f"AOM Centre {__version__}. Data folder: {win.ctx.home}")
         f, lay = card()
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignRight)
@@ -1114,8 +1032,9 @@ class MainWindow(QMainWindow):
     def __init__(self, ctx: Context):
         super().__init__()
         self.ctx = ctx
-        self.setWindowTitle("Alfamedomega Control Center")
+        self.setWindowTitle("AOM Centre")
         self.resize(1180, 800)
+        self.aom_recent, self.aom_finished = {}, set()
         central = QWidget()
         h = QHBoxLayout(central)
         h.setContentsMargins(0, 0, 0, 0)
@@ -1124,14 +1043,41 @@ class MainWindow(QMainWindow):
         self.nav.setObjectName("nav")
         self.nav.setFixedWidth(200)
         self.stack = QStackedWidget()
-        self.jobs_page = JobsPage(self)
-        self.pages = [ModelsPage(self), TrainingPage(self), PreferencePage(self), PluginsPage(self),
-                      self.jobs_page, SettingsPage(self), TensorPage(self)]
-        names = ["Legacy models", "Legacy training", "Legacy preferences", "Legacy assimilation", "Jobs", "Settings", "Audio Tensor Space"]
-        for name, page in zip(names, self.pages):
-            self.nav.addItem(QListWidgetItem(name))
-            self.stack.addWidget(page)
-        self.nav.currentRowChanged.connect(self.show_page)
+        self.import_page, self.datasets_page = ImportSoundPage(self), DatasetsPage(self)
+        self.train_page, self.evaluate_page = TrainPage(self), EvaluatePage(self)
+        self.jobs_page, self.settings_page = JobsPage(self), SettingsPage(self)
+        self.models_page, self.legacy_training_page = ModelsPage(self), TrainingPage(self)
+        self.preference_page, self.plugins_page = PreferencePage(self), PluginsPage(self)
+        # Audio Tensor Space work first; the method-era tools keep working under Legacy.
+        sections = [("Audio Tensor Space", [("Import sound", self.import_page), ("Datasets", self.datasets_page),
+                                            ("Train", self.train_page), ("Evaluate", self.evaluate_page)]),
+                    ("", [("Jobs", self.jobs_page), ("Settings", self.settings_page)]),
+                    ("Legacy", [("Models", self.models_page), ("Method training", self.legacy_training_page),
+                                ("Preferences", self.preference_page),
+                                ("Plugin assimilation", self.plugins_page)])]
+        self.pages, self._rows = [], {}
+        for heading, entries in sections:
+            if heading:
+                head = QListWidgetItem(heading.upper())
+                head.setFlags(Qt.NoItemFlags)
+                head.setForeground(QColor(TOKENS["text2"]))
+                font = head.font()
+                font.setPointSizeF(font.pointSizeF() * 0.8)
+                font.setBold(True)
+                head.setFont(font)
+                self.nav.addItem(head)
+            else:
+                spacer = QListWidgetItem("")
+                spacer.setFlags(Qt.NoItemFlags)
+                self.nav.addItem(spacer)
+            for name, page in entries:
+                item = QListWidgetItem(name)
+                item.setData(Qt.UserRole, len(self.pages))
+                self._rows[page] = self.nav.count()
+                self.nav.addItem(item)
+                self.pages.append(page)
+                self.stack.addWidget(page)
+        self.nav.currentRowChanged.connect(self.show_row)
         brand = QWidget()
         brand.setStyleSheet(f"background:{TOKENS['panel']}")
         bl = QVBoxLayout(brand)
@@ -1140,7 +1086,7 @@ class MainWindow(QMainWindow):
         title = label("  Alfamedomega", "h2")
         title.setContentsMargins(12, 18, 0, 0)
         bl.addWidget(title)
-        sub = label("   Control center", "muted")
+        sub = label("   AOM Centre", "muted")
         sub.setContentsMargins(12, 0, 0, 8)
         bl.addWidget(sub)
         bl.addWidget(self.nav, 1)
@@ -1150,27 +1096,34 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         self.job_status = QLabel("")
         self.statusBar().addPermanentWidget(self.job_status)
-        self.nav.setCurrentRow(6)
-        for i in range(len(self.pages)):
+        self.show_page(self.import_page)
+        for i, page in enumerate(self.pages[:9]):
             act = QAction(self)
             act.setShortcut(QKeySequence(f"Ctrl+{i + 1}"))
-            act.triggered.connect(lambda _=False, i=i: self.nav.setCurrentRow(i))
+            act.triggered.connect(lambda _=False, page=page: self.show_page(page))
             self.addAction(act)
         self._last_state = None
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.poll)
         self.timer.start(1000)
 
-    def show_page(self, i):
-        self.stack.setCurrentIndex(i)
-        self.pages[i].refresh()
+    def show_row(self, row):
+        item = self.nav.item(row)
+        index = item.data(Qt.UserRole) if item else None
+        if index is None:
+            return
+        self.stack.setCurrentIndex(index)
+        self.pages[index].refresh()
+
+    def show_page(self, page):
+        self.nav.setCurrentRow(self._rows[page])
 
     def refresh_all(self):
         for p in self.pages:
             p.refresh()
 
     def jobs_changed(self, job_id=None):
-        self.nav.setCurrentRow(self.pages.index(self.jobs_page))
+        self.show_page(self.jobs_page)
         if job_id:
             self.jobs_page.select(job_id)
         self.poll()
@@ -1192,8 +1145,8 @@ class MainWindow(QMainWindow):
                 self.jobs_page.refresh()
             if state != self._last_state:
                 # A job just finished or started: models, the index or plugin results may have changed.
-                for i in (0, 2, 3):
-                    self.pages[i].refresh()
+                for page in (self.models_page, self.preference_page, self.plugins_page):
+                    page.refresh()
         self._last_state = state
 
     def error(self, text: str):
@@ -1203,7 +1156,7 @@ class MainWindow(QMainWindow):
 def main(argv=None) -> int:
     argv = sys.argv if argv is None else argv
     app = QApplication(argv)
-    app.setApplicationName("Alfamedomega Control Center")
+    app.setApplicationName("AOM Centre")
     app.setStyleSheet(stylesheet())
     home = models = None
     args = argv[1:]

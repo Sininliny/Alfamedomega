@@ -23,6 +23,23 @@ inline juce::String scalarText(double value)
     // floating-point std::to_chars requires macOS 13.3 in Apple libc++.
     return std::isfinite(value) ? juce::String(nlohmann::json(value).dump()) : juce::String(value, 17);
 }
+// Compact display for knob readouts: at most four significant decimals, trailing zeros removed.
+inline juce::String compactText(double value)
+{
+    if (!std::isfinite(value))
+        return juce::String(value);
+    const auto magnitude = std::abs(value);
+    const int decimals = magnitude >= 1000 ? 0 : magnitude >= 100 ? 1 : magnitude >= 10 ? 2 : 3;
+    auto text = juce::String(value, decimals);
+    if (text.containsChar('.'))
+        text = text.trimCharactersAtEnd("0").trimCharactersAtEnd(".");
+    return text == "-0" ? juce::String("0") : text;
+}
+// Signed weights share one convention everywhere: amber is positive, blue is negative.
+inline juce::Colour weightColour(const alfa::ui::Theme& t, double value)
+{
+    return value < 0 ? t.mod : t.accent;
+}
 inline void surface(juce::Graphics& g, const alfa::ui::Theme& t, juce::Rectangle<int> r,
                     const juce::String& title, const juce::String& subtitle = {})
 {
@@ -59,10 +76,24 @@ public:
             slider.setTextValueSuffix(" dB");
             slider.setNumDecimalPlacesToDisplay(1);
         }
+        slider.onDragStart = [this]
+        {
+            if (onTouched)
+                onTouched();
+        };
         if (auto* parameter = p.parameters().getParameter(id))
             slider.setDoubleClickReturnValue(true, parameter->convertFrom0to1(parameter->getDefaultValue()));
         attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(p.parameters(),
                                                                                             id, slider);
+        // The attachment installs the parameter's own seven-decimal text; X controls read better compact.
+        if (!percent && !id.contains("gain"))
+        {
+            slider.textFromValueFunction = [](double v)
+            {
+                return compactText(v);
+            };
+            slider.updateText();
+        }
     }
     void resized() override
     {
@@ -71,6 +102,12 @@ public:
         slider.setBounds(r);
     }
     juce::Slider& control() { return slider; }
+    std::function<void()> onTouched;
+    void mouseDown(const juce::MouseEvent&) override
+    {
+        if (onTouched)
+            onTouched();
+    }
 
 private:
     Processor& processor;
@@ -114,6 +151,10 @@ public:
         if (range_)
         {
             slider.setRange((*range_)[0], (*range_)[1], (*range_)[2]);
+            // Times and frequencies span decades; a linear slider makes the short end unreachable.
+            const auto low = (*range_)[0], high = (*range_)[1];
+            if ((unit == "s" || unit == "ms" || unit == "Hz") && low > 0 && high / low > 20)
+                slider.setSkewFactorFromMidPoint(std::sqrt(low * high));
             slider.setValue(value, juce::dontSendNotification);
             addAndMakeVisible(slider);
         }
@@ -141,11 +182,11 @@ public:
         auto r = getLocalBounds().reduced(8, 5);
         if (lockCallback)
             lock.setBounds(r.removeFromRight(64));
-        units.setBounds(r.removeFromRight(54));
-        entry.setBounds(r.removeFromRight(96));
+        units.setBounds(r.removeFromRight(48));
+        entry.setBounds(r.removeFromRight(80).reduced(0, 3));
         if (range_)
         {
-            name.setBounds(r.removeFromLeft(juce::jmin(200, r.getWidth() / 2)));
+            name.setBounds(r.removeFromLeft(juce::jmin(240, r.getWidth() * 3 / 5)));
             slider.setBounds(r.reduced(8, 0));
         }
         else
@@ -155,9 +196,31 @@ public:
     {
         g.setColour(findColour(juce::TextEditor::outlineColourId).withAlpha(0.25f));
         g.drawHorizontalLine(getHeight() - 1, 8.0f, static_cast<float>(getWidth() - 8));
+        if (weightTheme && !range_)
+        {
+            // Diverging bar under the name: centre is zero, the side shows the sign.
+            auto bar = name.getBounds().toFloat().withTrimmedTop(static_cast<float>(name.getHeight() - 4));
+            const auto centre = bar.getCentreX();
+            const auto amount =
+                static_cast<float>(juce::jlimit(0.0, 1.0, std::abs(value_) / juce::jmax(1.0, weightScale)));
+            g.setColour(weightTheme->line);
+            g.fillRect(bar.withHeight(2.0f));
+            g.setColour(weightColour(*weightTheme, value_));
+            const auto half = bar.getWidth() * 0.5f * amount;
+            g.fillRect(value_ < 0 ? juce::Rectangle<float>(centre - half, bar.getY(), half, 2.0f)
+                                  : juce::Rectangle<float>(centre, bar.getY(), half, 2.0f));
+        }
+    }
+    void showWeightBar(const alfa::ui::Theme& t, double scale)
+    {
+        weightTheme = &t;
+        weightScale = scale;
+        repaint();
     }
 
 private:
+    const alfa::ui::Theme* weightTheme = nullptr;
+    double weightScale = 1;
     void submit()
     {
         try
@@ -174,6 +237,7 @@ private:
             {
                 value_ = parsed;
                 entry.setTooltip({});
+                repaint();
             }
             else
             {
@@ -334,5 +398,193 @@ private:
     }
     Processor& processor;
     alfa::ui::AlfaLookAndFeel& look;
+};
+// Ranked, signed list: which bottom parameters one control reaches and how strongly.
+class InfluenceView final : public juce::Component
+{
+public:
+    struct Entry
+    {
+        juce::String label;
+        double weight = 0;
+        bool locked = false;
+    };
+    explicit InfluenceView(alfa::ui::AlfaLookAndFeel& l)
+        : look(l)
+    {
+    }
+    void setEntries(juce::String heading, std::vector<Entry> list, int reached)
+    {
+        title = std::move(heading);
+        entries = std::move(list);
+        reachedCount = reached;
+        repaint();
+    }
+    void paint(juce::Graphics& g) override
+    {
+        const auto& t = look.theme();
+        auto r = getLocalBounds();
+        g.setColour(t.text);
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(13, true));
+        g.drawText(title, r.removeFromTop(22), juce::Justification::centredLeft);
+        g.setColour(t.text2);
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11));
+        g.drawText(entries.empty() ? juce::String("No mapped parameters: this control reaches nothing yet.")
+                                   : "Reaches " + juce::String(reachedCount) +
+                                         " parameters. Linear weight through the authored matrices, "
+                                         "before range clamps. Amber +, blue -.",
+                   r.removeFromTop(18), juce::Justification::centredLeft);
+        r.removeFromTop(6);
+        double scale = 1e-12;
+        for (const auto& e : entries)
+            scale = juce::jmax(scale, std::abs(e.weight));
+        const auto rowHeight = 20;
+        for (const auto& e : entries)
+        {
+            if (r.getHeight() < rowHeight)
+                break;
+            auto row = r.removeFromTop(rowHeight);
+            auto labelArea = row.removeFromLeft(juce::jmin(260, row.getWidth() * 2 / 5));
+            auto valueArea = row.removeFromRight(70);
+            g.setColour(e.locked ? t.text2.withAlpha(0.6f) : t.text);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(12));
+            g.drawText((e.locked ? "[locked] " : "") + e.label, labelArea.reduced(2, 0),
+                       juce::Justification::centredLeft, true);
+            auto bar = row.reduced(8, 6).toFloat();
+            g.setColour(t.line);
+            g.fillRect(bar.getCentreX() - 0.5f, bar.getY() - 3, 1.0f, bar.getHeight() + 6);
+            const auto half = bar.getWidth() * 0.5f * static_cast<float>(std::abs(e.weight) / scale);
+            g.setColour(weightColour(t, e.weight).withAlpha(e.locked ? 0.35f : 0.9f));
+            g.fillRoundedRectangle(
+                e.weight < 0
+                    ? juce::Rectangle<float>(bar.getCentreX() - half, bar.getY(), half, bar.getHeight())
+                    : juce::Rectangle<float>(bar.getCentreX(), bar.getY(), half, bar.getHeight()),
+                2);
+            g.setColour(t.text2);
+            g.setFont(alfa::ui::AlfaLookAndFeel::monoFont(11));
+            g.drawText(compactText(e.weight), valueArea, juce::Justification::centredRight);
+        }
+    }
+
+private:
+    alfa::ui::AlfaLookAndFeel& look;
+    juce::String title;
+    std::vector<Entry> entries;
+    int reachedCount = 0;
+};
+// Heat map of one control layer matrix: destinations as rows, sources as columns.
+class MatrixView final : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    explicit MatrixView(alfa::ui::AlfaLookAndFeel& l)
+        : look(l)
+    {
+    }
+    std::function<void(int source, int destination)> onSelect;
+    static constexpr int rowHeight = 18, headerHeight = 22;
+    void setMatrix(std::vector<double> data, juce::StringArray rows, juce::StringArray columns)
+    {
+        values = std::move(data);
+        rowLabels = std::move(rows);
+        columnLabels = std::move(columns);
+        scale = 1e-12;
+        for (const auto v : values)
+            scale = juce::jmax(scale, std::abs(v));
+        selectedRow = juce::jlimit(-1, rowLabels.size() - 1, selectedRow);
+        selectedColumn = juce::jlimit(-1, columnLabels.size() - 1, selectedColumn);
+        repaint();
+    }
+    void select(int source, int destination)
+    {
+        selectedColumn = source;
+        selectedRow = destination;
+        repaint();
+    }
+    int preferredHeight() const { return headerHeight + rowLabels.size() * rowHeight + 4; }
+    void paint(juce::Graphics& g) override
+    {
+        const auto& t = look.theme();
+        g.setFont(alfa::ui::AlfaLookAndFeel::monoFont(10));
+        for (int c = 0; c < columnLabels.size(); ++c)
+        {
+            g.setColour(c == selectedColumn ? t.accent : t.text2);
+            g.drawText(juce::String(c), column(c).withY(0).withHeight(headerHeight),
+                       juce::Justification::centred, false);
+        }
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11));
+        for (int r = 0; r < rowLabels.size(); ++r)
+        {
+            const auto y = headerHeight + r * rowHeight;
+            g.setColour(r == selectedRow ? t.accent : t.text2);
+            g.drawText(rowLabels[r], 4, y, labelWidth() - 8, rowHeight, juce::Justification::centredLeft,
+                       true);
+            for (int c = 0; c < columnLabels.size(); ++c)
+            {
+                const auto index = static_cast<size_t>(r * columnLabels.size() + c);
+                const auto v = index < values.size() ? values[index] : 0.0;
+                auto box = column(c).withY(y).withHeight(rowHeight).reduced(1).toFloat();
+                g.setColour(t.bg);
+                g.fillRect(box);
+                if (std::abs(v) > 0.0)
+                {
+                    const auto amount = static_cast<float>(std::abs(v) / scale);
+                    g.setColour(weightColour(t, v).withAlpha(0.18f + 0.82f * amount));
+                    g.fillRect(box);
+                }
+                if (r == selectedRow && c == selectedColumn)
+                {
+                    g.setColour(t.text);
+                    g.drawRect(box, 1.5f);
+                }
+            }
+        }
+    }
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        const auto hit = hitCell(e.getPosition());
+        if (hit.first < 0)
+            return;
+        select(hit.first, hit.second);
+        if (onSelect)
+            onSelect(hit.first, hit.second);
+    }
+    void mouseMove(const juce::MouseEvent& e) override
+    {
+        const auto hit = hitCell(e.getPosition());
+        if (hit.first < 0)
+        {
+            setTooltip({});
+            return;
+        }
+        const auto index = static_cast<size_t>(hit.second * columnLabels.size() + hit.first);
+        setTooltip(columnLabels[hit.first] + "  >  " + rowLabels[hit.second] + "  =  " +
+                   scalarText(index < values.size() ? values[index] : 0.0));
+    }
+
+private:
+    alfa::ui::AlfaLookAndFeel& look;
+    std::vector<double> values;
+    juce::StringArray rowLabels, columnLabels;
+    double scale = 1;
+    int selectedRow = -1, selectedColumn = -1;
+    int labelWidth() const { return juce::jmin(220, getWidth() / 3); }
+    juce::Rectangle<int> cellArea() const { return getLocalBounds().withTrimmedLeft(labelWidth()); }
+    int columnWidth() const
+    {
+        return columnLabels.isEmpty() ? 0 : juce::jlimit(12, 44, cellArea().getWidth() / columnLabels.size());
+    }
+    juce::Rectangle<int> column(int c) const
+    {
+        return {labelWidth() + c * columnWidth(), 0, columnWidth(), getHeight()};
+    }
+    std::pair<int, int> hitCell(juce::Point<int> p) const
+    {
+        if (p.x < labelWidth() || p.y < headerHeight || columnWidth() == 0)
+            return {-1, -1};
+        const auto c = (p.x - labelWidth()) / columnWidth(), r = (p.y - headerHeight) / rowHeight;
+        if (c >= columnLabels.size() || r >= rowLabels.size())
+            return {-1, -1};
+        return {c, r};
+    }
 };
 } // namespace alfa::tensorhost

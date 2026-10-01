@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace alfa::tensorhost
 {
@@ -40,7 +41,12 @@ public:
         slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 82, 22);
         slider.textFromValueFunction = [](double v)
         {
-            return scalarText(v);
+            return compactText(v);
+        };
+        slider.onDragStart = [this]
+        {
+            if (onTouched)
+                onTouched();
         };
         slider.setRange(minimum, maximum, 0);
         slider.setValue(value, juce::dontSendNotification);
@@ -67,6 +73,12 @@ public:
         label.setBounds(r.removeFromTop(22));
         slider.setBounds(r);
     }
+    void mouseDown(const juce::MouseEvent&) override
+    {
+        if (onTouched)
+            onTouched();
+    }
+    std::function<void()> onTouched;
 
 private:
     Processor& processor;
@@ -82,6 +94,8 @@ Editor::Editor(Processor& p)
     , scope_(p, look_)
     , meters_(p, look_)
     , exploration_(p, look_)
+    , influence_(look_)
+    , matrix_(look_)
 {
     setLookAndFeel(&look_);
     setResizable(true, true);
@@ -92,29 +106,65 @@ Editor::Editor(Processor& p)
             static_cast<int>(saved.getProperty("height", 800)));
     brand_.setText("ALFAMEDOMEGA", juce::dontSendNotification);
     brand_.setFont(alfa::ui::AlfaLookAndFeel::labelFont(19, true));
-    version_.setText("AUDIO TENSOR CONSOLE", juce::dontSendNotification);
+    version_.setText("AUDIO TENSOR SPACE", juce::dontSendNotification);
     version_.setFont(alfa::ui::AlfaLookAndFeel::monoFont(10));
     for (auto* c : std::initializer_list<juce::Component*>{
-             &brand_, &version_, &status_, &telemetry_, &configurationName_, &library_, &savePreset_,
-             &openPreset_, &panic_, &bypass_, &a_, &b_, &capture_, &undo_, &redo_, &keyboard_, &meters_})
+             &brand_, &version_, &status_, &telemetry_, &library_, &previousSound_, &nextSound_, &savePreset_,
+             &openPreset_, &panic_, &bypass_, &a_, &b_, &capture_, &undo_, &redo_, &keyboard_, &meters_,
+             &tier_})
         addAndMakeVisible(c);
-    const std::array<juce::String, 4> views{"Control layers", "Instances", "Tensor space", "Settings"};
+    // Play, Structure and Tensor are depths of one sound; Settings sits apart at the right.
+    const std::array<juce::String, 4> views{"Play", "Structure", "Tensor", "Settings"};
+    const std::array<juce::String, 4> viewIds{"view.play", "view.structure", "view.tensor", "view.settings"};
+    const std::array<juce::String, 4> viewTips{
+        "Play the sound: X controls, what each one reaches, XY and output",
+        "Instances, their parameters, locks and the relationships that drive them",
+        "Control matrices as heat maps, raw tensors and the compiled report",
+        "Interface, library and tier resources; never changes the sound"};
     for (size_t i = 0; i < tabs_.size(); ++i)
     {
         addAndMakeVisible(tabs_[i]);
         tabs_[i].setButtonText(views[i]);
+        tabs_[i].setComponentID(viewIds[i]);
+        tabs_[i].setTooltip(viewTips[i]);
         tabs_[i].setClickingTogglesState(true);
         tabs_[i].onClick = [this, i]
         {
             chooseView(static_cast<int>(i));
         };
     }
-    mode_.addItemList({"MIDI input only", "Audio input only", "Audio + MIDI inputs"}, 1);
-    addChildComponent(mode_);
-    mode_.setTooltip(
-        "Native input availability and dry mix policy. This changes execution, not the inspected component.");
-    modeAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.parameters(),
-                                                                                               "mode", mode_);
+    // Input mode changes which native inputs execute, so it stays visible on every view.
+    const std::array<juce::String, 3> modeNames{"Instrument", "FX", "Hybrid"};
+    const std::array<juce::String, 3> modeTips{"MIDI input only", "Audio input only",
+                                               "Audio and MIDI inputs"};
+    for (size_t i = 0; i < modes_.size(); ++i)
+    {
+        addAndMakeVisible(modes_[i]);
+        modes_[i].setButtonText(modeNames[i]);
+        modes_[i].setTooltip(modeTips[i] + ". The same tensor sound executes in every mode.");
+        modes_[i].setComponentID("mode." + modeNames[i].toLowerCase());
+        modes_[i].setClickingTogglesState(true);
+        modes_[i].setRadioGroupId(4101);
+        modes_[i].setConnectedEdges((i > 0 ? juce::Button::ConnectedOnLeft : 0) |
+                                    (i + 1 < modes_.size() ? juce::Button::ConnectedOnRight : 0));
+        modes_[i].onClick = [this, i]
+        {
+            if (modes_[i].getToggleState())
+                processor_.setParameterValue("mode", static_cast<float>(i));
+        };
+    }
+    library_.setComponentID("header.library");
+    panic_.setComponentID("header.panic");
+    previousSound_.setTooltip("Previous sound in the library");
+    nextSound_.setTooltip("Next sound in the library");
+    previousSound_.onClick = [this]
+    {
+        stepSound(-1);
+    };
+    nextSound_.onClick = [this]
+    {
+        stepSound(1);
+    };
     bypassAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         p.parameters(), "bypass", bypass_);
     panic_.onClick = [this]
@@ -136,10 +186,7 @@ Editor::Editor(Processor& p)
     {
         openLibrary();
     };
-    library_.setTooltip("Browse saved configurations without changing the current sound");
-    configurationName_.setFont(alfa::ui::AlfaLookAndFeel::labelFont(14));
-    configurationName_.setTooltip(
-        "Name of the current executable configuration; viewing it changes no sound");
+    library_.setTooltip("Current sound. Click to browse the library; browsing does not change the sound");
     openPreset_.onClick = [this]
     {
         openPreset();
@@ -197,7 +244,20 @@ Editor::Editor(Processor& p)
         addAndMakeVisible(c);
     parameterViewport_.setViewedComponent(&parameterContent_, false);
     routingViewport_.setViewedComponent(&routingContent_, false);
-    layerViewport_.setViewedComponent(&layerContent_, false);
+    matrixViewport_.setViewedComponent(&matrix_, false);
+    matrixViewport_.setScrollBarsShown(true, false);
+    matrix_.onSelect = [this](int source, int destination)
+    {
+        selectMatrixCell(source, destination);
+    };
+    newRoute_.setClickingTogglesState(true);
+    newRoute_.setTooltip("Add or remove an explicit routing or modulation relationship");
+    newRoute_.onClick = [this]
+    {
+        routeFormOpen_ = newRoute_.getToggleState();
+        chooseView(view_);
+    };
+    matrixSelection_.setFont(alfa::ui::AlfaLookAndFeel::labelFont(12));
     for (auto* c : std::initializer_list<juce::Component*>{&scope_,
                                                            &exploration_,
                                                            &xAxis_,
@@ -208,7 +268,10 @@ Editor::Editor(Processor& p)
                                                            &primitives_,
                                                            &parameterViewport_,
                                                            &routingViewport_,
-                                                           &layerViewport_,
+                                                           &matrixViewport_,
+                                                           &influence_,
+                                                           &newRoute_,
+                                                           &matrixSelection_,
                                                            &paramHeader_,
                                                            &routeHeader_,
                                                            &levelHeader_,
@@ -228,8 +291,6 @@ Editor::Editor(Processor& p)
                                                            &routeWeight_,
                                                            &routeWeightsTensor_,
                                                            &mappingLayer_,
-                                                           &mappingSource_,
-                                                           &mappingDestination_,
                                                            &matrixValue_,
                                                            &setMatrix_,
                                                            &rawPrevious_,
@@ -241,7 +302,6 @@ Editor::Editor(Processor& p)
                                                            &showKeyboard_,
                                                            &accent_,
                                                            &gesture_,
-                                                           &tier_,
                                                            &precision_,
                                                            &resources_,
                                                            &hostPrecision_,
@@ -368,14 +428,6 @@ Editor::Editor(Processor& p)
     mappingLayer_.onChange = [this]
     {
         rebuildLayers();
-    };
-    mappingSource_.onChange = [this]
-    {
-        refreshTensor();
-    };
-    mappingDestination_.onChange = [this]
-    {
-        refreshTensor();
     };
     setMatrix_.onClick = [this]
     {
@@ -618,7 +670,7 @@ Editor::~Editor()
     stopTimer();
     parameterViewport_.setViewedComponent(nullptr, false);
     routingViewport_.setViewedComponent(nullptr, false);
-    layerViewport_.setViewedComponent(nullptr, false);
+    matrixViewport_.setViewedComponent(nullptr, false);
     setLookAndFeel(nullptr);
 }
 void Editor::paint(juce::Graphics& g)
@@ -626,207 +678,301 @@ void Editor::paint(juce::Graphics& g)
     const auto& t = look_.theme();
     g.fillAll(t.bg);
     g.setColour(t.line);
-    g.drawHorizontalLine(65, 18.0f, static_cast<float>(getWidth() - 18));
-    g.drawHorizontalLine(119, 18.0f, static_cast<float>(getWidth() - 18));
+    g.drawHorizontalLine(63, 18.0f, static_cast<float>(getWidth() - 18));
+    g.drawHorizontalLine(115, 18.0f, static_cast<float>(getWidth() - 18));
     if (view_ == 0)
     {
-        surface(g, t, highArea_, "CONTROL LAYERS", "X / MANY-TO-MANY");
-        surface(g, t, xyArea_, "CONTROL COORDINATES", "EXPLICIT AXES");
+        surface(g, t, highArea_, "Controls", "X / many-to-many");
+        surface(g, t, influenceArea_, "Influence", "what the focused control reaches");
+        surface(g, t, xyArea_, "XY", "two explicit axes");
     }
     if (view_ == 1)
     {
-        surface(g, t, primitiveArea_, "PRIMITIVE ACTIVATIONS");
-        surface(g, t, parameterArea_, "PARAMETER BASE VALUES");
-        surface(g, t, routingArea_, "ROUTING / MODULATION");
+        surface(g, t, primitiveArea_, "Instances", "activation");
+        surface(g, t, parameterArea_, "Parameters");
+        surface(g, t, routingArea_, "Relationships", "routing / modulation");
     }
     if (view_ == 2)
     {
-        surface(g, t, layerArea_, "LAYERED CONTROL MATRIX");
-        surface(g, t, tensorArea_, "AUDIO TENSOR SPACE");
+        surface(g, t, layerArea_, "Control matrix", "amber +, blue -");
+        surface(g, t, tensorArea_, "Tensors", "expert");
     }
     if (view_ == 3)
     {
-        surface(g, t, settingsArea_, "INSTANCE SETTINGS", "SEPARATE FROM SOUND");
-        g.setColour(t.text2);
-        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(13));
-        auto r = settingsArea_.reduced(24, 48);
-        g.drawText("Theme", r.removeFromTop(22), juce::Justification::centredLeft);
-        r.removeFromTop(46);
-        g.drawText("Preset library", r.removeFromTop(22), juce::Justification::centredLeft);
-        r.removeFromTop(46);
-        g.drawText(store_ ? store_->directory().getFullPathName() : juce::String{},
-                   r.removeFromTop(32).withWidth(470), juce::Justification::centredLeft);
-        r.removeFromTop(30);
-        g.drawText("Accent colour", settingsArea_.getX() + 24, settingsArea_.getY() + 232, 220, 20,
-                   juce::Justification::centredLeft);
-        g.drawText("Knob drag", settingsArea_.getX() + 260, settingsArea_.getY() + 232, 220, 20,
-                   juce::Justification::centredLeft);
-        g.drawText("Native input / dry mix policy", settingsArea_.getX() + 24, settingsArea_.getY() + 174,
-                   400, 20, juce::Justification::centredLeft);
-        g.drawText("Execution tier / precision", settingsArea_.getX() + 520, settingsArea_.getY() + 120,
-                   juce::jmax(220, settingsArea_.getWidth() - 544), 20, juce::Justification::centredLeft);
-        g.drawFittedText("Interface settings stay separate from sounds.\nTraining is paused. Device settings "
-                         "are in your host / Options.",
-                         settingsArea_.getX() + 24, settingsArea_.getY() + 300, 470, 64,
-                         juce::Justification::centredLeft, 3);
+        surface(g, t, settingsArea_, "Settings", "separate from the sound");
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(12, true));
+        for (const auto& [area, text] : settingsLabels_)
+        {
+            g.setColour(t.text2);
+            g.drawText(text, area, juce::Justification::bottomLeft, true);
+        }
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11));
+        g.drawFittedText(
+            store_ ? store_->directory().getFullPathName() : juce::String{},
+            folder_.getBounds().translated(0, 36).withWidth(refresh_.getRight() - folder_.getX()),
+            juce::Justification::topLeft, 2);
     }
-    auto strip = juce::Rectangle<int>(18, workspace_.getBottom() + 10, getWidth() - 36, 88);
-    surface(g, t, strip, "");
-    auto flow = strip.reduced(20, 30);
-    flow.removeFromLeft(300);
-    flow.removeFromRight(140);
+    surface(g, t, footer_, "");
+    paintFlow(g, footer_.withTrimmedLeft(320).withTrimmedRight(260).reduced(0, 14));
+}
+void Editor::paintFlow(juce::Graphics& g, juce::Rectangle<int> area)
+{
+    // Live summary of the current sound: what comes in, through how much structure, and what goes out.
+    const auto& t = look_.theme();
+    const auto mode = processor_.mode.load();
+    size_t controls = 0, layers = 0, instances = 0, state = 0;
+    try
+    {
+        const auto all = sound_.value("control_layers", nlohmann::json::array());
+        layers = all.size();
+        for (const auto& layer : all)
+            controls += layer.at("values").size();
+        for (const auto& instance : sound_.at("instances"))
+        {
+            ++instances;
+            state += instance.value("state_size", size_t(0));
+        }
+    }
+    catch (const std::exception&)
+    {
+    }
+    const std::array<juce::String, 4> steps{
+        mode == 0   ? "MIDI"
+        : mode == 1 ? "Audio"
+                    : "Audio + MIDI",
+        juce::String(static_cast<int>(controls)) + " X, " + juce::String(static_cast<int>(layers)) +
+            (layers == 1 ? " layer" : " layers"),
+        juce::String(static_cast<int>(instances)) + " instances",
+        juce::String(getAudioProcessor()->getTotalNumOutputChannels()) + " ch out"};
+    auto row = area.removeFromTop(area.getHeight() / 2 + 4);
+    const auto chip = (row.getWidth() - 3 * 22) / 4;
+    g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11.5f, true));
+    for (size_t i = 0; i < steps.size(); ++i)
+    {
+        auto box = row.removeFromLeft(chip).toFloat().reduced(0, 3);
+        g.setColour(t.bg);
+        g.fillRoundedRectangle(box, 5);
+        g.setColour(i == 0 && processor_.activeNotes.load() > 0 ? t.accent : t.line);
+        g.drawRoundedRectangle(box, 5, 1);
+        g.setColour(t.text);
+        g.drawText(steps[i], box, juce::Justification::centred, true);
+        if (i + 1 < steps.size())
+        {
+            auto arrow = row.removeFromLeft(22).toFloat();
+            g.setColour(t.text2);
+            const auto y = arrow.getCentreY(), x = arrow.getX() + 5;
+            g.drawArrow({x, y, x + 12, y}, 1.2f, 6, 6);
+        }
+    }
     g.setFont(alfa::ui::AlfaLookAndFeel::monoFont(11));
-    g.setColour(t.text2);
-    g.drawText("INPUT TENSORS  >  X LAYERS  >  RECURRENT DSP STATE  >  AUDIO", flow.removeFromTop(22),
-               juce::Justification::centred);
     g.setColour(t.mod);
-    g.drawText(juce::String(processor_.activeNotes.load()) + " NOTES  /  " +
+    g.drawText(juce::String(static_cast<int>(state)) + " state values  /  " +
+                   juce::String(processor_.activeNotes.load()) + " notes  /  " +
                    juce::String(processor_.getSampleRate(), 0) + " Hz  /  " +
-                   juce::String(processor_.blockMilliseconds.load(), 2) + " ms",
-               flow, juce::Justification::centred);
+                   juce::String(processor_.blockMilliseconds.load(), 2) + " ms per block",
+               area, juce::Justification::centred);
 }
 void Editor::resized()
 {
     if (getWidth() < 1)
         return;
-    auto top = juce::Rectangle<int>(18, 12, getWidth() - 36, 44);
-    auto brand = top.removeFromLeft(200);
+    // Header: brand, depths, input mode, tier, bypass, panic and settings on one line.
+    auto top = juce::Rectangle<int>(18, 10, getWidth() - 36, 44);
+    auto brand = top.removeFromLeft(150);
     brand_.setBounds(brand.removeFromTop(25));
     version_.setBounds(brand);
-    for (auto& tab : tabs_)
-        tab.setBounds(top.removeFromLeft(104).reduced(3, 4));
-    bypass_.setBounds(top.removeFromLeft(78).reduced(2, 6));
-    panic_.setBounds(top.removeFromLeft(68).reduced(2, 6));
-    telemetry_.setBounds(top.reduced(6));
-    auto browser = juce::Rectangle<int>(18, 76, getWidth() - 36, 34);
-    library_.setBounds(browser.removeFromLeft(112).reduced(2, 0));
-    redo_.setBounds(browser.removeFromRight(48).reduced(2, 0));
-    undo_.setBounds(browser.removeFromRight(48).reduced(2, 0));
+    for (size_t i = 0; i < 3; ++i)
+        tabs_[i].setBounds(top.removeFromLeft(84).reduced(2, 5));
+    tabs_[3].setBounds(top.removeFromRight(84).reduced(2, 5));
+    panic_.setBounds(top.removeFromRight(64).reduced(2, 5));
+    bypass_.setBounds(top.removeFromRight(80).reduced(2, 7));
+    tier_.setBounds(top.removeFromRight(104).reduced(2, 7));
+    auto modes = top.removeFromRight(252).reduced(4, 5);
+    const auto modeWidth = modes.getWidth() / static_cast<int>(modes_.size());
+    for (auto& mode : modes_)
+        mode.setBounds(modes.removeFromLeft(modeWidth));
+    // Sound bar.
+    auto browser = juce::Rectangle<int>(18, 72, getWidth() - 36, 34);
+    redo_.setBounds(browser.removeFromRight(52).reduced(2, 0));
+    undo_.setBounds(browser.removeFromRight(52).reduced(2, 0));
+    browser.removeFromRight(10);
     capture_.setBounds(browser.removeFromRight(76).reduced(2, 0));
-    b_.setBounds(browser.removeFromRight(32).reduced(2, 0));
-    a_.setBounds(browser.removeFromRight(32).reduced(2, 0));
+    b_.setBounds(browser.removeFromRight(34).reduced(2, 0));
+    a_.setBounds(browser.removeFromRight(34).reduced(2, 0));
+    browser.removeFromRight(10);
     openPreset_.setBounds(browser.removeFromRight(64).reduced(2, 0));
     savePreset_.setBounds(browser.removeFromRight(80).reduced(2, 0));
-    configurationName_.setBounds(browser.reduced(8, 0));
+    browser.removeFromRight(10);
+    previousSound_.setBounds(browser.removeFromLeft(34).reduced(2, 0));
+    nextSound_.setBounds(browser.removeFromRight(34).reduced(2, 0));
+    library_.setBounds(browser.reduced(2, 0));
     const auto keyboardHeight = showKeyboard_.getToggleState() ? 70 : 0;
     keyboard_.setVisible(keyboardHeight != 0);
     keyboard_.setBounds(18, getHeight() - keyboardHeight - 24, getWidth() - 36, keyboardHeight);
     status_.setBounds(20, getHeight() - 22, getWidth() - 40, 20);
-    workspace_ = {18, 132, getWidth() - 36, getHeight() - 132 - keyboardHeight - 124};
-    const auto rightWidth = juce::jmax(280, workspace_.getWidth() / 3);
-    highArea_ = workspace_;
-    auto xy = highArea_.removeFromRight(rightWidth);
-    highArea_.removeFromRight(12);
-    xyArea_ = xy;
-    scopeArea_ = highArea_;
-    highArea_.setHeight(240);
-    scopeArea_.removeFromTop(252);
+    workspace_ = {18, 126, getWidth() - 36, getHeight() - 126 - keyboardHeight - 124};
+    footer_ = {18, workspace_.getBottom() + 10, getWidth() - 36, 88};
+
+    // Play: controls and their influence on the left, XY and output on the right.
+    const auto rightWidth = juce::jmax(300, workspace_.getWidth() / 3);
+    auto play = workspace_;
+    auto right = play.removeFromRight(rightWidth);
+    play.removeFromRight(12);
+    xyArea_ = right.removeFromTop(right.getHeight() * 11 / 20);
+    right.removeFromTop(12);
+    scopeArea_ = right;
+    highArea_ = play.removeFromTop(juce::jmin(230, play.getHeight() / 2 + 20));
+    play.removeFromTop(12);
+    influenceArea_ = play;
     auto high = highArea_.reduced(14);
     high.removeFromTop(26);
     auto highToolbar = high.removeFromTop(28);
-    layerSelect_.setBounds(highToolbar.removeFromLeft(180));
-    pagePrevious_.setBounds(highToolbar.removeFromRight(30));
+    layerSelect_.setBounds(highToolbar.removeFromLeft(160));
     pageNext_.setBounds(highToolbar.removeFromRight(30));
+    pagePrevious_.setBounds(highToolbar.removeFromRight(30));
     levelHeader_.setBounds(highToolbar.reduced(8, 0));
+    high.removeFromTop(6);
     const auto highWidth = high.getWidth() / 8;
     for (size_t i = 0; i < highControls_.size(); ++i)
-        highControls_[i]->setBounds(high.removeFromLeft(highWidth).reduced(3, 4));
+        highControls_[i]->setBounds(high.removeFromLeft(highWidth).reduced(3, 0));
+    influence_.setBounds(influenceArea_.reduced(16, 12).withTrimmedTop(24));
     auto xp = xyArea_.reduced(14);
-    xp.removeFromTop(30);
-    auto axes = xp.removeFromTop(30);
+    xp.removeFromTop(28);
+    auto axes = xp.removeFromTop(28);
     xAxis_.setBounds(axes.removeFromLeft(axes.getWidth() / 2).reduced(2, 0));
     yAxis_.setBounds(axes.reduced(2, 0));
-    exploration_.setBounds(xp.reduced(0, 10));
+    exploration_.setBounds(xp.withTrimmedTop(6));
     scope_.setBounds(scopeArea_);
+
+    // Structure: instances, the selected instance's parameters, and the relationships into it.
     primitiveArea_ = workspace_;
     parameterArea_ = primitiveArea_;
     primitiveArea_.setWidth(224);
     parameterArea_.removeFromLeft(236);
-    routingArea_ = parameterArea_.removeFromRight(juce::jmax(320, parameterArea_.getWidth() / 3));
+    routingArea_ = parameterArea_.removeFromRight(juce::jmax(330, parameterArea_.getWidth() * 2 / 5));
     parameterArea_.removeFromRight(12);
     primitives_.setBounds(primitiveArea_.reduced(10).withTrimmedTop(28));
     auto params = parameterArea_.reduced(10).withTrimmedTop(26);
-    auto paramTitle = params.removeFromTop(25);
-    paramHeader_.setBounds(paramTitle);
+    paramHeader_.setBounds(params.removeFromTop(25));
     auto rawButtons = params.removeFromBottom(32);
     rawPrevious_.setBounds(rawButtons.removeFromLeft(rawButtons.getWidth() / 2).reduced(2));
     rawNext_.setBounds(rawButtons.reduced(2));
     parameterViewport_.setBounds(params);
     parameterContent_.setSize(juce::jmax(1, parameterViewport_.getWidth() - 14),
-                              static_cast<int>(parameterRows_.size()) * 48);
+                              static_cast<int>(parameterRows_.size()) * 46);
     for (size_t i = 0; i < parameterRows_.size(); ++i)
-        parameterRows_[i]->setBounds(0, static_cast<int>(i) * 48, parameterContent_.getWidth(), 48);
+        parameterRows_[i]->setBounds(0, static_cast<int>(i) * 46, parameterContent_.getWidth(), 46);
     auto routes = routingArea_.reduced(10).withTrimmedTop(26);
     routeHeader_.setBounds(routes.removeFromTop(25));
-    auto controls = routes.removeFromBottom(166);
-    auto routeRow = controls.removeFromTop(30);
-    sourceKind_.setBounds(routeRow.removeFromLeft(routeRow.getWidth() * 2 / 3).reduced(2));
-    sourceElement_.setBounds(routeRow.reduced(2));
-    routeDestination_.setBounds(controls.removeFromTop(30).reduced(2));
-    routeRow = controls.removeFromTop(30);
-    routeWeightsTensor_.setBounds(routeRow.removeFromLeft(routeRow.getWidth() / 2).reduced(2));
-    routeWeight_.setBounds(routeRow.reduced(2));
-    addRoute_.setBounds(controls.removeFromTop(34).reduced(2));
-    removeRoute_.setBounds(controls.removeFromTop(32).reduced(2));
+    auto toggle = routes.removeFromBottom(34);
+    newRoute_.setBounds(toggle.reduced(2));
+    if (routeFormOpen_)
+    {
+        auto controls = routes.removeFromBottom(164);
+        auto routeRow = controls.removeFromTop(30);
+        sourceKind_.setBounds(routeRow.removeFromLeft(routeRow.getWidth() * 2 / 3).reduced(2));
+        sourceElement_.setBounds(routeRow.reduced(2));
+        routeDestination_.setBounds(controls.removeFromTop(30).reduced(2));
+        routeRow = controls.removeFromTop(30);
+        routeWeightsTensor_.setBounds(routeRow.removeFromLeft(routeRow.getWidth() / 2).reduced(2));
+        routeWeight_.setBounds(routeRow.reduced(2));
+        addRoute_.setBounds(controls.removeFromTop(34).reduced(2));
+        removeRoute_.setBounds(controls.removeFromTop(34).reduced(2));
+        routes.removeFromBottom(6);
+    }
     routingViewport_.setBounds(routes);
     routingContent_.setSize(juce::jmax(1, routingViewport_.getWidth() - 14),
-                            static_cast<int>(routeRows_.size()) * 52);
+                            static_cast<int>(routeRows_.size()) * 50);
     for (size_t i = 0; i < routeRows_.size(); ++i)
-        routeRows_[i]->setBounds(0, static_cast<int>(i) * 52, routingContent_.getWidth(), 52);
+        routeRows_[i]->setBounds(0, static_cast<int>(i) * 50, routingContent_.getWidth(), 50);
+
+    // Tensor: the control matrix as a heat map, and the expert tensor tools.
     layerArea_ = workspace_;
-    tensorArea_ = layerArea_.removeFromRight(workspace_.getWidth() * 3 / 5);
+    tensorArea_ = layerArea_.removeFromRight(workspace_.getWidth() / 2);
     layerArea_.removeFromRight(12);
     auto layers = layerArea_.reduced(12).withTrimmedTop(28);
-    mappingLayer_.setBounds(layers.removeFromTop(30));
-    auto mapForm = layers.removeFromTop(100);
-    auto mapRow = mapForm.removeFromTop(32);
-    mappingSource_.setBounds(mapRow.removeFromLeft(mapRow.getWidth() / 2).reduced(2));
-    mappingDestination_.setBounds(mapRow.reduced(2));
-    mapRow = mapForm.removeFromTop(32);
-    matrixValue_.setBounds(mapRow.removeFromLeft(mapRow.getWidth() / 2).reduced(2));
-    setMatrix_.setBounds(mapRow.reduced(2));
-    layerViewport_.setBounds(layers);
-    layerContent_.setSize(juce::jmax(1, layerViewport_.getWidth() - 14),
-                          static_cast<int>(layerRows_.size()) * 48);
-    for (size_t i = 0; i < layerRows_.size(); ++i)
-        layerRows_[i]->setBounds(0, static_cast<int>(i) * 48, layerContent_.getWidth(), 48);
+    auto layerRow = layers.removeFromTop(30);
+    mappingLayer_.setBounds(layerRow.removeFromLeft(juce::jmin(220, layerRow.getWidth() / 2)));
+    layers.removeFromTop(6);
+    auto edit = layers.removeFromTop(30);
+    setMatrix_.setBounds(edit.removeFromRight(130).reduced(2, 0));
+    matrixValue_.setBounds(edit.removeFromRight(96).reduced(2, 0));
+    matrixSelection_.setBounds(edit.reduced(2, 0));
+    layers.removeFromTop(8);
+    matrixViewport_.setBounds(layers);
+    matrix_.setSize(juce::jmax(1, layers.getWidth() - 12),
+                    juce::jmax(layers.getHeight(), matrix_.preferredHeight()));
     auto tensor = tensorArea_.reduced(12).withTrimmedTop(28);
     auto tensorTools = tensor.removeFromTop(30);
-    tensorSelect_.setBounds(tensorTools.removeFromLeft(190));
     importModel_.setBounds(tensorTools.removeFromRight(150).reduced(2, 0));
     exportJSON_.setBounds(tensorTools.removeFromRight(96).reduced(2, 0));
-    apply_.setBounds(tensorTools.reduced(2, 0));
-    tensorValues_.setBounds(tensor.removeFromTop(100).reduced(0, 6));
+    apply_.setBounds(tensorTools.removeFromRight(92).reduced(2, 0));
+    tensorSelect_.setBounds(tensorTools.reduced(0, 0).withTrimmedRight(4));
+    tensorValues_.setBounds(tensor.removeFromTop(110).reduced(0, 6));
     compose_.setBounds(tensor.removeFromTop(30).reduced(0, 2));
     document_.setBounds(tensor.removeFromTop(tensor.getHeight() * 3 / 5).reduced(0, 5));
     inspection_.setBounds(tensor.reduced(0, 5));
+
     settingsArea_ = workspace_;
-    const auto precisionX = settingsArea_.getX() + 520,
-               precisionWidth = juce::jmax(220, settingsArea_.getWidth() - 544);
-    tier_.setBounds(precisionX, settingsArea_.getY() + 144, 200, 32);
-    precision_.setBounds(precisionX, settingsArea_.getY() + 184, precisionWidth, 28);
-    resources_.setBounds(precisionX, settingsArea_.getY() + 214, precisionWidth, 90);
-    hostPrecision_.setBounds(precisionX, settingsArea_.getY() + 310, precisionWidth, 46);
-    theme_.setBounds(settingsArea_.getX() + 24, settingsArea_.getY() + 74, 220, 32);
-    exportTheme_.setBounds(settingsArea_.getX() + 260, settingsArea_.getY() + 74, 150, 32);
-    importTheme_.setBounds(settingsArea_.getX() + 424, settingsArea_.getY() + 74, 150, 32);
-    showKeyboard_.setBounds(settingsArea_.getX() + 594, settingsArea_.getY() + 74, 150, 32);
-    accent_.setBounds(settingsArea_.getX() + 24, settingsArea_.getY() + 254, 220, 32);
-    gesture_.setBounds(settingsArea_.getX() + 260, settingsArea_.getY() + 254, 220, 32);
-    folder_.setBounds(settingsArea_.getX() + 24, settingsArea_.getY() + 144, 220, 32);
-    importTiers_.setBounds(precisionX + 216, settingsArea_.getY() + 144, 200, 32);
-    refresh_.setBounds(settingsArea_.getX() + 260, settingsArea_.getY() + 144, 150, 32);
-    mode_.setBounds(settingsArea_.getX() + 24, settingsArea_.getY() + 196, 330, 32);
-    const auto bottomY = workspace_.getBottom() + 24;
+    layoutSettings();
+
+    const auto bottomY = footer_.getY() + 12;
     if (inputGain_)
-        inputGain_->setBounds(34, bottomY, 90, 72);
+        inputGain_->setBounds(34, bottomY, 90, 70);
     if (mix_)
-        mix_->setBounds(132, bottomY, 90, 72);
+        mix_->setBounds(132, bottomY, 90, 70);
     if (outputGain_)
-        outputGain_->setBounds(230, bottomY, 90, 72);
-    meters_.setBounds(getWidth() - 150, bottomY - 6, 114, 74);
+        outputGain_->setBounds(230, bottomY, 90, 70);
+    meters_.setBounds(footer_.getRight() - 132, bottomY - 4, 114, 72);
+    telemetry_.setBounds(footer_.getRight() - 250, bottomY + 22, 110, 24);
     processor_.uiSettings().setProperty("width", getWidth(), nullptr);
     processor_.uiSettings().setProperty("height", getHeight(), nullptr);
+}
+void Editor::layoutSettings()
+{
+    // Two columns of labelled rows; labels are painted from settingsLabels_ so nothing overlaps.
+    settingsLabels_.clear();
+    auto area = settingsArea_.reduced(24).withTrimmedTop(30);
+    auto left = area.removeFromLeft(juce::jmin(560, area.getWidth() / 2));
+    area.removeFromLeft(24);
+    auto right = area;
+    const auto label = [this](juce::Rectangle<int>& column, const juce::String& text)
+    {
+        settingsLabels_.push_back({column.removeFromTop(22), text});
+        column.removeFromTop(4);
+    };
+    label(left, "Theme");
+    auto row = left.removeFromTop(32);
+    theme_.setBounds(row.removeFromLeft(200));
+    row.removeFromLeft(10);
+    exportTheme_.setBounds(row.removeFromLeft(130));
+    row.removeFromLeft(10);
+    importTheme_.setBounds(row.removeFromLeft(130));
+    left.removeFromTop(16);
+    auto pair = left.removeFromTop(22);
+    settingsLabels_.push_back({pair.removeFromLeft(210), "Accent colour"});
+    settingsLabels_.push_back({pair, "Knob drag"});
+    left.removeFromTop(4);
+    row = left.removeFromTop(32);
+    accent_.setBounds(row.removeFromLeft(200));
+    row.removeFromLeft(10);
+    gesture_.setBounds(row.removeFromLeft(200));
+    left.removeFromTop(16);
+    label(left, "On-screen keyboard");
+    showKeyboard_.setBounds(left.removeFromTop(32).withWidth(160));
+    left.removeFromTop(16);
+    label(left, "Sound library folder");
+    row = left.removeFromTop(32);
+    folder_.setBounds(row.removeFromLeft(200));
+    row.removeFromLeft(10);
+    refresh_.setBounds(row.removeFromLeft(150));
+
+    label(right, "Tier resources and precision");
+    importTiers_.setBounds(right.removeFromTop(32).withWidth(200));
+    right.removeFromTop(10);
+    precision_.setBounds(right.removeFromTop(24));
+    resources_.setBounds(right.removeFromTop(84));
+    hostPrecision_.setBounds(right.removeFromTop(44));
 }
 void Editor::chooseView(int index)
 {
@@ -836,24 +982,25 @@ void Editor::chooseView(int index)
         tabs_[i].setToggleState(static_cast<int>(i) == view_, juce::dontSendNotification);
     for (auto* c :
          std::initializer_list<juce::Component*>{&scope_, &exploration_, &xAxis_, &yAxis_, &layerSelect_,
-                                                 &pagePrevious_, &pageNext_, &levelHeader_})
+                                                 &pagePrevious_, &pageNext_, &levelHeader_, &influence_})
         c->setVisible(view_ == 0);
     for (auto& knob : highControls_)
         knob->setVisible(view_ == 0);
-    for (auto* c : std::initializer_list<juce::Component*>{
-             &primitives_, &parameterViewport_, &routingViewport_, &paramHeader_, &routeHeader_, &addRoute_,
-             &removeRoute_, &sourceKind_, &sourceElement_, &routeDestination_, &routeWeight_,
-             &routeWeightsTensor_, &rawPrevious_, &rawNext_})
+    for (auto* c : std::initializer_list<juce::Component*>{&primitives_, &parameterViewport_,
+                                                           &routingViewport_, &paramHeader_, &routeHeader_,
+                                                           &rawPrevious_, &rawNext_, &newRoute_})
         c->setVisible(view_ == 1);
+    for (auto* c :
+         std::initializer_list<juce::Component*>{&addRoute_, &removeRoute_, &sourceKind_, &sourceElement_,
+                                                 &routeDestination_, &routeWeight_, &routeWeightsTensor_})
+        c->setVisible(view_ == 1 && routeFormOpen_);
     for (auto* c : std::initializer_list<juce::Component*>{
-             &layerViewport_, &mappingLayer_, &mappingSource_, &mappingDestination_, &matrixValue_,
-             &setMatrix_, &document_, &inspection_, &tensorValues_, &tensorSelect_, &apply_, &exportJSON_,
-             &importModel_})
+             &matrixViewport_, &mappingLayer_, &matrixSelection_, &matrixValue_, &setMatrix_, &document_,
+             &inspection_, &tensorValues_, &tensorSelect_, &apply_, &exportJSON_, &importModel_, &compose_})
         c->setVisible(view_ == 2);
-    compose_.setVisible(view_ == 2);
-    for (auto* c : std::initializer_list<juce::Component*>{
-             &theme_, &refresh_, &folder_, &exportTheme_, &importTheme_, &accent_, &gesture_, &tier_,
-             &precision_, &resources_, &hostPrecision_, &showKeyboard_, &mode_})
+    for (auto* c : std::initializer_list<juce::Component*>{&theme_, &refresh_, &folder_, &exportTheme_,
+                                                           &importTheme_, &accent_, &gesture_, &precision_,
+                                                           &resources_, &hostPrecision_, &showKeyboard_})
         c->setVisible(view_ == 3);
     processor_.uiSettings().setProperty("view", view_, nullptr);
     resized();
@@ -883,8 +1030,7 @@ void Editor::refreshLibrary()
 {
     juce::String error;
     store_->refresh(error);
-    configurationName_.setText("Configuration: " + PresetStore::presetName(processor_.document()),
-                               juce::dontSendNotification);
+    library_.setButtonText(PresetStore::presetName(processor_.document()));
     if (error.isNotEmpty())
         showStatus(error, true);
 }
@@ -1073,8 +1219,7 @@ void Editor::refreshSound()
         rebuildLayers();
         rebuildHighControls();
         refreshTensor();
-        configurationName_.setText("Configuration: " + PresetStore::presetName(processor_.document()),
-                                   juce::dontSendNotification);
+        library_.setButtonText(PresetStore::presetName(processor_.document()));
         chooseView(view_);
     }
     catch (const std::exception& e)
@@ -1090,6 +1235,106 @@ juce::String Editor::parameterLabel(size_t index) const
                 return "X[raw," + juce::String(static_cast<int>(index)) + "]  " +
                        js(meta.value("name", std::string{}));
     return "X[raw," + juce::String(static_cast<int>(index)) + "]";
+}
+juce::String Editor::parameterName(size_t index) const
+{
+    if (sound_.contains("parameter_metadata"))
+        for (const auto& meta : sound_["parameter_metadata"])
+            if (meta.value("index", size_t(-1)) == index)
+                if (const auto name = meta.value("name", std::string{}); !name.empty())
+                    return js(name);
+    return "X[raw," + juce::String(static_cast<int>(index)) + "]";
+}
+void Editor::focusControl(int index)
+{
+    if (focusedControl_ == index)
+        return;
+    focusedControl_ = index;
+    refreshInfluence();
+}
+void Editor::refreshInfluence()
+{
+    // Compose the authored matrices from the focused control down to the bottom parameters.
+    // This is the linear sensitivity; clamps between layers can only reduce it.
+    try
+    {
+        const auto layers = sound_.value("control_layers", nlohmann::json::array());
+        const auto layer = static_cast<size_t>(highLayer_);
+        if (layer >= layers.size() || layers[layer].at("values").empty())
+        {
+            influence_.setEntries("No control layer", {}, 0);
+            return;
+        }
+        const auto sources = layers[layer].at("values").size();
+        focusedControl_ = juce::jlimit(0, static_cast<int>(sources) - 1, focusedControl_);
+        std::vector<double> vector(sources, 0.0);
+        vector[static_cast<size_t>(focusedControl_)] = 1;
+        for (size_t i = layer; i < layers.size(); ++i)
+        {
+            const auto& matrix = layers[i].at("matrix");
+            const auto rows = matrix.at("shape").at(0).get<size_t>();
+            const auto columns = matrix.at("shape").at(1).get<size_t>();
+            const auto& values = matrix.at("values");
+            std::vector<double> next(rows, 0.0);
+            for (size_t d = 0; d < rows; ++d)
+                for (size_t s = 0; s < columns && s < vector.size(); ++s)
+                    if (std::abs(vector[s]) > 0.0)
+                        next[d] += values.at(d * columns + s).get<double>() * vector[s];
+            vector = std::move(next);
+        }
+        const auto locks = sound_.value("parameter_locks", nlohmann::json::array());
+        std::vector<InfluenceView::Entry> entries;
+        for (size_t i = 0; i < vector.size(); ++i)
+            if (std::abs(vector[i]) > 1e-12)
+                entries.push_back(
+                    {parameterName(i), vector[i], i < locks.size() && locks[i].get<int>() != 0});
+        const auto reached = static_cast<int>(entries.size());
+        std::stable_sort(entries.begin(), entries.end(), [](const auto& a, const auto& b)
+                         { return std::abs(a.weight) > std::abs(b.weight); });
+        influence_.setEntries("X[" + juce::String(highLayer_) + "," + juce::String(focusedControl_) + "]",
+                              std::move(entries), reached);
+    }
+    catch (const std::exception& e)
+    {
+        influence_.setEntries("Influence unavailable", {}, 0);
+        showStatus(e.what(), true);
+    }
+}
+void Editor::stepSound(int direction)
+{
+    // Factory programs first, then the user's library, in the same order as the library window.
+    std::vector<std::pair<juce::String, juce::String>> sounds;
+    for (const auto& program : factoryPrograms())
+        sounds.push_back({js(program.name), js(program.document)});
+    for (const auto& entry : store_->entries())
+        sounds.push_back({entry.name, {}});
+    if (sounds.empty())
+        return;
+    const auto current = PresetStore::presetName(processor_.document());
+    int index = -1;
+    for (size_t i = 0; i < sounds.size(); ++i)
+        if (sounds[i].first == current)
+            index = static_cast<int>(i);
+    const auto count = static_cast<int>(sounds.size());
+    const auto target = static_cast<size_t>(index < 0 ? (direction > 0 ? 0 : count - 1)
+                                                      : (index + direction + count) % count);
+    auto document = sounds[target].second;
+    if (document.isEmpty())
+        document = store_->entries()[target - factoryPrograms().size()].file.loadFileAsString();
+    juce::String error;
+    if (processor_.loadPresetJSON(document, error))
+    {
+        refreshSound();
+        showStatus("Loaded " + sounds[target].first);
+    }
+    else
+        showStatus(error, true);
+}
+void Editor::syncMode()
+{
+    const auto mode = juce::jlimit(0, 2, processor_.mode.load());
+    for (size_t i = 0; i < modes_.size(); ++i)
+        modes_[i].setToggleState(static_cast<int>(i) == mode, juce::dontSendNotification);
 }
 juce::String Editor::parameterUnit(size_t index) const
 {
@@ -1165,6 +1410,7 @@ void Editor::selectedRowsChanged(int row)
     selectedPrimitive_ = juce::jmax(0, row);
     rawPage_ = 0;
     rebuildParameters();
+    rebuildRoutes();
 }
 void Editor::rebuildParameters()
 {
@@ -1193,7 +1439,8 @@ void Editor::rebuildParameters()
         {
             const auto locked = index < locks.size() && locks[index].get<int>() != 0;
             auto row = std::make_unique<NumericRow>(
-                parameterLabel(index), parameterUnit(index), values[index].get<double>(),
+                parameterName(index) + "  [" + juce::String(static_cast<int>(index)) + "]",
+                parameterUnit(index), values[index].get<double>(),
                 [this, index](double v, juce::String& e)
                 {
                     const auto ok = processor_.editTensorParameter(index, v, e);
@@ -1266,19 +1513,45 @@ void Editor::rebuildRoutes()
     try
     {
         const auto routes = sound_.value("projections", nlohmann::json::array());
-        routeHeader_.setText(juce::String(static_cast<int>(routes.size())) + " explicit relationships",
-                             juce::dontSendNotification);
+        // Show the relationships that drive the selected instance; "All raw parameters" shows every one.
+        size_t first = 0, last = std::numeric_limits<size_t>::max();
+        if (selectedPrimitive_ > 0)
+        {
+            const auto& instance = sound_.at("instances").at(static_cast<size_t>(selectedPrimitive_ - 1));
+            first = instance.at("parameters").at("offset").get<size_t>();
+            last = first + instance.at("parameters").at("count").get<size_t>();
+        }
+        std::vector<size_t> shown;
+        double scale = 1;
         for (size_t i = 0; i < routes.size(); ++i)
+        {
+            const auto target = routes[i].at("parameter_element").get<size_t>();
+            if (target < first || target >= last)
+                continue;
+            shown.push_back(i);
+            const auto tensorName = routes[i].at("weights").get<std::string>();
+            const auto weight = routes[i].at("weight_element").get<size_t>();
+            scale = juce::jmax(
+                scale, std::abs(sound_.at("tensors").at(tensorName).at("values").at(weight).get<double>()));
+        }
+        routeHeader_.setText(selectedPrimitive_ > 0
+                                 ? juce::String(static_cast<int>(shown.size())) + " of " +
+                                       juce::String(static_cast<int>(routes.size())) +
+                                       " relationships drive this instance"
+                                 : juce::String(static_cast<int>(routes.size())) + " relationships",
+                             juce::dontSendNotification);
+        for (const auto i : shown)
         {
             const auto& route = routes[i];
             const auto tensorName = js(route.at("weights").get<std::string>());
             const auto weight = route.at("weight_element").get<size_t>();
             const auto target = route.at("parameter_element").get<size_t>();
             auto row = std::make_unique<NumericRow>(
-                sourceLabel(route) + " > " + parameterLabel(target), tensorName,
+                sourceLabel(route) + "  >  " + parameterName(target), tensorName,
                 sound_.at("tensors").at(string(tensorName)).at("values").at(weight).get<double>(),
                 [this, tensorName, weight](double v, juce::String& e)
                 { return changeTensor(tensorName, weight, v, e); });
+            row->showWeightBar(look_.theme(), scale);
             routingContent_.addAndMakeVisible(*row);
             routeRows_.push_back(std::move(row));
         }
@@ -1334,59 +1607,52 @@ void Editor::rebuildLayers()
 {
     if (refreshing_)
         return;
-    layerRows_.clear();
-    refreshing_ = true;
     try
     {
         const auto layers = sound_.value("control_layers", nlohmann::json::array());
-        const auto layer = juce::jmax(0, mappingLayer_.getSelectedId() - 1),
-                   previousSource = mappingSource_.getSelectedId(),
-                   previousDestination = mappingDestination_.getSelectedId();
-        mappingSource_.clear(juce::dontSendNotification);
-        mappingDestination_.clear(juce::dontSendNotification);
-        if (static_cast<size_t>(layer) < layers.size())
+        const auto layer = static_cast<size_t>(juce::jmax(0, mappingLayer_.getSelectedId() - 1));
+        if (layer < layers.size())
         {
-            const auto& current = layers[static_cast<size_t>(layer)];
-            const auto& values = current.at("values");
-            const auto& ranges = current.at("ranges");
-            for (size_t index = 0; index < values.size(); ++index)
-            {
-                const auto low = ranges.at(index).at(0).get<double>(),
-                           high = ranges.at(index).at(1).get<double>();
-                auto row = std::make_unique<NumericRow>(
-                    "X[" + juce::String(layer) + "," + juce::String(static_cast<int>(index)) + "]", "value",
-                    values[index].get<double>(), [this, layer, index](double value, juce::String& error)
-                    { return processor_.editLayerValue(static_cast<size_t>(layer), index, value, error); },
-                    std::function<void(bool)>{}, false, std::array<double, 3>{low, high, 0});
-                layerContent_.addAndMakeVisible(*row);
-                layerRows_.push_back(std::move(row));
-                mappingSource_.addItem("X[" + juce::String(layer) + "," +
-                                           juce::String(static_cast<int>(index)) + "]",
-                                       static_cast<int>(index) + 1);
-            }
+            const auto& current = layers[layer];
+            const auto sources = current.at("values").size();
             const auto destinations = current.at("matrix").at("shape").at(0).get<size_t>();
+            std::vector<double> values;
+            for (const auto& v : current.at("matrix").at("values"))
+                values.push_back(v.get<double>());
+            juce::StringArray rows, columns;
             for (size_t i = 0; i < destinations; ++i)
-                mappingDestination_.addItem(static_cast<size_t>(layer + 1) < layers.size()
-                                                ? "X[" + juce::String(layer + 1) + "," +
-                                                      juce::String(static_cast<int>(i)) + "]"
-                                                : parameterLabel(i),
-                                            static_cast<int>(i) + 1);
-            mappingSource_.setSelectedId(
-                values.empty() ? 0 : juce::jlimit(1, static_cast<int>(values.size()), previousSource),
-                juce::dontSendNotification);
-            mappingDestination_.setSelectedId(
-                destinations ? juce::jlimit(1, static_cast<int>(destinations), previousDestination) : 0,
-                juce::dontSendNotification);
+                rows.add(layer + 1 < layers.size() ? "X[" + juce::String(static_cast<int>(layer + 1)) + "," +
+                                                         juce::String(static_cast<int>(i)) + "]"
+                                                   : parameterName(i));
+            for (size_t i = 0; i < sources; ++i)
+                columns.add("X[" + juce::String(static_cast<int>(layer)) + "," +
+                            juce::String(static_cast<int>(i)) + "]");
+            matrix_.setMatrix(std::move(values), rows, columns);
+            matrixSource_ = juce::jlimit(0, juce::jmax(0, static_cast<int>(sources) - 1), matrixSource_);
+            matrixDestination_ =
+                juce::jlimit(0, juce::jmax(0, static_cast<int>(destinations) - 1), matrixDestination_);
+            matrix_.select(matrixSource_, matrixDestination_);
+            setMatrix_.setEnabled(sources > 0 && destinations > 0);
         }
-        setMatrix_.setEnabled(mappingSource_.getSelectedId() > 0 && mappingDestination_.getSelectedId() > 0);
+        else
+        {
+            matrix_.setMatrix({}, {}, {});
+            setMatrix_.setEnabled(false);
+        }
     }
     catch (const std::exception& e)
     {
         showStatus(e.what(), true);
     }
-    refreshing_ = false;
     refreshTensor();
     resized();
+}
+void Editor::selectMatrixCell(int source, int destination)
+{
+    matrixSource_ = source;
+    matrixDestination_ = destination;
+    matrix_.select(source, destination);
+    refreshTensor();
 }
 void Editor::rebuildHighControls()
 {
@@ -1405,24 +1671,36 @@ void Editor::rebuildHighControls()
             std::unique_ptr<juce::Component> knob;
             const auto title =
                 "X[" + juce::String(highLayer_) + "," + juce::String(static_cast<int>(index)) + "]";
+            const auto focus = [this, index]
+            {
+                focusControl(static_cast<int>(index));
+            };
             if (layer == 0 && index < 8)
-                knob = std::make_unique<ParameterKnob>(processor_,
-                                                       "x" + juce::String(static_cast<int>(index)), title);
+            {
+                auto host = std::make_unique<ParameterKnob>(
+                    processor_, "x" + juce::String(static_cast<int>(index)), title);
+                host->onTouched = focus;
+                knob = std::move(host);
+            }
             else
             {
                 const auto& range = layers[layer].at("ranges").at(index);
-                knob = std::make_unique<LayerKnob>(processor_, layer, index,
-                                                   layers[layer].at("values").at(index).get<double>(),
-                                                   range.at(0).get<double>(), range.at(1).get<double>());
+                auto deep = std::make_unique<LayerKnob>(processor_, layer, index,
+                                                        layers[layer].at("values").at(index).get<double>(),
+                                                        range.at(0).get<double>(), range.at(1).get<double>());
+                deep->onTouched = focus;
+                knob = std::move(deep);
             }
             addChildComponent(*knob);
             highControls_.push_back(std::move(knob));
         }
-        levelHeader_.setText(count ? juce::String(static_cast<int>(begin)) + "-" +
-                                         juce::String(static_cast<int>(end)) + " / " +
-                                         juce::String(static_cast<int>(count)) + " controls"
-                                   : "This sound has no higher control layer",
-                             juce::dontSendNotification);
+        levelHeader_.setText(
+            count ? juce::String(static_cast<int>(begin)) + "-" + juce::String(static_cast<int>(end) - 1) +
+                        " of " + juce::String(static_cast<int>(count)) + " controls, page " +
+                        juce::String(highPage_ + 1) + "/" + juce::String(static_cast<int>((count + 7) / 8))
+                  : "This sound has no higher control layer",
+            juce::dontSendNotification);
+        refreshInfluence();
         pagePrevious_.setEnabled(highPage_ > 0);
         pageNext_.setEnabled(end < count);
         xAxis_.setEnabled(count > 0);
@@ -1463,18 +1741,30 @@ void Editor::refreshTensor()
             tensorValues_.setText(js(states.dump(2)), false);
         }
         const auto layers = sound_.value("control_layers", nlohmann::json::array());
-        const auto layer = mappingLayer_.getSelectedId() - 1, source = mappingSource_.getSelectedId() - 1,
-                   destination = mappingDestination_.getSelectedId() - 1;
-        if (layer >= 0 && source >= 0 && destination >= 0 && static_cast<size_t>(layer) < layers.size())
+        const auto layer = mappingLayer_.getSelectedId() - 1, source = matrixSource_,
+                   destination = matrixDestination_;
+        if (layer >= 0 && static_cast<size_t>(layer) < layers.size())
         {
             const auto& matrix = layers[static_cast<size_t>(layer)].at("matrix");
+            const auto rows = matrix.at("shape").at(0).get<size_t>();
             const auto columns = matrix.at("shape").at(1).get<size_t>();
-            const auto value =
-                matrix.at("values")
-                    .at(static_cast<size_t>(destination) * columns + static_cast<size_t>(source))
-                    .get<double>();
-            matrixValue_.setText(scalarText(value), false);
+            if (static_cast<size_t>(source) < columns && static_cast<size_t>(destination) < rows)
+            {
+                const auto value =
+                    matrix.at("values")
+                        .at(static_cast<size_t>(destination) * columns + static_cast<size_t>(source))
+                        .get<double>();
+                matrixValue_.setText(scalarText(value), false);
+                matrixSelection_.setText(
+                    "X[" + juce::String(layer) + "," + juce::String(source) + "]  >  " +
+                        (static_cast<size_t>(layer) + 1 < layers.size()
+                             ? "X[" + juce::String(layer + 1) + "," + juce::String(destination) + "]"
+                             : parameterName(static_cast<size_t>(destination))),
+                    juce::dontSendNotification);
+            }
         }
+        else
+            matrixSelection_.setText("This sound has no control layer", juce::dontSendNotification);
         inspection_.setText(processor_.inspection(), false);
     }
     catch (const std::exception& e)
@@ -1495,8 +1785,8 @@ void Editor::setCoefficient()
         auto& matrix =
             data.at("control_layers").at(static_cast<size_t>(mappingLayer_.getSelectedId() - 1)).at("matrix");
         const auto columns = matrix.at("shape").at(1).get<size_t>();
-        const auto offset = static_cast<size_t>(mappingDestination_.getSelectedId() - 1) * columns +
-                            static_cast<size_t>(mappingSource_.getSelectedId() - 1);
+        const auto offset =
+            static_cast<size_t>(matrixDestination_) * columns + static_cast<size_t>(matrixSource_);
         matrix.at("values").at(offset) = value;
         juce::String error;
         if (changeDocument(std::move(data), error))
@@ -1514,17 +1804,21 @@ void Editor::timerCallback()
                        juce::dontSendNotification);
     if (processor_.programRevision.load() != revision_)
         refreshSound();
+    syncMode();
     undo_.setEnabled(processor_.undoManager().canUndo());
     redo_.setEnabled(processor_.undoManager().canRedo());
     scope_.repaint();
     meters_.repaint();
     exploration_.repaint();
-    telemetry_.setText(juce::String(processor_.activeNotes.load()) + " notes / " +
-                           juce::String(processor_.blockMilliseconds.load(), 2) + " ms",
-                       juce::dontSendNotification);
-    if (processor_.failures.load() > 0)
-        telemetry_.setTooltip(juce::String(static_cast<juce::int64>(processor_.failures.load())) +
+    // The flow line carries notes and timing; this label only appears when updates were rejected.
+    if (const auto failures = processor_.failures.load(); failures > 0)
+    {
+        telemetry_.setColour(juce::Label::textColourId, look_.theme().warn);
+        telemetry_.setText(juce::String(static_cast<juce::int64>(failures)) + " rejected",
+                           juce::dontSendNotification);
+        telemetry_.setTooltip(juce::String(static_cast<juce::int64>(failures)) +
                               " runtime/model updates rejected; DSP retains valid controls");
-    repaint(18, workspace_.getBottom() + 10, getWidth() - 36, 88);
+    }
+    repaint(footer_);
 }
 } // namespace alfa::tensorhost

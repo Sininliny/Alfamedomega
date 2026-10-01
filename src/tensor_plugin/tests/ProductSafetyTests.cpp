@@ -419,7 +419,7 @@ TEST_CASE("Closing the actual editor destroys nested composition and primitive d
     std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
     REQUIRE(editor != nullptr);
     editor->setVisible(true);
-    click(*editor, "Tensor space");
+    click(*editor, "Tensor");
     click(*editor, "Compose fragments");
     auto* composition = dialog<alfa::tensorhost::CompositionPanel>();
     REQUIRE(composition != nullptr);
