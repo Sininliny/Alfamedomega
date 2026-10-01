@@ -377,6 +377,27 @@ public:
             report << "\nCompiled state elements: " << runtime_.state().size()
                    << " | output elements: " << runtime_.output().size()
                    << " | scheduled primitives: " << runtime_.schedule().size();
+            // Used / cap against the capacity this sound declares; tiers change it only through
+            // authored tier_profiles, otherwise a tier selects the scalar type alone.
+            const auto cap = [&](const char* name)
+            {
+                return std::to_string(data.at("budget").value(name, size_t(0)));
+            };
+            const auto represented = [](const TensorT<Scalar>& tensor)
+            {
+                return tensor.presence.empty() ? tensor.values.size()
+                                               : static_cast<size_t>(std::count(tensor.presence.begin(),
+                                                                                tensor.presence.end(), 1));
+            };
+            report << "\nUsed / budget: primitives " << runtime_.schedule().size() << "/"
+                   << cap("active_primitives") << " | state " << runtime_.state().size() << "/"
+                   << cap("state_elements") << " | outputs " << runtime_.output().size() << "/"
+                   << cap("output_elements") << " | parameters " << represented(controls_.parameters) << "/"
+                   << cap("parameter_elements") << " | routing " << represented(controls_.routing) << "/"
+                   << cap("routing_elements");
+            report << (data.contains("tier_profiles")
+                           ? "\nBudget source: this sound's authored tier profile"
+                           : "\nBudget source: this sound (no tier profiles; tier sets precision only)");
             report << "\nDeclared host latency: " << data.value("host_latency_samples", 0) << " samples";
             report
                 << "\nDeclared budgets, routing, activation, allocation and clocks are inspectable in JSON.";

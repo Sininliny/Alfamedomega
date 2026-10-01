@@ -530,7 +530,13 @@ Editor::Editor(Processor& p)
         if (processor_.setTier(tierIds[juce::jlimit(0, 3, tier_.getSelectedId() - 1)], error))
         {
             refreshSound();
-            showStatus("Tier prepared; tensor controls and parameter locks retained");
+            const auto precision = processor_.scalarBytes() == 8
+                                       ? juce::String("float64 (8 bytes per value)")
+                                       : juce::String("float32 (4 bytes per value)");
+            showStatus(sound_.contains("tier_profiles")
+                           ? "Tier converted within its authored budget; precision " + precision
+                           : "Tier changed precision to " + precision +
+                                 "; capacity is this sound's own budget (no tier profiles imported)");
         }
         else
         {
