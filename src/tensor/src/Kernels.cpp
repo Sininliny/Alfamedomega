@@ -109,8 +109,8 @@ void sineReadout(const StepT<Scalar>& s, std::span<Scalar> out) noexcept
     silence<Scalar>(out);
     if (!validSine<Scalar>(s) || out.size() != 1)
         return;
-    out[0] = bounded<Scalar>(std::sin(2 * std::numbers::pi * s.localState[0]) * static_cast<double>(s.parameters[1]) *
-                     s.activation);
+    out[0] = bounded<Scalar>(std::sin(2 * std::numbers::pi * s.localState[0]) *
+                             static_cast<double>(s.parameters[1]) * s.activation);
 }
 template <typename Scalar>
 bool validPole(const StepT<Scalar>& s) noexcept
@@ -126,7 +126,8 @@ void poleTransition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
     const double interval = static_cast<double>(s.clock.periodSamples) / s.sampleRate;
     const double alpha =
         s.parameters[0] == 0 ? 0 : -std::expm1(-2 * std::numbers::pi * s.parameters[0] * interval);
-    next[0] = bounded<Scalar>(s.localState[0] + alpha * (static_cast<double>(excitation<Scalar>(s)) - s.localState[0]));
+    next[0] = bounded<Scalar>(s.localState[0] +
+                              alpha * (static_cast<double>(excitation<Scalar>(s)) - s.localState[0]));
 }
 template <typename Scalar>
 void poleReadout(const StepT<Scalar>& s, std::span<Scalar> out) noexcept
@@ -147,7 +148,7 @@ void delayTransition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
     if (!validFeedback<Scalar>(s) || next.size() != s.localState.size())
         return;
     next[0] = bounded<Scalar>(static_cast<double>(excitation<Scalar>(s)) +
-                      static_cast<double>(s.parameters[0]) * s.localState.back());
+                              static_cast<double>(s.parameters[0]) * s.localState.back());
     for (std::size_t i = 1; i < next.size(); ++i)
         next[i] = s.localState[i - 1];
 }

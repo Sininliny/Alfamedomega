@@ -24,8 +24,8 @@
 // sound then neither decays audibly nor grows.
 
 #include "alfa/dsp/detail/DelayLine.h"
-#include "alfa/dsp/detail/Hadamard.h"
 #include "alfa/dsp/detail/FastMath.h"
+#include "alfa/dsp/detail/Hadamard.h"
 
 #include <algorithm>
 #include <array>
@@ -192,10 +192,7 @@ public:
     }
 
     /// In-place normalised 8-point fast Walsh-Hadamard transform (orthogonal).
-    static void hadamard(std::array<float, kLines>& v) noexcept
-    {
-        hadamard8(v);
-    }
+    static void hadamard(std::array<float, kLines>& v) noexcept { hadamard8(v); }
 
 private:
     std::array<DelayLine, kLines> lines_{};

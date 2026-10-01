@@ -20,8 +20,8 @@ inline juce::String scalarText(double value)
     std::array<char, 128> buffer{};
     // The shortest round-trip representation keeps exact doubles without turning
     // ordinary decimal controls into unreadable 17-digit binary artifacts.
-    const auto result = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value,
-                                      std::chars_format::general);
+    const auto result =
+        std::to_chars(buffer.data(), buffer.data() + buffer.size(), value, std::chars_format::general);
     return result.ec == std::errc{} ? juce::String(std::string(buffer.data(), result.ptr))
                                     : juce::String(value, 17);
 }
