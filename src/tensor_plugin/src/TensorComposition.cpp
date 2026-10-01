@@ -681,12 +681,12 @@ bool TensorComposition::restoreDocument(const juce::String& text, juce::String& 
                     layers[local].erase("ranking");
                     if (const auto& merged = document["control_layers"][level]; merged.contains("labels"))
                     {
-                        JSON names = JSON::array();
+                        JSON labels = JSON::array();
                         for (size_t i = 0; i < values.size(); ++i)
-                            names.push_back(merged.at("labels").at(layerOffsets[level] + i));
-                        if (std::any_of(names.begin(), names.end(),
+                            labels.push_back(merged.at("labels").at(layerOffsets[level] + i));
+                        if (std::any_of(labels.begin(), labels.end(),
                                         [](const JSON& name) { return !name.get<std::string>().empty(); }))
-                            layers[local]["labels"] = std::move(names);
+                            layers[local]["labels"] = std::move(labels);
                     }
                     layerOffsets[level] += values.size();
                 }
