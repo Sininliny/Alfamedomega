@@ -11,6 +11,7 @@
 #include <cmath>
 #include <limits>
 #include <nlohmann/json.hpp>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <type_traits>
@@ -95,7 +96,8 @@ class Execution final : public TensorExecution
     };
     RuntimeT<Scalar> runtime_;
     ConfigurationT<Scalar> controls_;
-    std::vector<Scalar> mapped_;
+    std::vector<Scalar> mapped_, highest_;
+    std::array<std::vector<Scalar>, 4> initialControls_;
     std::vector<Layer> layers_;
     std::vector<Mix> mix_;
     std::unique_ptr<TensorModelT<Scalar>> model_;
@@ -107,6 +109,7 @@ class Execution final : public TensorExecution
         juce::String identity;
         std::array<size_t, 4> offsets{};
         TensorT<Scalar> latent;
+        Clock clock;
     };
     std::vector<ScopedModel> scopedModels_;
     TensorT<Scalar> latent_;
@@ -119,6 +122,17 @@ public:
         try
         {
             const auto data = JSON::parse(text);
+            readNativePolicy(data);
+            for (const auto* name :
+                 {"host_alignment_bytes", "boundary_conversion_bytes", "compiler_model_bytes"})
+                if (data.at("budget").contains(name))
+                {
+                    const auto& capacity = data.at("budget").at(name);
+                    if (!capacity.is_number_integer() ||
+                        (!capacity.is_number_unsigned() && capacity.get<int64_t>() < 0) ||
+                        capacity.get<uint64_t>() > std::numeric_limits<size_t>::max())
+                        throw std::invalid_argument("Native host capacities must be nonnegative integers");
+                }
             if (data.contains("host_latency_samples"))
             {
                 const auto& latency = data.at("host_latency_samples");
@@ -173,8 +187,29 @@ public:
                     layers_.push_back(std::move(layer));
                 }
             }
+            const auto accountLatent = [&](size_t count)
+            {
+                if (stored > budget.storedTensorElements || count > budget.storedTensorElements - stored)
+                    throw std::invalid_argument("Latent inputs exceed stored tensor capacity");
+                stored += count;
+            };
+            const auto validateModelInputs = [](const JSON& model, size_t latentCount)
+            {
+                const std::array<const char*, 6> names{"audio",           "midi",   "gesture",
+                                                       "user_preference", "latent", "context"};
+                const std::array<size_t, 6> capacities{2, 1280, 48, 5, latentCount, 8};
+                for (size_t i = 0; i < names.size(); ++i)
+                    if (model.at("input_widths").at(names[i]).get<uint64_t>() > capacities[i])
+                        throw std::invalid_argument(
+                            "Compiler input width exceeds the native host source capacity");
+            };
+            if (!layers_.empty())
+                highest_ = layers_[0].base;
             if (data.contains("latentSound"))
+            {
                 latent_ = inputTensor<Scalar>(data.at("latentSound"));
+                accountLatent(latent_.values.size());
+            }
             if (data.contains("runtimeModel"))
             {
                 const auto serializedModel = data.at("runtimeModel").dump();
@@ -182,6 +217,11 @@ public:
                 model_ = std::make_unique<TensorModelT<Scalar>>();
                 if (!model_->prepare(data.at("runtimeModel").dump(), controls_, error))
                     return false;
+                validateModelInputs(data.at("runtimeModel"), latent_.values.size());
+                if (data.at("budget").contains("compiler_model_bytes") &&
+                    model_->numericStorageBytes() >
+                        data.at("budget").at("compiler_model_bytes").get<size_t>())
+                    throw std::invalid_argument("Compiler model exceeds compiler_model_bytes budget");
                 const auto& clock = data.at("runtimeModel").at("clock");
                 modelClock_ = {clock.at("period_samples").get<uint64_t>(),
                                clock.at("phase_samples").get<uint64_t>()};
@@ -190,6 +230,9 @@ public:
             {
                 if (model_)
                     throw std::invalid_argument("Global and scoped compiler models cannot overlap");
+                if (!data.at("runtimeModels").is_array())
+                    throw std::invalid_argument("Scoped compiler models must be an array");
+                std::set<std::string> identities;
                 std::array<std::vector<uint8_t>, 4> claimed;
                 const std::array<const TensorT<Scalar>*, 4> tensors{
                     &controls_.activation, &controls_.parameters, &controls_.routing, &controls_.modulation};
@@ -197,8 +240,19 @@ public:
                     claimed[i].resize(tensors[i]->values.size());
                 for (const auto& entry : data.at("runtimeModels"))
                 {
+                    const auto id = entry.at("id").get<std::string>();
+                    if (id.empty() || !identities.insert(id).second)
+                        throw std::invalid_argument("Scoped compiler model IDs must be nonempty and unique");
                     ScopedModel unit;
-                    unit.offsets = entry.at("offsets").get<std::array<size_t, 4>>();
+                    const auto& offsets = entry.at("offsets");
+                    if (!offsets.is_array() || offsets.size() != 4)
+                        throw std::invalid_argument("Scoped models require exactly four tensor offsets");
+                    for (const auto& offset : offsets)
+                        if (!offset.is_number_integer() ||
+                            (!offset.is_number_unsigned() && offset.get<int64_t>() < 0) ||
+                            offset.get<uint64_t>() > std::numeric_limits<size_t>::max())
+                            throw std::invalid_argument("Scoped model offsets must be nonnegative integers");
+                    unit.offsets = offsets.get<std::array<size_t, 4>>();
                     ConfigurationT<Scalar> local;
                     auto localDocument = entry.at("controls");
                     localDocument.erase("tier");
@@ -229,14 +283,24 @@ public:
                     for (size_t i = 0; i < local.parameterLocks.size(); ++i)
                         if (!controls_.parameterLocks.empty())
                             local.parameterLocks[i] = controls_.parameterLocks[unit.offsets[1] + i];
-                    for (size_t i = 0; i < local.parameters.values.size(); ++i)
-                        local.parameters.values[i] = controls_.parameters.values[unit.offsets[1] + i];
+                    const std::array<TensorT<Scalar>*, 4> localTensors{&local.activation, &local.parameters,
+                                                                       &local.routing, &local.modulation};
+                    for (size_t category = 0; category < 4; ++category)
+                        std::copy_n(tensors[category]->values.begin() +
+                                        static_cast<std::ptrdiff_t>(unit.offsets[category]),
+                                    localTensors[category]->values.size(),
+                                    localTensors[category]->values.begin());
                     if (!unit.model.prepare(entry.at("model").dump(), local, error))
                         return false;
-                    const auto serialized = entry.at("model").dump() + entry.at("offsets").dump();
-                    unit.identity = juce::SHA256(serialized.data(), serialized.size()).toHexString();
                     if (entry.at("controls").contains("latentSound"))
                         unit.latent = inputTensor<Scalar>(entry.at("controls").at("latentSound"));
+                    validateModelInputs(entry.at("model"), unit.latent.values.size());
+                    accountLatent(unit.latent.values.size());
+                    const auto& clock = entry.at("model").at("clock");
+                    unit.clock = {clock.at("period_samples").get<uint64_t>(),
+                                  clock.at("phase_samples").get<uint64_t>()};
+                    const auto serialized = entry.at("model").dump() + entry.at("offsets").dump();
+                    unit.identity = juce::SHA256(serialized.data(), serialized.size()).toHexString();
                     scopedModels_.push_back(std::move(unit));
                 }
                 size_t modelBytes = 0;
@@ -250,8 +314,15 @@ public:
                     modelBytes += bytes;
                 }
             }
+            if (!data.at("outputMix").is_array())
+                throw std::invalid_argument("outputMix must be an array");
             for (const auto& item : data.at("outputMix"))
             {
+                if (!item.is_array() || item.size() != 3 || !item.at(0).is_number_integer() ||
+                    (!item.at(0).is_number_unsigned() && item.at(0).get<int64_t>() < 0) ||
+                    !item.at(1).is_number_integer() || item.at(1).get<double>() < 0 ||
+                    item.at(1).get<double>() > 1 || !item.at(2).is_number())
+                    throw std::invalid_argument("outputMix requires output/channel/gain triples");
                 Mix mix{item.at(0).get<size_t>(), item.at(1).get<int>(), item.at(2).get<Scalar>()};
                 if (mix.output >= runtime_.output().size() || mix.channel < 0 || mix.channel > 1 ||
                     !std::isfinite(mix.gain))
@@ -273,6 +344,9 @@ public:
                     if (i != 4)
                         boundary_[i].resize(capacities[i]);
             }
+            if (model_ || !scopedModels_.empty())
+                initialControls_ = {controls_.activation.values, controls_.parameters.values,
+                                    controls_.routing.values, controls_.modulation.values};
             std::ostringstream report;
             report << "Uniform scalar type: " << (std::is_same_v<Scalar, double> ? "float64" : "float32")
                    << " | tier: " << data.value("tier", std::string("legacy / explicit"));
@@ -309,13 +383,23 @@ public:
     }
     bool updateControls(std::span<const float> values) noexcept override
     {
+        const auto count = std::min(values.size(), highest_.size());
+        for (size_t i = 0; i < count; ++i)
+            if (!std::isfinite(values[i]))
+                return false;
+        for (size_t i = 0; i < highest_.size(); ++i)
+            highest_[i] = i < count ? std::clamp(static_cast<Scalar>(values[i]), layers_[0].ranges[i][0],
+                                                 layers_[0].ranges[i][1])
+                                    : layers_[0].base[i];
+        return mapControls();
+    }
+    bool mapControls() noexcept
+    {
         if (layers_.empty())
             return true;
         for (auto& layer : layers_)
             std::copy(layer.base.begin(), layer.base.end(), layer.values.begin());
-        for (size_t i = 0; i < std::min(values.size(), layers_[0].values.size()); ++i)
-            layers_[0].values[i] =
-                std::clamp(static_cast<Scalar>(values[i]), layers_[0].ranges[i][0], layers_[0].ranges[i][1]);
+        std::copy(highest_.begin(), highest_.end(), layers_[0].values.begin());
         std::copy(controls_.parameters.values.begin(), controls_.parameters.values.end(), mapped_.begin());
         for (size_t i = 0; i < layers_.size(); ++i)
         {
@@ -362,16 +446,23 @@ public:
             inputs = {converted[0], converted[1], converted[2], converted[3], converted[4], converted[5]};
         }
         inputs.latentSound = view(latent_);
-        bool accepted = true;
+        bool accepted = true, modelEvent = false;
         if (model_ && runtime_.sample() % modelClock_.periodSamples == modelClock_.phaseSamples)
         {
+            modelEvent = true;
             const auto began = std::chrono::steady_clock::now();
-            accepted = model_->apply(inputs, runtime_);
+            accepted = model_->applyScoped(
+                inputs, runtime_,
+                {&controls_.activation, &controls_.parameters, &controls_.routing, &controls_.modulation},
+                {0, 0, 0, 0});
             modelMilliseconds +=
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - began).count();
         }
         for (auto& unit : scopedModels_)
         {
+            if (runtime_.sample() % unit.clock.periodSamples != unit.clock.phaseSamples)
+                continue;
+            modelEvent = true;
             auto localInputs = inputs;
             localInputs.latentSound = view(unit.latent);
             const auto began = std::chrono::steady_clock::now();
@@ -383,6 +474,10 @@ public:
             modelMilliseconds +=
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - began).count();
         }
+        // Predictions are the current base tensors. User matrices are applied
+        // afterwards, including between model events, without accumulating offsets.
+        if (modelEvent && !mapControls())
+            return {false, false};
         return {runtime_.tick(inputs), accepted};
     }
     float mixedOutput(int channel) const noexcept override
@@ -401,6 +496,16 @@ public:
             model_->reset();
         for (auto& unit : scopedModels_)
             unit.model.reset();
+        if (model_ || !scopedModels_.empty())
+        {
+            const std::array<TensorT<Scalar>*, 4> tensors{&controls_.activation, &controls_.parameters,
+                                                          &controls_.routing, &controls_.modulation};
+            for (size_t i = 0; i < tensors.size(); ++i)
+                std::copy(initialControls_[i].begin(), initialControls_[i].end(), tensors[i]->values.begin());
+        }
+        if (!layers_.empty())
+            std::copy(layers_[0].base.begin(), layers_[0].base.end(), highest_.begin());
+        mapControls();
     }
     bool adopt(TensorExecution& old) noexcept override
     {
@@ -444,6 +549,50 @@ public:
     }
 };
 } // namespace
+NativePolicy readNativePolicy(const nlohmann::json& data)
+{
+    NativePolicy result;
+    if (data.contains("performance"))
+    {
+        const auto& performance = data.at("performance");
+        if (!performance.is_object())
+            throw std::invalid_argument("Performance policy must be an object");
+        const auto layout = performance.value("midi_layout", std::string("compact"));
+        if (layout == "voice_indexed")
+        {
+            const auto& capacity = performance.at("voice_capacity");
+            if (!capacity.is_number_integer() || capacity.get<double>() < 1 || capacity.get<double>() > 128)
+                throw std::invalid_argument("Voice capacity must be an integer between 1 and 128");
+            result.voiceCapacity = capacity.get<size_t>();
+            result.releaseSeconds = performance.at("release_seconds").get<double>();
+            result.bendSemitones = performance.value("bend_range_semitones", 0.0f);
+            if (!std::isfinite(result.releaseSeconds) || result.releaseSeconds < 0 ||
+                result.releaseSeconds > 600 || !std::isfinite(result.bendSemitones) ||
+                result.bendSemitones < 0 || result.bendSemitones > 96)
+                throw std::invalid_argument("Invalid performance release or pitch movement range");
+        }
+        else if (layout != "compact")
+            throw std::invalid_argument("Unknown MIDI layout");
+    }
+    result.tailSeconds = data.value("tail_seconds", result.releaseSeconds);
+    if (!std::isfinite(result.tailSeconds) || result.tailSeconds < 0 || result.tailSeconds > 600)
+        throw std::invalid_argument("Invalid declared audio tail");
+    if (data.contains("host_latency_samples"))
+    {
+        const auto& value = data.at("host_latency_samples");
+        if (!value.is_number_integer() || value.get<double>() < 0 ||
+            value.get<double>() > std::numeric_limits<int>::max())
+            throw std::invalid_argument("Declared host latency must be a nonnegative supported sample count");
+        result.latencySamples = value.get<int>();
+    }
+    if (data.contains("preferred_mode"))
+    {
+        const auto& mode = data.at("preferred_mode");
+        if (!mode.is_number_integer() || mode.get<double>() < 0 || mode.get<double>() > 2)
+            throw std::invalid_argument("Preferred mode must be instrument, FX or hybrid (0..2)");
+    }
+    return result;
+}
 std::unique_ptr<TensorExecution> prepareExecution(std::string_view text, double rate, std::string& error)
 {
     PrecisionProfile precision;

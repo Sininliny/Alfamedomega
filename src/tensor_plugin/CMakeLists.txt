@@ -25,7 +25,7 @@ add_library(Alfa::tensorHost ALIAS alfa_tensor_plugin_shell)
 if(ALFA_BUILD_TESTS)
     alfa_add_test(alfa_tensor_host_tests SOURCES
         tests/HostTests.cpp tests/PresetStoreTests.cpp tests/FactoryProgramTests.cpp
-        tests/ProductHostTests.cpp tests/CompositionTests.cpp tests/CompositionPanelTests.cpp
+        tests/ProductHostTests.cpp tests/RealtimeTests.cpp tests/CompositionTests.cpp tests/CompositionPanelTests.cpp
         tests/PrimitiveFragmentTests.cpp tests/ProductSafetyTests.cpp tests/SoundLibraryPanelTests.cpp
         LIBRARIES alfa_tensor_plugin_shell)
     target_compile_definitions(alfa_tensor_host_tests PRIVATE ALFA_SOURCE_DIR="${PROJECT_SOURCE_DIR}"

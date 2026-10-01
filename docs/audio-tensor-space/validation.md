@@ -279,3 +279,46 @@ Subsequent push/merge commits explicitly skip CI. Remote macOS/Linux completion 
 This pass did not start training. Perceptual listening, all DAWs/platforms, large-program
 deadline/allocation stress and complete legacy algorithm parity remain separate qualification.
 Tier numeric capacities are authored inputs, not product default promises.
+
+
+## Core readiness follow-up — 2026-10-01
+
+The user will perform FL Studio project acceptance. This pass prioritizes deterministic DSP,
+free tensor composition, complete loading validation and layered control authority. No GitHub
+CI was used, and training remained paused.
+
+Final local Windows Release results:
+
+- Core tensor DSP: **95 cases / 720904 assertions**, passed.
+- Native host: **68 cases / 307457 assertions**, passed.
+- Final rebuilt VST3 in the independent JUCE host: **1 case / 5127 assertions**, passed.
+- Final rebuilt Standalone actual-device interaction: passed idle, nonmutating inspection,
+  explicit load, keyboard/audio, X controls, Panic and Pro tier.
+- Standalone/VST3 and native tensor C ABI built successfully.
+- Full first-party clang-format 18 and whitespace checks passed.
+- Local Clang frontend checks passed for execution, Tier evaluation and the three changed
+  model/loading/allocation test files under strict warnings. JUCE's legacy Windows template
+  constructor requires delayed template parsing for this standalone frontend invocation;
+  its C++20 deprecation warning was disabled. This is not a remote platform build claim.
+
+New numerical fixtures compare model-driven execution with an independent no-model reference
+through three control layers, saturation, locked bottom parameters, unequal-depth composition,
+float32/float64 and model clocks across block boundaries. Reset/replay is compared with a
+fresh execution before and after a delayed first model event. Loading rejects malformed
+scoped containers/IDs/offsets, unavailable model input widths, latent over-capacity, negative
+or fractional host allowances, invalid output triples and malformed native performance policies.
+Tier fixtures cover right-only pitched output and explicitly unpitched stochastic FX, including
+rejection of a changed candidate and an undeclared missing pitch fixture.
+
+Thread-local replacement C++ new/delete operators (normal/array/aligned) surround **288 complete
+native callbacks** without a warm-up exemption: 192 factory callbacks across all eight sounds
+and both precisions, plus 96 callbacks in two independent hosts with 384000-sample ring
+histories, CPU models, layered controls, live edits/locks/reset and 32/64/128-sample blocks.
+All observed C++ allocation and deallocation counts were zero; output remained finite and
+host failure counters remained zero. This probe does not intercept direct C malloc/free,
+allocations inside external DLLs or operating-system allocation APIs. It is bounded test
+coverage, not long-duration or arbitrary-configuration CPU deadline certification.
+
+Asset deduplication/compression, preference-profile input, additional relationship visualization,
+silence evaluation, full historical algorithm parity and cross-platform/DAW qualification remain
+separate work. FL Studio acceptance is assigned to the user, not claimed from these host tests.

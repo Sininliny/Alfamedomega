@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <memory>
+#include <nlohmann/json_fwd.hpp>
 #include <span>
 #include <string>
 #include <string_view>
@@ -11,6 +12,17 @@
 
 namespace alfa::tensorhost
 {
+struct NativePolicy
+{
+    size_t voiceCapacity = 0;
+    double releaseSeconds = 0, tailSeconds = 0;
+    float bendSemitones = 0;
+    int latencySamples = 0;
+};
+// One policy parser for library, execution and Processor publication. Throws on
+// malformed policies; callers prepare everything before publishing a new sound.
+NativePolicy readNativePolicy(const nlohmann::json&);
+
 // Type erasure is only at the native host boundary. A prepared execution owns
 // uniformly typed tensors, model, layers, assets and recurrent state.
 class TensorExecution

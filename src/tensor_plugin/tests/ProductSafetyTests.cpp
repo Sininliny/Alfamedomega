@@ -445,3 +445,51 @@ TEST_CASE("Closing the actual editor destroys nested composition and primitive d
     pump();
     CHECK(nextSafe == nullptr);
 }
+
+TEST_CASE("Tier measurements support right-channel pitched signals and explicit unpitched FX",
+          "[tensor-host][tier-conversion]")
+{
+    auto source = sine();
+    source["outputMix"] = {{0, 1, 1.}};
+    const JSON validation{
+        {"evaluation_bytes", 1000000},
+        {"evaluation_ticks", 20000},
+        {"maximum_errors",
+         {{"relative_error", .0001}, {"pitch_error_cents", .1}, {"timing_error_samples", 0}}},
+        {"cases", JSON::array({{{"frames", 4096}, {"fundamental_hz", 100.}, {"timing_search_samples", 8}}})}};
+    source["tier_profiles"]["Standard"] = {{"budget", source["budget"]}, {"validation", validation}};
+    std::string result, error;
+    REQUIRE(alfa::tensorhost::convertTier(source.dump(), "Standard", 48000, result, error));
+    CHECK(JSON::parse(result)["tier_conversion"]["metrics"][0]["pitch_measured"] == true);
+    source["instances"][0]["primitive"] = "math.feedback_cell";
+    source["instances"][0]["parameters"]["count"] = 1;
+    source["tensors"]["parameters"] = {{"axes", {"parameter"}}, {"shape", {1}}, {"values", {.1}}};
+    source["budget"]["parameter_elements"] = 1;
+    source["budget"]["stored_tensor_elements"] = 2;
+    JSON samples = JSON::array();
+    uint32_t rng = 123;
+    for (int i = 0; i < 4096; ++i)
+    {
+        rng = rng * 1664525u + 1013904223u;
+        samples.push_back({static_cast<double>(rng % 1000) / 1000. - .5, 0.});
+    }
+    auto unpitched = validation;
+    unpitched["cases"][0].erase("fundamental_hz");
+    unpitched["cases"][0]["signal_type"] = "unpitched";
+    unpitched["cases"][0]["audio_frames"] = samples;
+    unpitched["maximum_errors"].erase("pitch_error_cents");
+    source["tier_profiles"]["Standard"] = {{"budget", source["budget"]}, {"validation", unpitched}};
+    auto bad = source;
+    bad["tensors"]["parameters"]["values"][0] = .9;
+    bad.erase("tier_profiles");
+    source["tier_candidates"]["Standard"] = JSON::array({bad});
+    REQUIRE(alfa::tensorhost::convertTier(source.dump(), "Standard", 48000, result, error));
+    const auto converted = JSON::parse(result);
+    CHECK(converted["tier_conversion"]["candidate"] == 0);
+    REQUIRE(converted["tier_conversion"]["rejected"].size() == 1);
+    CHECK(converted["tier_conversion"]["metrics"][0]["pitch_measured"] == false);
+    CHECK(converted["tier_conversion"]["metrics"][0]["pitch_error_cents"].is_null());
+    CHECK(converted["tier_conversion"]["metrics"][0]["timing_error_samples"] == 0);
+    source["tier_profiles"]["Standard"]["validation"]["cases"][0].erase("signal_type");
+    CHECK_FALSE(alfa::tensorhost::convertTier(source.dump(), "Standard", 48000, result, error));
+}

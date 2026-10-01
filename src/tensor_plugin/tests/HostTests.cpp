@@ -206,6 +206,7 @@ TEST_CASE("Host borrows immutable latent input and rejects malformed replacement
     data["projections"][0]["source"] = "latent_sound";
     data["projections"][0]["source_element"] = 0;
     data["latentSound"] = {{"axes", {"latent"}}, {"shape", {1}}, {"values", {1.0f}}, {"presence", {1}}};
+    data["budget"]["stored_tensor_elements"] = 4;
     juce::String error;
     REQUIRE(p.loadJSON(data.dump(), error));
     juce::AudioBuffer<float> audio(2, 4);

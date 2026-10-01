@@ -329,3 +329,207 @@ TEST_CASE("Composition refuses invalid identities precision relations and budget
     CHECK(error.isNotEmpty());
     CHECK(composition.document() == retained);
 }
+
+TEST_CASE("Model predictions retain user control authority across layers clocks locks and composition",
+          "[tensor-host][composition][model][controls]")
+{
+    const auto layer = [](double value, double weight, size_t destinations)
+    {
+        std::vector<double> matrix(destinations, 0.);
+        matrix.back() = weight;
+        return JSON{
+            {"values", {value}},
+            {"ranges", {{-1., 1.}}},
+            {"matrix",
+             {{"axes", {"destination", "source"}}, {"shape", {destinations, 1}}, {"values", matrix}}}};
+    };
+    for (const auto* tier : {"Standard", "Pro"})
+        for (const bool locked : {false, true})
+            for (const bool composed : {false, true})
+            {
+                auto authored = reference("programs/instrument.aom.json");
+                authored["tier"] = tier;
+                authored["scalar_type"] = std::string(tier) == "Pro" ? "float64" : "float32";
+                authored["budget"] = JSON::parse(budget().toStdString());
+                authored["projections"] = JSON::array();
+                authored["tensors"]["parameters"]["values"] = {400., .12};
+                authored["tensors"]["routing"]["values"] = {0., 0.};
+                authored["parameter_locks"] = {0, locked ? 1 : 0};
+                authored["control_layers"] =
+                    JSON::array({layer(0., 2., 1), layer(.3, 3., 1), layer(.1, .25, 2)});
+                auto model = reference("training/aom/testdata/runtime_gru.json");
+                for (auto& weights : model["weights"])
+                    for (auto& value : weights)
+                        value = 0.;
+                model["weights"]["values.bias"] = {1., 400., .2, 0., 0.};
+                model["weights"]["presence.bias"] = {10., 10., 10., 10., 10.};
+                model["output_bounds"] = {{0., 1.}, {0., 1000.}, {0., 1.}, {-1., 1.}, {-1., 1.}};
+                model["clock"] = {{"period_samples", 7}, {"phase_samples", 0}};
+                authored["runtimeModel"] = model;
+                auto expected = authored;
+                expected.erase("runtimeModel");
+                expected["tensors"]["parameters"]["values"][1] = locked ? .12 : .2;
+                juce::String error;
+                if (composed)
+                {
+                    TensorComposition actualComposition(48000, budget(), tier);
+                    TensorComposition expectedComposition(48000, budget(), tier);
+                    REQUIRE(actualComposition.add("deep", authored.dump(), error));
+                    REQUIRE(expectedComposition.add("deep", expected.dump(), error));
+                    authored["runtimeModel"]["clock"]["period_samples"] = 11;
+                    authored["control_layers"].erase(authored["control_layers"].begin());
+                    expected["control_layers"].erase(expected["control_layers"].begin());
+                    REQUIRE(actualComposition.add("shallow", authored.dump(), error));
+                    REQUIRE(expectedComposition.add("shallow", expected.dump(), error));
+                    authored = JSON::parse(actualComposition.document().toStdString());
+                    expected = JSON::parse(expectedComposition.document().toStdString());
+                }
+                std::string diagnostic;
+                auto actual = alfa::tensorhost::prepareExecution(authored.dump(), 48000, diagnostic);
+                auto oracle = alfa::tensorhost::prepareExecution(expected.dump(), 48000, diagnostic);
+                REQUIRE(actual != nullptr);
+                REQUIRE(oracle != nullptr);
+                const std::array<std::string, 1> inputAxes{"feature"};
+                const std::array<size_t, 1> inputShape{2};
+                const std::array<float, 2> midiValues{440.f, .8f};
+                alfa::tensor::Inputs inputs;
+                inputs.midi = {inputAxes, inputShape, midiValues, {}};
+                for (int sample = 0; sample < 512; ++sample)
+                {
+                    if (sample % 13 == 0)
+                    {
+                        const std::array<float, 1> x{sample % 26 == 0 ? .7f : -.8f};
+                        REQUIRE(actual->updateControls(x));
+                        REQUIRE(oracle->updateControls(x));
+                    }
+                    double milliseconds = 0;
+                    const auto result = actual->tick(inputs, milliseconds);
+                    REQUIRE(result.audioRendered);
+                    REQUIRE(result.modelAccepted);
+                    REQUIRE(oracle->tick(inputs, milliseconds).audioRendered);
+                    CHECK(actual->mixedOutput(0) == Catch::Approx(oracle->mixedOutput(0)).margin(1e-6));
+                }
+            }
+}
+
+TEST_CASE("Scoped compiler loading validates containers identities and latent storage",
+          "[tensor-host][composition][model][validation]")
+{
+    auto source = reference("programs/instrument.aom.json");
+    source["runtimeModel"] = reference("training/aom/testdata/runtime_gru.json");
+    TensorComposition composition(48000, budget());
+    juce::String error;
+    REQUIRE(composition.add("first", source.dump(), error));
+    REQUIRE(composition.clone("first", "second", error));
+    const auto valid = JSON::parse(composition.document().toStdString());
+    std::string diagnostic;
+    auto malformed = valid;
+    malformed["runtimeModels"] = {{"first", valid["runtimeModels"][0]}};
+    CHECK(alfa::tensorhost::prepareExecution(malformed.dump(), 48000, diagnostic) == nullptr);
+    malformed = valid;
+    malformed["runtimeModels"][1]["id"] = "first";
+    CHECK(alfa::tensorhost::prepareExecution(malformed.dump(), 48000, diagnostic) == nullptr);
+    malformed["runtimeModels"][1]["id"] = "";
+    CHECK(alfa::tensorhost::prepareExecution(malformed.dump(), 48000, diagnostic) == nullptr);
+    for (const auto& offsets :
+         {JSON::array({0., 0, 0, 0}), JSON::array({-1, 0, 0, 0}), JSON::array({0, 0, 0, 0, 0})})
+    {
+        malformed = valid;
+        malformed["runtimeModels"][0]["offsets"] = offsets;
+        CHECK(alfa::tensorhost::prepareExecution(malformed.dump(), 48000, diagnostic) == nullptr);
+    }
+    for (const auto* capacity : {"compiler_model_bytes", "boundary_conversion_bytes", "host_alignment_bytes"})
+    {
+        malformed = valid;
+        malformed["budget"][capacity] = -1;
+        CHECK(alfa::tensorhost::prepareExecution(malformed.dump(), 48000, diagnostic) == nullptr);
+        malformed["budget"][capacity] = .5;
+        CHECK(alfa::tensorhost::prepareExecution(malformed.dump(), 48000, diagnostic) == nullptr);
+    }
+    auto global = source;
+    global["budget"]["compiler_model_bytes"] = 1;
+    CHECK(alfa::tensorhost::prepareExecution(global.dump(), 48000, diagnostic) == nullptr);
+    malformed = valid;
+    malformed["budget"]["stored_tensor_elements"] = 10;
+    malformed["runtimeModels"][0]["controls"]["latentSound"] = {
+        {"axes", {"latent"}}, {"shape", {1}}, {"values", {1.}}};
+    CHECK(alfa::tensorhost::prepareExecution(malformed.dump(), 48000, diagnostic) == nullptr);
+    malformed["budget"]["stored_tensor_elements"] = 11;
+    REQUIRE(alfa::tensorhost::prepareExecution(malformed.dump(), 48000, diagnostic) != nullptr);
+}
+
+TEST_CASE("Execution reset restores authored tensors before the first delayed model event",
+          "[tensor-host][model][reset][controls]")
+{
+    for (const auto* tier : {"Standard", "Pro"})
+        for (const bool scoped : {false, true})
+        {
+            auto document = reference("programs/instrument.aom.json");
+            document["tier"] = tier;
+            document["budget"] = JSON::parse(budget().toStdString());
+            auto model = reference("training/aom/testdata/runtime_gru.json");
+            model["clock"] = {{"period_samples", 97}, {"phase_samples", 11}};
+            document["runtimeModel"] = model;
+            document["control_layers"] = JSON::array(
+                {{{"values", {0.}},
+                  {"ranges", {{-1., 1.}}},
+                  {"matrix",
+                   {{"axes", {"destination", "source"}}, {"shape", {2, 1}}, {"values", {0., .1}}}}}});
+            if (scoped)
+            {
+                TensorComposition composition(48000, budget(), tier);
+                juce::String error;
+                REQUIRE(composition.add("model", document.dump(), error));
+                document = JSON::parse(composition.document().toStdString());
+            }
+            std::string error;
+            auto execution = alfa::tensorhost::prepareExecution(document.dump(), 48000, error);
+            auto fresh = alfa::tensorhost::prepareExecution(document.dump(), 48000, error);
+            REQUIRE(execution != nullptr);
+            REQUIRE(fresh != nullptr);
+            const std::array<std::string, 1> axes{"feature"};
+            const std::array<size_t, 1> shape{2};
+            const std::array<float, 2> midi{440.f, .8f};
+            alfa::tensor::Inputs inputs;
+            inputs.midi = {axes, shape, midi, {}};
+            double milliseconds = 0;
+            for (int sample = 0; sample < 256; ++sample)
+                REQUIRE(execution->tick(inputs, milliseconds).audioRendered);
+            execution->reset();
+            for (int sample = 0; sample < 128; ++sample)
+            {
+                if (sample % 8 == 0)
+                {
+                    const std::array<float, 1> x{.3f};
+                    REQUIRE(execution->updateControls(x));
+                    REQUIRE(fresh->updateControls(x));
+                }
+                const auto a = execution->tick(inputs, milliseconds);
+                const auto b = fresh->tick(inputs, milliseconds);
+                REQUIRE(a.audioRendered);
+                REQUIRE(b.audioRendered);
+                CHECK(a.modelAccepted == b.modelAccepted);
+                CHECK(execution->mixedOutput(0) == Catch::Approx(fresh->mixedOutput(0)).margin(1e-6));
+            }
+        }
+}
+
+TEST_CASE("Compiler imports reject feature widths unavailable at the native host boundary",
+          "[tensor-host][model][validation]")
+{
+    auto document = reference("programs/instrument.aom.json");
+    auto model = reference("training/aom/testdata/runtime_gru.json");
+    model["input_widths"]["audio"] = 3;
+    model["input_widths"]["midi"] = 0;
+    model["weights"]["cell.weight_ih"] = std::vector<double>(27);
+    model["budget"]["parameter_elements"] = 112;
+    document["runtimeModel"] = model;
+    std::string error;
+    CHECK(alfa::tensorhost::prepareExecution(document.dump(), 48000, error) == nullptr);
+    CHECK(error.find("source capacity") != std::string::npos);
+    model["input_widths"]["audio"] = 0;
+    model["input_widths"]["latent"] = 3;
+    document["runtimeModel"] = model;
+    CHECK(alfa::tensorhost::prepareExecution(document.dump(), 48000, error) == nullptr);
+    CHECK(error.find("source capacity") != std::string::npos);
+}
