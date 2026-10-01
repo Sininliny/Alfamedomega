@@ -36,6 +36,15 @@
 
 - **Controls:** the selected layer's X knobs, eight per page, with readable values (at most four
   significant decimals) and a pager whose arrows point the right way.
+- **Your names:** double-click a control's title to name it ("Body", "Air"). The name is stored in
+  the sound (`control_layers[n].labels`), is undoable, and appears everywhere that control is shown:
+  knobs, XY axes, influence and the matrix. An empty name restores `X[layer,index]`. Names are never
+  generated; full customisation means the user names things.
+- **Learned order:** when a sound carries a ranking from a trained context importance model
+  (`control_layers[n].ranking`, written by AOM Centre's Rank controls), the knobs are ordered most
+  important first, numbered, and the header names the model. The Learned order button switches back
+  to index order. Without a ranking the order is the authored index order and nothing is called
+  learned.
 - **Influence:** touching a knob focuses it. A diverging bar list shows the bottom parameters that
   control reaches, ranked by the composed linear weight `M_k ⋯ M_1 M_0` (clamps between layers are
   not modelled; the caption says so). Locked parameters are marked because locks override mappings.
@@ -79,12 +88,16 @@ one page per task, each asking only for what that task needs:
 | Datasets | Build a controlled dataset, then check a manifest | Dataset plan, new output folder; manifest, model category |
 | Train | One of four separate model roles | Role, manifest, output model, checkpoint, resume |
 | Evaluate | Native reconstruction report | Model, manifest, report path |
+| Rank controls | Learned control order for one X layer of a sound | Sound, context importance model, context features, layer, output sound |
 
 The repository comes from Settings (falling back to the source tree). Results chain forward: a
 built dataset fills the manifest fields, a trained WAV model fills Evaluate and Import. Every page
 shows its latest job's status, progress and log tail and links to Jobs.
 
-## Open questions for Sinin
+## Decisions
 
-1. Should users be able to give X controls their own names (stored in the sound, never auto-generated)?
-2. Should the Play view show a learned ranking of controls once a trained importance model exists?
+1. Users can name X controls (Sinin, 2026-10-01: part of "full customisation").
+2. The Play view shows a learned control ranking when a trained importance model has produced one
+   (Sinin, 2026-10-01). The ranking is computed for an explicit context file; re-ranking live from
+   the playing state needs a defined encoding of that state into the model's features, which does
+   not exist yet.

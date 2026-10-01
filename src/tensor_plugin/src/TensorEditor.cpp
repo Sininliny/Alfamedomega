@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numeric>
 
 namespace alfa::tensorhost
 {
@@ -79,6 +80,7 @@ public:
             onTouched();
     }
     std::function<void()> onTouched;
+    juce::Label& title() { return label; }
 
 private:
     Processor& processor;
@@ -206,17 +208,21 @@ Editor::Editor(Processor& p)
     xAxis_.onChange = [this]
     {
         exploration_.xId = "x" + juce::String(xAxis_.getSelectedId() - 1);
+        exploration_.xName = xAxis_.getText();
         processor_.uiSettings().setProperty("xy_x", xAxis_.getSelectedId() - 1, nullptr);
         exploration_.repaint();
     };
     yAxis_.onChange = [this]
     {
         exploration_.yId = "x" + juce::String(yAxis_.getSelectedId() - 1);
+        exploration_.yName = yAxis_.getText();
         processor_.uiSettings().setProperty("xy_y", yAxis_.getSelectedId() - 1, nullptr);
         exploration_.repaint();
     };
     exploration_.xId = "x" + juce::String(xAxis_.getSelectedId() - 1);
+    exploration_.xName = xAxis_.getText();
     exploration_.yId = "x" + juce::String(yAxis_.getSelectedId() - 1);
+    exploration_.yName = yAxis_.getText();
     a_.onClick = [this]
     {
         if (juce::ModifierKeys::getCurrentModifiers().isShiftDown())
@@ -263,6 +269,7 @@ Editor::Editor(Processor& p)
                                                            &xAxis_,
                                                            &yAxis_,
                                                            &layerSelect_,
+                                                           &order_,
                                                            &pagePrevious_,
                                                            &pageNext_,
                                                            &primitives_,
@@ -307,6 +314,14 @@ Editor::Editor(Processor& p)
                                                            &hostPrecision_,
                                                            &importTheme_})
         addChildComponent(c);
+    order_.setClickingTogglesState(true);
+    order_.setTooltip("Show controls by learned importance, most important first, or by index");
+    order_.onClick = [this]
+    {
+        indexOrder_ = !order_.getToggleState();
+        highPage_ = 0;
+        rebuildHighControls();
+    };
     layerSelect_.onChange = [this]
     {
         highLayer_ = juce::jmax(0, layerSelect_.getSelectedId() - 1);
@@ -828,6 +843,8 @@ void Editor::resized()
     high.removeFromTop(26);
     auto highToolbar = high.removeFromTop(28);
     layerSelect_.setBounds(highToolbar.removeFromLeft(160));
+    if (ranked_)
+        order_.setBounds(highToolbar.removeFromLeft(130).withTrimmedLeft(8));
     pageNext_.setBounds(highToolbar.removeFromRight(30));
     pagePrevious_.setBounds(highToolbar.removeFromRight(30));
     levelHeader_.setBounds(highToolbar.reduced(8, 0));
@@ -984,6 +1001,7 @@ void Editor::chooseView(int index)
          std::initializer_list<juce::Component*>{&scope_, &exploration_, &xAxis_, &yAxis_, &layerSelect_,
                                                  &pagePrevious_, &pageNext_, &levelHeader_, &influence_})
         c->setVisible(view_ == 0);
+    order_.setVisible(view_ == 0 && ranked_);
     for (auto& knob : highControls_)
         knob->setVisible(view_ == 0);
     for (auto* c : std::initializer_list<juce::Component*>{&primitives_, &parameterViewport_,
@@ -1204,7 +1222,7 @@ void Editor::refreshSound()
         yAxis_.clear(juce::dontSendNotification);
         for (size_t i = 0; i < juce::jmin(size_t(8), highest); ++i)
         {
-            const auto title = "X[0," + juce::String(static_cast<int>(i)) + "]";
+            const auto title = controlName(0, i);
             xAxis_.addItem(title, static_cast<int>(i) + 1);
             yAxis_.addItem(title, static_cast<int>(i) + 1);
         }
@@ -1212,7 +1230,9 @@ void Editor::refreshSound()
         xAxis_.setSelectedId(capacity ? juce::jlimit(1, capacity, previousX) : 0, juce::dontSendNotification);
         yAxis_.setSelectedId(capacity ? juce::jlimit(1, capacity, previousY) : 0, juce::dontSendNotification);
         exploration_.xId = "x" + juce::String(juce::jmax(0, xAxis_.getSelectedId() - 1));
+        exploration_.xName = xAxis_.getText();
         exploration_.yId = "x" + juce::String(juce::jmax(0, yAxis_.getSelectedId() - 1));
+        exploration_.yName = yAxis_.getText();
         refreshing_ = false;
         rebuildParameters();
         rebuildRoutes();
@@ -1244,6 +1264,52 @@ juce::String Editor::parameterName(size_t index) const
                 if (const auto name = meta.value("name", std::string{}); !name.empty())
                     return js(name);
     return "X[raw," + juce::String(static_cast<int>(index)) + "]";
+}
+juce::String Editor::controlName(size_t layer, size_t index) const
+{
+    const auto layers = sound_.value("control_layers", nlohmann::json::array());
+    if (layer < layers.size())
+        if (const auto labels = layers[layer].value("labels", nlohmann::json::array()); index < labels.size())
+            if (const auto name = labels[index].get<std::string>(); !name.empty())
+                return js(name);
+    return "X[" + juce::String(static_cast<int>(layer)) + "," + juce::String(static_cast<int>(index)) + "]";
+}
+juce::String Editor::controlLabel(size_t layer, size_t index) const
+{
+    // A user name with its coordinate, where both help (selections, tooltips).
+    const auto coordinate =
+        "X[" + juce::String(static_cast<int>(layer)) + "," + juce::String(static_cast<int>(index)) + "]";
+    const auto name = controlName(layer, index);
+    return name == coordinate ? coordinate : name + "  " + coordinate;
+}
+void Editor::renameControl(size_t layer, size_t index, const juce::String& name)
+{
+    try
+    {
+        if (name.getNumBytesAsUTF8() > 64)
+            throw std::invalid_argument("Control names are limited to 64 bytes");
+        auto data = nlohmann::json::parse(processor_.document().toStdString());
+        auto& entry = data.at("control_layers").at(layer);
+        const auto count = entry.at("values").size();
+        auto labels = entry.value("labels", nlohmann::json::array());
+        labels.get_ref<nlohmann::json::array_t&>().resize(count, "");
+        // The default X[layer,index] is not stored; clearing every name removes the field.
+        const auto coordinate =
+            "X[" + juce::String(static_cast<int>(layer)) + "," + juce::String(static_cast<int>(index)) + "]";
+        labels.at(index) = name == coordinate ? std::string{} : string(name);
+        if (std::all_of(labels.begin(), labels.end(),
+                        [](const nlohmann::json& l) { return l.get<std::string>().empty(); }))
+            entry.erase("labels");
+        else
+            entry["labels"] = std::move(labels);
+        juce::String error;
+        if (changeDocument(std::move(data), error))
+            showStatus(name.isEmpty() ? coordinate + " uses its default name" : coordinate + " renamed");
+    }
+    catch (const std::exception& e)
+    {
+        showStatus(e.what(), true);
+    }
 }
 void Editor::focusControl(int index)
 {
@@ -1291,8 +1357,8 @@ void Editor::refreshInfluence()
         const auto reached = static_cast<int>(entries.size());
         std::stable_sort(entries.begin(), entries.end(), [](const auto& a, const auto& b)
                          { return std::abs(a.weight) > std::abs(b.weight); });
-        influence_.setEntries("X[" + juce::String(highLayer_) + "," + juce::String(focusedControl_) + "]",
-                              std::move(entries), reached);
+        influence_.setEntries(controlName(layer, static_cast<size_t>(focusedControl_)), std::move(entries),
+                              reached);
     }
     catch (const std::exception& e)
     {
@@ -1621,12 +1687,9 @@ void Editor::rebuildLayers()
                 values.push_back(v.get<double>());
             juce::StringArray rows, columns;
             for (size_t i = 0; i < destinations; ++i)
-                rows.add(layer + 1 < layers.size() ? "X[" + juce::String(static_cast<int>(layer + 1)) + "," +
-                                                         juce::String(static_cast<int>(i)) + "]"
-                                                   : parameterName(i));
+                rows.add(layer + 1 < layers.size() ? controlName(layer + 1, i) : parameterName(i));
             for (size_t i = 0; i < sources; ++i)
-                columns.add("X[" + juce::String(static_cast<int>(layer)) + "," +
-                            juce::String(static_cast<int>(i)) + "]");
+                columns.add(controlName(layer, i));
             matrix_.setMatrix(std::move(values), rows, columns);
             matrixSource_ = juce::jlimit(0, juce::jmax(0, static_cast<int>(sources) - 1), matrixSource_);
             matrixDestination_ =
@@ -1664,22 +1727,59 @@ void Editor::rebuildHighControls()
         size_t count = 0;
         if (layer < layers.size())
             count = layers[layer].at("values").size();
+        // A learned ranking written by AOM Centre orders the controls, most important first.
+        // Without one the order is the authored index order and nothing is called learned.
+        std::vector<size_t> order(count);
+        std::iota(order.begin(), order.end(), size_t{0});
+        std::vector<double> importance;
+        juce::String model;
+        if (layer < layers.size() && layers[layer].contains("ranking"))
+        {
+            const auto& ranking = layers[layer].at("ranking");
+            importance = ranking.at("importance").get<std::vector<double>>();
+            model = js(ranking.value("name", std::string{}));
+            if (model.isEmpty())
+                model = js(ranking.at("model").get<std::string>()).substring(0, 8);
+        }
+        ranked_ = importance.size() == count && count > 0;
+        order_.setToggleState(ranked_ && !indexOrder_, juce::dontSendNotification);
+        const bool learned = ranked_ && !indexOrder_;
+        if (learned)
+            std::stable_sort(order.begin(), order.end(),
+                             [&](size_t a, size_t b) { return importance[a] > importance[b]; });
         highPage_ = juce::jlimit(0, juce::jmax(0, static_cast<int>((count + 7) / 8) - 1), highPage_);
         const auto begin = static_cast<size_t>(highPage_) * 8, end = juce::jmin(count, begin + 8);
-        for (size_t index = begin; index < end; ++index)
+        for (size_t position = begin; position < end; ++position)
         {
+            const auto index = order[position];
             std::unique_ptr<juce::Component> knob;
-            const auto title =
+            const auto name = controlName(layer, index);
+            const auto coordinate =
                 "X[" + juce::String(highLayer_) + "," + juce::String(static_cast<int>(index)) + "]";
+            const auto title = learned ? juce::String(static_cast<int>(position) + 1) + "  " + name : name;
+            const auto raw = name == coordinate ? juce::String() : name;
             const auto focus = [this, index]
             {
                 focusControl(static_cast<int>(index));
             };
+            const auto rename =
+                [safe = juce::Component::SafePointer<Editor>(this), layer, index](const juce::String& text)
+            {
+                // The rename rebuilds these knobs, so it runs after the label's own callback returns.
+                juce::MessageManager::callAsync(
+                    [safe, layer, index, text]
+                    {
+                        if (safe)
+                            safe->renameControl(layer, index, text);
+                    });
+            };
+            juce::Label* label = nullptr;
             if (layer == 0 && index < 8)
             {
                 auto host = std::make_unique<ParameterKnob>(
                     processor_, "x" + juce::String(static_cast<int>(index)), title);
                 host->onTouched = focus;
+                label = &host->title();
                 knob = std::move(host);
             }
             else
@@ -1689,17 +1789,33 @@ void Editor::rebuildHighControls()
                                                         layers[layer].at("values").at(index).get<double>(),
                                                         range.at(0).get<double>(), range.at(1).get<double>());
                 deep->onTouched = focus;
+                deep->title().setText(title, juce::dontSendNotification);
+                label = &deep->title();
                 knob = std::move(deep);
             }
+            allowRename(*label, raw, rename);
+            if (learned)
+                label->setTooltip(coordinate + "  learned importance " + compactText(importance[index]) +
+                                  ". Double-click to rename");
+            else if (name != coordinate)
+                label->setTooltip(coordinate + ". Double-click to rename");
             addChildComponent(*knob);
             highControls_.push_back(std::move(knob));
         }
-        levelHeader_.setText(
-            count ? juce::String(static_cast<int>(begin)) + "-" + juce::String(static_cast<int>(end) - 1) +
-                        " of " + juce::String(static_cast<int>(count)) + " controls, page " +
-                        juce::String(highPage_ + 1) + "/" + juce::String(static_cast<int>((count + 7) / 8))
-                  : "This sound has no higher control layer",
-            juce::dontSendNotification);
+        const auto pages =
+            juce::String(highPage_ + 1) + "/" + juce::String(static_cast<int>((count + 7) / 8));
+        if (!count)
+            levelHeader_.setText("This sound has no higher control layer", juce::dontSendNotification);
+        else if (learned)
+            levelHeader_.setText("Ranked by " + model + ": " + juce::String(static_cast<int>(begin) + 1) +
+                                     "-" + juce::String(static_cast<int>(end)) + " of " +
+                                     juce::String(static_cast<int>(count)) + ", page " + pages,
+                                 juce::dontSendNotification);
+        else
+            levelHeader_.setText(juce::String(static_cast<int>(begin)) + "-" +
+                                     juce::String(static_cast<int>(end) - 1) + " of " +
+                                     juce::String(static_cast<int>(count)) + " controls, page " + pages,
+                                 juce::dontSendNotification);
         refreshInfluence();
         pagePrevious_.setEnabled(highPage_ > 0);
         pageNext_.setEnabled(end < count);
@@ -1708,6 +1824,7 @@ void Editor::rebuildHighControls()
         exploration_.setEnabled(count > 0);
         for (auto& control : highControls_)
             control->setVisible(view_ == 0);
+        order_.setVisible(view_ == 0 && ranked_);
         resized();
     }
     catch (const std::exception& e)
@@ -1756,9 +1873,9 @@ void Editor::refreshTensor()
                         .get<double>();
                 matrixValue_.setText(scalarText(value), false);
                 matrixSelection_.setText(
-                    "X[" + juce::String(layer) + "," + juce::String(source) + "]  >  " +
+                    controlLabel(static_cast<size_t>(layer), static_cast<size_t>(source)) + "  >  " +
                         (static_cast<size_t>(layer) + 1 < layers.size()
-                             ? "X[" + juce::String(layer + 1) + "," + juce::String(destination) + "]"
+                             ? controlLabel(static_cast<size_t>(layer) + 1, static_cast<size_t>(destination))
                              : parameterName(static_cast<size_t>(destination))),
                     juce::dontSendNotification);
             }

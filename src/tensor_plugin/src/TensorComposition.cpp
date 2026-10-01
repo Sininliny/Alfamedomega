@@ -369,7 +369,8 @@ JSON lower(const JSON& recipe, double rate)
         result["control_layers"] = JSON::array();
         for (std::size_t level = 0; level < depth; ++level)
         {
-            JSON values = JSON::array(), ranges = JSON::array();
+            JSON values = JSON::array(), ranges = JSON::array(), labels = JSON::array();
+            bool named = false;
             std::vector<std::size_t> widths, destinations;
             std::vector<JSON> matrices;
             std::size_t totalSources = 0, totalDestinations = 0;
@@ -395,6 +396,16 @@ JSON lower(const JSON& recipe, double rate)
                 {
                     append(values, layers[local].at("values"));
                     append(ranges, layers[local].at("ranges"));
+                    // User control names follow their controls; a learned ranking does not, because it
+                    // was computed for the fragment alone.
+                    if (layers[local].contains("labels"))
+                    {
+                        append(labels, layers[local].at("labels"));
+                        named = true;
+                    }
+                    else
+                        for (std::size_t i = 0; i < width; ++i)
+                            labels.push_back("");
                 }
             }
             const auto count = checkedProduct(totalSources, totalDestinations);
@@ -417,6 +428,8 @@ JSON lower(const JSON& recipe, double rate)
                                                  {{"axes", {"destination", "source"}},
                                                   {"shape", {totalDestinations, totalSources}},
                                                   {"values", matrix}}}});
+            if (named)
+                result["control_layers"][level]["labels"] = std::move(labels);
             for (const auto& binding : recipe.value("control_bindings", JSON::array()))
             {
                 if (binding.at("layer_from_bottom").get<size_t>() != depth - 1 - level)
@@ -612,6 +625,8 @@ bool TensorComposition::restoreDocument(const juce::String& text, juce::String& 
                 for (auto& layer : value["control_layers"])
                 {
                     layer.erase("values");
+                    layer.erase("labels");
+                    layer.erase("ranking");
                     layer["matrix"].erase("values");
                 }
                 if (value["control_layers"].is_null())
@@ -662,6 +677,17 @@ bool TensorComposition::restoreDocument(const juce::String& text, juce::String& 
                     auto& values = layers[local]["values"];
                     for (size_t i = 0; i < values.size(); ++i)
                         values[i] = document["control_layers"][level]["values"][layerOffsets[level] + i];
+                    layers[local].erase("labels");
+                    layers[local].erase("ranking");
+                    if (const auto& merged = document["control_layers"][level]; merged.contains("labels"))
+                    {
+                        JSON names = JSON::array();
+                        for (size_t i = 0; i < values.size(); ++i)
+                            names.push_back(merged.at("labels").at(layerOffsets[level] + i));
+                        if (std::any_of(names.begin(), names.end(),
+                                        [](const JSON& name) { return !name.get<std::string>().empty(); }))
+                            layers[local]["labels"] = std::move(names);
+                    }
                     layerOffsets[level] += values.size();
                 }
             }
@@ -731,6 +757,10 @@ bool TensorComposition::restoreDocument(const juce::String& text, juce::String& 
             }
             const auto reconciled = lower(candidate, sampleRate_);
             auto normalized = document;
+            for (auto& layer : normalized["control_layers"])
+                layer.erase("ranking");
+            if (normalized["control_layers"].is_null())
+                normalized.erase("control_layers");
             if (reconciled.contains("runtimeModels"))
                 normalized["runtimeModels"] = reconciled["runtimeModels"];
             if (fingerprint(reconciled) != fingerprint(normalized))

@@ -112,4 +112,18 @@ def test_aom_centre_puts_tensor_work_first_and_checks_inputs(qapp, ctx):
     win.show_page(win.evaluate_page)
     assert win.evaluate_page.model.text() == "/data/model.pt"
     assert win.evaluate_page.manifest.text() == "/mine/manifest.json"
+    # Ranking needs the sound, model and context, then queues a rank-controls job for the chosen layer.
+    win.aom_recent["importance_model"] = "/data/importance.json"
+    win.show_page(win.rank_page)
+    assert win.rank_page.model.text() == "/data/importance.json"
+    win.rank_page.rank()
+    assert "Sound" in win.rank_page.panel.status.text() and "Context features" in win.rank_page.panel.status.text()
+    win.rank_page.sound.setText("/data/sound.json")
+    win.rank_page.context.setText("/data/context.json")
+    win.rank_page.output.setText("/data/ranked.json")
+    win.rank_page.layer.setValue(1)
+    win.rank_page.rank()
+    job = ctx.jobs.get(win.rank_page.job_id)
+    assert job["title"] == "Rank sound controls"
+    assert job["steps"][0]["argv"][-2:] == ["--layer", "1"]
     win.close()

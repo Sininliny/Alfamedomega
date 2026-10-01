@@ -284,6 +284,15 @@ TEST_CASE("Malformed product control layers refuse replacement and retain active
     changed["budget"]["stored_tensor_elements"] = 3;
     malformed.push_back(changed);
     changed = good;
+    changed["control_layers"][0]["labels"] = {"Only one"};
+    malformed.push_back(changed);
+    changed = good;
+    changed["control_layers"][0]["labels"] = std::vector<int>(8, 1);
+    malformed.push_back(changed);
+    changed = good;
+    changed["control_layers"][0]["ranking"] = {{"model", "m"}, {"importance", std::vector<double>(7, 1.)}};
+    malformed.push_back(changed);
+    changed = good;
     changed["control_layers"] = JSON::object();
     changed["control_layers"]["invalid"] = true;
     malformed.push_back(changed);
@@ -580,4 +589,68 @@ TEST_CASE("Editor instance and tensor inspection leave executable sound unchange
     for (auto* child : console->getChildren())
         if (auto* combo = dynamic_cast<juce::ComboBox*>(child))
             CHECK_FALSE(combo->getItemText(0).contains("Harmonic Field"));
+}
+
+TEST_CASE("Play view names controls, follows a learned ranking and renames into the sound",
+          "[tensor-host][product][ui-loop]")
+{
+    juce::ScopedJuceInitialiser_GUI gui;
+    Processor processor;
+    processor.prepareToPlay(48000, 128);
+    auto document = fanoutFixture();
+    document["control_layers"][0]["labels"] = {"Bite", "", "", "", "", "", "", ""};
+    document["control_layers"][0]["ranking"] = {
+        {"model", std::string(64, 'a')}, {"name", "importance"}, {"importance", {.5, 0, 0, 0, 0, .9, 0, 0}}};
+    juce::String error;
+    REQUIRE(processor.loadJSON(juce::String(document.dump()), error));
+    std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
+    auto* console = dynamic_cast<alfa::tensorhost::Editor*>(editor.get());
+    REQUIRE(console != nullptr);
+    console->snapshotView(0);
+    const auto titles = [&]
+    {
+        std::vector<juce::Label*> found;
+        std::function<void(juce::Component&)> visit = [&](juce::Component& parent)
+        {
+            for (auto* child : parent.getChildren())
+            {
+                if (!child->isVisible())
+                    continue;
+                if (auto* label = dynamic_cast<juce::Label*>(child);
+                    label && label->isEditableOnDoubleClick() && parent.isVisible())
+                    found.push_back(label);
+                visit(*child);
+            }
+        };
+        visit(*console);
+        std::sort(found.begin(), found.end(),
+                  [](auto* a, auto* b) { return a->getScreenX() < b->getScreenX(); });
+        return found;
+    };
+    auto labels = titles();
+    REQUIRE(labels.size() == 8);
+    CHECK(labels[0]->getText() == "1  X[0,5]");
+    CHECK(labels[1]->getText() == "2  Bite");
+    juce::TextButton* order = nullptr;
+    for (auto* child : console->getChildren())
+        if (auto* button = dynamic_cast<juce::TextButton*>(child);
+            button && button->getButtonText() == "Learned order")
+            order = button;
+    REQUIRE(order != nullptr);
+    CHECK(order->getToggleState());
+    order->triggerClick();
+    juce::MessageManager::getInstance()->runDispatchLoopUntil(100);
+    labels = titles();
+    REQUIRE(labels.size() == 8);
+    CHECK(labels[0]->getText() == "Bite");
+    CHECK(labels[1]->getText() == "X[0,1]");
+    const auto revision = processor.programRevision.load();
+    labels[1]->setText("Air", juce::sendNotificationSync);
+    juce::MessageManager::getInstance()->runDispatchLoopUntil(300);
+    CHECK(processor.programRevision.load() != revision);
+    const auto renamed = JSON::parse(processor.document().toStdString());
+    CHECK(renamed["control_layers"][0]["labels"][1] == "Air");
+    CHECK(renamed["control_layers"][0]["values"] == document["control_layers"][0]["values"]);
+    REQUIRE(processor.undoManager().undo());
+    CHECK(JSON::parse(processor.document().toStdString())["control_layers"][0]["labels"][1] == "");
 }

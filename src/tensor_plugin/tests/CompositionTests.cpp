@@ -231,6 +231,8 @@ TEST_CASE(
     };
     first["control_layers"] = JSON::array({layer(.1, .5), layer(.2, .25)});
     second["control_layers"] = JSON::array({layer(.3, .75)});
+    second["control_layers"][0]["labels"] = {"Bite"};
+    second["control_layers"][0]["ranking"] = {{"model", "fragment-only"}, {"importance", {1.}}};
     first["budget"]["stored_tensor_elements"] = 7;
     second["budget"]["stored_tensor_elements"] = 5;
     TensorComposition composition(48000, budget());
@@ -242,6 +244,10 @@ TEST_CASE(
     CHECK(combined["control_layers"][0]["matrix"]["values"] == JSON::array({.5, 0.}));
     CHECK(combined["control_layers"][1]["values"] == JSON::array({.2, .3}));
     CHECK(combined["control_layers"][1]["matrix"]["values"] == JSON::array({.25, 0., 0., .75}));
+    // User names follow their controls; a fragment's learned ranking does not describe the composite.
+    CHECK(combined["control_layers"][1]["labels"] == JSON::array({"", "Bite"}));
+    CHECK_FALSE(combined["control_layers"][0].contains("labels"));
+    CHECK_FALSE(combined["control_layers"][1].contains("ranking"));
     std::string nativeError;
     auto execution =
         alfa::tensorhost::prepareExecution(composition.document().toStdString(), 48000, nativeError);
@@ -254,6 +260,11 @@ TEST_CASE(
     REQUIRE(composition.restoreDocument(edited.dump(), error));
     CHECK(JSON::parse(composition.document().toStdString())["tensors"]["parameters"]["values"][0] == .125);
     CHECK(JSON::parse(composition.recipe().toStdString())["fragments"][0]["id"] == "deep");
+    auto renamed = JSON::parse(composition.document().toStdString());
+    renamed["control_layers"][1]["labels"][0] = "Body";
+    REQUIRE(composition.restoreDocument(renamed.dump(), error));
+    CHECK(JSON::parse(composition.document().toStdString())["control_layers"][1]["labels"] ==
+          JSON::array({"Body", "Bite"}));
     auto cross = JSON::parse(composition.document().toStdString());
     cross["control_layers"][1]["matrix"]["values"][1] = .4;
     REQUIRE(composition.restoreDocument(cross.dump(), error));

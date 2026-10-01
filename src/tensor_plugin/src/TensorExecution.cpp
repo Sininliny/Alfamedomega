@@ -179,6 +179,30 @@ public:
                             !std::isfinite(layer.ranges[n][1]) || layer.ranges[n][0] > layer.ranges[n][1] ||
                             layer.base[n] < layer.ranges[n][0] || layer.base[n] > layer.ranges[n][1])
                             throw std::invalid_argument("Invalid X control range or value");
+                    // Presentation only: user names and a learned order never reach the DSP.
+                    if (layers[i].contains("labels"))
+                    {
+                        const auto& labels = layers[i].at("labels");
+                        if (!labels.is_array() || labels.size() != layer.base.size())
+                            throw std::invalid_argument(
+                                "X control labels must name every control of the layer");
+                        for (const auto& label : labels)
+                            if (!label.is_string() || label.get_ref<const std::string&>().size() > 64)
+                                throw std::invalid_argument(
+                                    "X control labels must be text of at most 64 bytes");
+                    }
+                    if (layers[i].contains("ranking"))
+                    {
+                        const auto& ranking = layers[i].at("ranking");
+                        const auto& importance = ranking.at("importance");
+                        if (!ranking.at("model").is_string() || !importance.is_array() ||
+                            importance.size() != layer.base.size())
+                            throw std::invalid_argument(
+                                "Learned ranking must score every control of the layer");
+                        for (const auto& value : importance)
+                            if (!value.is_number() || !std::isfinite(value.get<double>()))
+                                throw std::invalid_argument("Learned ranking importance must be finite");
+                    }
                     const auto count = layer.base.size() + matrix.values.size();
                     if (stored > budget.storedTensorElements || count > budget.storedTensorElements - stored)
                         throw std::invalid_argument("Control layers exceed stored tensor capacity");

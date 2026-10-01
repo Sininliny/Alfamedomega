@@ -59,6 +59,12 @@ def main():
     importing.add_argument("--sample-rate", type=float, required=True)
     importing.add_argument("--head", choices=("primary_canonical", "secondary_rendered_instance"), required=True)
     importing.add_argument("--dll", type=Path)
+    ranking = commands.add_parser("rank-controls")
+    ranking.add_argument("sound", type=Path)
+    ranking.add_argument("model", type=Path)
+    ranking.add_argument("features", type=Path)
+    ranking.add_argument("output", type=Path)
+    ranking.add_argument("--layer", type=int, required=True)
     args = parser.parse_args()
     if args.command in ("infer", "import-wav", "evaluate-wav"):
         sources = [getattr(args, key) for key in ("model", "wav", "manifest", "template", "bounds") if getattr(args, key, None)]
@@ -87,6 +93,11 @@ def main():
         print("saved " + str(args.model.resolve()), file=sys.stderr, flush=True)
         print(json.dumps({"model": str(args.model), "initial": report["losses"][0], "final": report["losses"][-1],
                           "dataset": inference_metadata(report)["dataset"], "quality_gates_passed": report["quality_gates_passed"]}, allow_nan=False))
+    elif args.command == "rank-controls":
+        from .ranking import rank_controls
+        result = rank_controls(args.sound, args.model, args.features, args.output, layer=args.layer)
+        print("saved " + str(args.output.resolve()), file=sys.stderr)
+        print(json.dumps(result, allow_nan=False))
     elif args.command == "preflight":
         print(json.dumps(preflight(args.manifest, args.category), allow_nan=False))
     elif args.command == "build-dataset":

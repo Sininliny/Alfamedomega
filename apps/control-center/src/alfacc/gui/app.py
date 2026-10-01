@@ -28,7 +28,7 @@ from ..training import (TrainSpec, check_environment, create_export_job, create_
                         write_colab_notebook)
 from .theme import TOKENS, stylesheet
 from .widgets import Page, PathField, button, card, label
-from .tensor_page import DatasetsPage, EvaluatePage, ImportSoundPage, TrainPage
+from .tensor_page import DatasetsPage, EvaluatePage, ImportSoundPage, RankControlsPage, TrainPage
 
 STATUS_TEXT = {jobs.QUEUED: "Queued", jobs.RUNNING: "Running", jobs.SUCCEEDED: "Done",
                jobs.FAILED: "Failed", jobs.CANCELLED: "Cancelled", jobs.INTERRUPTED: "Interrupted"}
@@ -1045,12 +1045,14 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.import_page, self.datasets_page = ImportSoundPage(self), DatasetsPage(self)
         self.train_page, self.evaluate_page = TrainPage(self), EvaluatePage(self)
+        self.rank_page = RankControlsPage(self)
         self.jobs_page, self.settings_page = JobsPage(self), SettingsPage(self)
         self.models_page, self.legacy_training_page = ModelsPage(self), TrainingPage(self)
         self.preference_page, self.plugins_page = PreferencePage(self), PluginsPage(self)
         # Audio Tensor Space work first; the method-era tools keep working under Legacy.
         sections = [("Audio Tensor Space", [("Import sound", self.import_page), ("Datasets", self.datasets_page),
-                                            ("Train", self.train_page), ("Evaluate", self.evaluate_page)]),
+                                            ("Train", self.train_page), ("Evaluate", self.evaluate_page),
+                                            ("Rank controls", self.rank_page)]),
                     ("", [("Jobs", self.jobs_page), ("Settings", self.settings_page)]),
                     ("Legacy", [("Models", self.models_page), ("Method training", self.legacy_training_page),
                                 ("Preferences", self.preference_page),
