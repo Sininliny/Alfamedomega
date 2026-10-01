@@ -1,0 +1,267 @@
+{
+  "authoring": {
+    "kind": "explicit mathematical configuration",
+    "semantic_mappings": false
+  },
+  "budget": {
+    "active_primitives": 1,
+    "modulation_elements": 0,
+    "output_elements": 1,
+    "parameter_elements": 0,
+    "projection_terms": 2,
+    "routing_elements": 2,
+    "state_elements": 63,
+    "stored_tensor_elements": 68
+  },
+  "control_layers": [],
+  "description": "A documented short authored impulse response shapes the mean stereo input and mirrors its result to stereo; this is not a measured acoustic or HRTF dataset.",
+  "instances": [
+    {
+      "activation": 0,
+      "assets": [
+        {
+          "axes": [
+            "impulse_sample"
+          ],
+          "shape": [
+            64
+          ],
+          "values": [
+            0.8,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.12,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            -0.09,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.05,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.03
+          ]
+        }
+      ],
+      "audio_bindings": [
+        {
+          "destination_element": 0,
+          "missing_source": "zero",
+          "source": "audio",
+          "source_element": 0,
+          "weight_element": 0,
+          "weights": "routing"
+        },
+        {
+          "destination_element": 0,
+          "missing_source": "zero",
+          "source": "audio",
+          "source_element": 1,
+          "weight_element": 1,
+          "weights": "routing"
+        }
+      ],
+      "clock": {
+        "period_samples": 1,
+        "phase_samples": 0
+      },
+      "initial_state": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "input_channels": 1,
+      "output_between_updates": "zero",
+      "parameters": {
+        "count": 0,
+        "offset": 0
+      },
+      "primitive": "time.convolution_fir",
+      "state_size": 63
+    }
+  ],
+  "ontology": "aom.math/1",
+  "outputMix": [
+    [
+      0,
+      0,
+      1.0
+    ],
+    [
+      0,
+      1,
+      1.0
+    ]
+  ],
+  "parameter_locks": [],
+  "parameter_metadata": [],
+  "performance": {
+    "mode": "fx"
+  },
+  "preferred_mode": 1,
+  "preset": {
+    "category": "FX",
+    "id": "fir-sculpt",
+    "name": "FIR Sculpt",
+    "schema": "aom.preset/1"
+  },
+  "projections": [],
+  "scalar_type": "float32",
+  "schema": "aom.tensor/1",
+  "shared_initial_state": [],
+  "tensors": {
+    "activation": {
+      "axes": [
+        "primitive"
+      ],
+      "shape": [
+        1
+      ],
+      "values": [
+        1.0
+      ]
+    },
+    "modulation": {
+      "axes": [
+        "relationship"
+      ],
+      "shape": [
+        0
+      ],
+      "values": []
+    },
+    "parameters": {
+      "axes": [
+        "parameter"
+      ],
+      "shape": [
+        0
+      ],
+      "values": []
+    },
+    "routing": {
+      "axes": [
+        "coefficient"
+      ],
+      "shape": [
+        2
+      ],
+      "values": [
+        0.5,
+        0.5
+      ]
+    }
+  },
+  "tier": "Standard"
+}

@@ -36,11 +36,17 @@ struct Warp
     double cosw, alpha;
 };
 
+// Caller-validated design without legacy frequency/Q policy. Tensor primitives
+// can retain their own valid domain while sharing the RBJ coefficient math.
+[[nodiscard]] inline Warp warpUnclamped(double hz, double q, double sampleRate) noexcept
+{
+    const double w = 2.0 * 3.14159265358979323846 * hz / sampleRate;
+    return {std::cos(w), std::sin(w) / (2.0 * q)};
+}
 [[nodiscard]] inline Warp warp(double hz, double q, double sampleRate) noexcept
 {
     const double f = std::clamp(hz, 1.0, 0.49 * sampleRate);
-    const double w = 2.0 * 3.14159265358979323846 * f / sampleRate;
-    return {std::cos(w), std::sin(w) / (2.0 * std::max(q, 1e-3))};
+    return warpUnclamped(f, std::max(q, 1e-3), sampleRate);
 }
 
 [[nodiscard]] inline BiquadCoeffs normalise(double b0, double b1, double b2, double a0, double a1,
@@ -50,23 +56,38 @@ struct Warp
     return {b0 * inv, b1 * inv, b2 * inv, a1 * inv, a2 * inv};
 }
 
+[[nodiscard]] inline BiquadCoeffs lowpass(Warp design) noexcept
+{
+    const auto [c, al] = design;
+    return normalise((1.0 - c) * 0.5, 1.0 - c, (1.0 - c) * 0.5, 1.0 + al, -2.0 * c, 1.0 - al);
+}
+
 [[nodiscard]] inline BiquadCoeffs lowpass(double hz, double q, double sampleRate) noexcept
 {
-    const auto [c, al] = warp(hz, q, sampleRate);
-    return normalise((1.0 - c) * 0.5, 1.0 - c, (1.0 - c) * 0.5, 1.0 + al, -2.0 * c, 1.0 - al);
+    return lowpass(warp(hz, q, sampleRate));
+}
+
+[[nodiscard]] inline BiquadCoeffs highpass(Warp design) noexcept
+{
+    const auto [c, al] = design;
+    return normalise((1.0 + c) * 0.5, -(1.0 + c), (1.0 + c) * 0.5, 1.0 + al, -2.0 * c, 1.0 - al);
 }
 
 [[nodiscard]] inline BiquadCoeffs highpass(double hz, double q, double sampleRate) noexcept
 {
-    const auto [c, al] = warp(hz, q, sampleRate);
-    return normalise((1.0 + c) * 0.5, -(1.0 + c), (1.0 + c) * 0.5, 1.0 + al, -2.0 * c, 1.0 - al);
+    return highpass(warp(hz, q, sampleRate));
 }
 
 /// Constant 0 dB peak gain.
+[[nodiscard]] inline BiquadCoeffs bandpass(Warp design) noexcept
+{
+    const auto [c, al] = design;
+    return normalise(al, 0.0, -al, 1.0 + al, -2.0 * c, 1.0 - al);
+}
+
 [[nodiscard]] inline BiquadCoeffs bandpass(double hz, double q, double sampleRate) noexcept
 {
-    const auto [c, al] = warp(hz, q, sampleRate);
-    return normalise(al, 0.0, -al, 1.0 + al, -2.0 * c, 1.0 - al);
+    return bandpass(warp(hz, q, sampleRate));
 }
 
 [[nodiscard]] inline BiquadCoeffs notch(double hz, double q, double sampleRate) noexcept

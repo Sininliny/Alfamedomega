@@ -1,10 +1,12 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace alfa::tensor
@@ -12,34 +14,38 @@ namespace alfa::tensor
 
 // An initial CPU representation, not a fixed ontology shape or a serialized model ABI.
 // Axes are named by the producer; no method, slot or parameter-count enum is imposed.
-struct Tensor
+template <typename Scalar>
+struct TensorT
 {
+    static_assert(std::is_same_v<Scalar,float> || std::is_same_v<Scalar,double>);
     std::vector<std::string> axes;
     std::vector<std::size_t> shape;
-    std::vector<float> values;
+    std::vector<Scalar> values;
     // Optional binary validity mask: 0 is padding, 1 is represented capacity. Padding
     // values must be zero. A genuine zero-valued parameter may still be represented.
     std::vector<std::uint8_t> presence{};
 };
 
-struct TensorView
+template <typename Scalar>
+struct TensorViewT
 {
     std::span<const std::string> axes;
     std::span<const std::size_t> shape;
-    std::span<const float> values;
+    std::span<const Scalar> values;
     std::span<const std::uint8_t> presence{};
 };
 
 // Empty views explicitly represent absent input categories; interpretation is primitive-
 // specific. No pitch/bend encoding or fixed MIDI/performance width is imposed here.
-struct Inputs
+template <typename Scalar>
+struct InputsT
 {
-    TensorView audio;
-    TensorView midi;
-    TensorView gesture;
-    TensorView userPreference;
-    TensorView latentSound;
-    TensorView context;
+    TensorViewT<Scalar> audio;
+    TensorViewT<Scalar> midi;
+    TensorViewT<Scalar> gesture;
+    TensorViewT<Scalar> userPreference;
+    TensorViewT<Scalar> latentSound;
+    TensorViewT<Scalar> context;
 };
 
 struct Slice
@@ -62,48 +68,54 @@ enum class OutputBetweenUpdates
     Zero
 };
 
-struct Step
+template <typename Scalar>
+struct StepT
 {
     std::uint64_t sample = 0;
     double sampleRate = 0.0;
     Clock clock;
-    float activation = 0.0f;
-    Inputs inputs;
-    std::span<const float> sharedState;
-    std::span<const float> localState;
+    Scalar activation = 0.0f;
+    InputsT<Scalar> inputs;
+    std::span<const Scalar> sharedState;
+    std::span<const Scalar> localState;
     std::span<const Slice> stateAllocation;
-    std::span<const float> parameters;
-    TensorView routing;
-    TensorView modulation;
-    std::span<const TensorView> assets{};
+    std::span<const Scalar> parameters;
+    TensorViewT<Scalar> routing;
+    TensorViewT<Scalar> modulation;
+    std::span<const TensorViewT<Scalar>> assets{};
 };
 
 // Deterministic primitive implementations own mathematical interpretation of their
 // parameter/routing tensors. Both functions read S_t; neither can read another
 // primitive's uncommitted S_(t+1) or output. All reachable code must be allocation-free,
 // lock-free and noexcept. The runtime copies descriptors during compilation.
-using Transition = void (*)(const Step&, std::span<float> nextState) noexcept;
-using Readout = void (*)(const Step&, std::span<float> output) noexcept;
+template <typename Scalar> using TransitionT = void (*)(const StepT<Scalar>&, std::span<Scalar> nextState) noexcept;
+template <typename Scalar> using ReadoutT = void (*)(const StepT<Scalar>&, std::span<Scalar> output) noexcept;
 
-struct Primitive
+template <typename Scalar>
+struct PrimitiveT
 {
     std::string id;
     std::size_t stateElements = 0;
     std::size_t outputElements = 0;
-    Transition transition = nullptr;
-    Readout readout = nullptr;
+    TransitionT<Scalar> transition = nullptr;
+    ReadoutT<Scalar> readout = nullptr;
 };
 
-struct Instance
+struct AudioBinding;
+template <typename Scalar>
+struct InstanceT
 {
-    const Primitive* primitive = nullptr;
+    const PrimitiveT<Scalar>* primitive = nullptr;
     std::size_t activationIndex = 0;
     Slice parameters;
     Clock clock;
     OutputBetweenUpdates outputBetweenUpdates = OutputBetweenUpdates::Zero;
-    std::vector<Tensor> assets{};
+    std::vector<TensorT<Scalar>> assets{};
     // Serialized programs own factory descriptors through this optional pointer.
-    std::shared_ptr<const Primitive> descriptor{};
+    std::shared_ptr<const PrimitiveT<Scalar>> descriptor{};
+    std::size_t inputChannels = 0;
+    std::vector<AudioBinding> audioBindings{};
 };
 
 enum class SourceKind
@@ -114,7 +126,8 @@ enum class SourceKind
     UserPreference,
     LatentSound,
     Context,
-    State
+    State,
+    OutputHistory
 };
 
 enum class WeightTensor
@@ -127,6 +140,14 @@ enum class MissingSource
 {
     Reject,
     Zero
+};
+struct AudioBinding
+{
+    SourceKind source = SourceKind::Audio;
+    std::size_t sourceElement = 0, destinationElement = 0;
+    WeightTensor weightTensor = WeightTensor::Routing;
+    std::size_t weightElement = 0;
+    MissingSource missingSource = MissingSource::Reject;
 };
 
 // Explicit lowering for the mathematical affine projection operation:
@@ -144,21 +165,22 @@ struct Projection
     MissingSource missingSource = MissingSource::Reject;
 };
 
-struct Configuration
+template <typename Scalar>
+struct ConfigurationT
 {
-    Tensor activation;
-    Tensor parameters;
-    Tensor routing;
-    Tensor modulation;
-    std::vector<Instance> instances;
+    TensorT<Scalar> activation;
+    TensorT<Scalar> parameters;
+    TensorT<Scalar> routing;
+    TensorT<Scalar> modulation;
+    std::vector<InstanceT<Scalar>> instances;
     std::vector<Projection> projections;
     // A binary user lock mask. Locked base parameter values cannot be changed by
     // predicted tensor publication or affine projection. Recompilation is explicit.
     std::vector<std::uint8_t> parameterLocks;
     // Explicit shared initial S_0. Local slices follow this prefix in the allocation map.
-    std::vector<float> sharedInitialState;
+    std::vector<Scalar> sharedInitialState;
     // Initial values for each local primitive state, including inactive instances.
-    std::vector<std::vector<float>> initialState;
+    std::vector<std::vector<Scalar>> initialState;
 };
 
 // Resource limits supplied by a tier/hardware policy, not hard-coded tier numbers.
@@ -184,55 +206,90 @@ struct ScheduledUpdate
 
 // Off-thread compilation validates tensors and allocates a schedule and persistent state.
 // This is deterministic lowering of compiler predictions, not a trained neural model.
-class Runtime
+template <typename Scalar>
+class RuntimeT
 {
+    static_assert(std::is_same_v<Scalar,float> || std::is_same_v<Scalar,double>);
 public:
-    Runtime() = default;
-    Runtime(const Runtime&) = delete;
-    Runtime& operator=(const Runtime&) = delete;
-    Runtime(Runtime&&) noexcept = default;
-    Runtime& operator=(Runtime&&) noexcept = default;
+    using Tensor = TensorT<Scalar>;
+    using TensorView = TensorViewT<Scalar>;
+    using Inputs = InputsT<Scalar>;
+    using Step = StepT<Scalar>;
+    using Primitive = PrimitiveT<Scalar>;
+    using Instance = InstanceT<Scalar>;
+    using Configuration = ConfigurationT<Scalar>;
+    RuntimeT() = default;
+    RuntimeT(const RuntimeT<Scalar>&) = delete;
+    RuntimeT<Scalar>& operator=(const RuntimeT<Scalar>&) = delete;
+    RuntimeT(RuntimeT<Scalar>&&) noexcept = default;
+    RuntimeT<Scalar>& operator=(RuntimeT<Scalar>&&) noexcept = default;
 
-    bool prepare(const Configuration& configuration, const Budget& budget, double sampleRate,
+    bool prepare(const ConfigurationT<Scalar>& configuration, const Budget& budget, double sampleRate,
                  std::string& error);
 
     // X_t is supplied at the host sample clock. Due primitives read one immutable S_t,
     // write disjoint next-state slices, and commit together. Not-due states persist.
     // Invalid input/output/state rejects the event atomically, silences outputs and
     // does not advance time. No allocation or logging occurs in this call.
-    bool tick(const Inputs& inputs) noexcept;
+    bool tick(const InputsT<Scalar>& inputs) noexcept;
     // Publish new predicted values into the existing allocation without allocation.
     // Shapes/masks must match the prepared program. Activating an unallocated primitive
     // or changing capacity requires off-thread recompilation, not a silent approximation.
-    bool updateTensors(TensorView activation, TensorView parameters, TensorView routing,
-                       TensorView modulation) noexcept;
+    bool updateTensors(TensorViewT<Scalar> activation, TensorViewT<Scalar> parameters, TensorViewT<Scalar> routing,
+                       TensorViewT<Scalar> modulation) noexcept;
     void reset() noexcept;
+    bool adoptStateFrom(const RuntimeT<Scalar>&) noexcept;
 
-    [[nodiscard]] std::span<const float> state() const noexcept { return state_; }
-    [[nodiscard]] std::span<const float> output() const noexcept { return output_; }
+    [[nodiscard]] std::span<const Scalar> state() const noexcept { return state_; }
+    [[nodiscard]] std::span<const Scalar> output() const noexcept { return output_; }
     [[nodiscard]] std::span<const Slice> stateAllocation() const noexcept { return states_; }
     [[nodiscard]] std::span<const Slice> outputAllocation() const noexcept { return outputs_; }
     [[nodiscard]] std::span<const ScheduledUpdate> schedule() const noexcept { return schedule_; }
     [[nodiscard]] std::uint64_t sample() const noexcept { return sample_; }
+    // Numeric backing storage only; structural indices/masks/container overhead excluded.
+    [[nodiscard]] std::size_t numericStorageBytes() const noexcept;
 
 private:
-    Configuration configuration_;
-    std::vector<float> initialActivation_, initialParameters_, initialRouting_, initialModulation_;
-    std::vector<Primitive> primitives_;
+    ConfigurationT<Scalar> configuration_;
+    std::vector<Scalar> initialActivation_, initialParameters_, initialRouting_, initialModulation_;
+    std::vector<PrimitiveT<Scalar>> primitives_;
     std::vector<Slice> states_;
     std::vector<Slice> outputs_;
     std::vector<ScheduledUpdate> schedule_;
     std::vector<std::uint8_t> allocated_;
-    std::vector<std::vector<TensorView>> assets_;
-    std::vector<float> initial_;
-    std::vector<float> state_;
-    std::vector<float> next_;
-    std::vector<float> output_;
-    std::vector<float> candidateOutput_;
-    std::vector<float> effectiveParameters_;
+    std::vector<std::vector<TensorViewT<Scalar>>> assets_;
+    std::vector<std::vector<Scalar>> audioOperands_;
+    std::vector<std::array<std::size_t, 1>> audioShapes_;
+    std::array<std::string, 1> audioAxes_{"channel"};
+    std::vector<Scalar> initial_;
+    std::vector<Scalar> state_;
+    std::vector<Scalar> next_;
+    std::vector<Scalar> output_;
+    std::vector<Scalar> candidateOutput_;
+    std::vector<Scalar> effectiveParameters_;
     std::uint64_t sample_ = 0;
     double sampleRate_ = 0.0;
     bool prepared_ = false;
 };
+
+
+using Transition = TransitionT<float>;
+using Readout = ReadoutT<float>;
+using Tensor = TensorT<float>;
+using Tensor64 = TensorT<double>;
+using TensorView = TensorViewT<float>;
+using TensorView64 = TensorViewT<double>;
+using Inputs = InputsT<float>;
+using Inputs64 = InputsT<double>;
+using Step = StepT<float>;
+using Step64 = StepT<double>;
+using Primitive = PrimitiveT<float>;
+using Primitive64 = PrimitiveT<double>;
+using Instance = InstanceT<float>;
+using Instance64 = InstanceT<double>;
+using Configuration = ConfigurationT<float>;
+using Configuration64 = ConfigurationT<double>;
+using Runtime = RuntimeT<float>;
+using Runtime64 = RuntimeT<double>;
 
 } // namespace alfa::tensor

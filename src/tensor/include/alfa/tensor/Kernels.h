@@ -35,12 +35,16 @@ const Metadata& onePoleMetadata() noexcept;
 const Metadata& feedbackCellMetadata() noexcept;
 const Metadata& delayMetadata() noexcept;
 
-Primitive sine();
-Primitive onePole();
-Primitive feedbackCell();
+template <typename Scalar = float>
+PrimitiveT<Scalar> sine();
+template <typename Scalar = float>
+PrimitiveT<Scalar> onePole();
+template <typename Scalar = float>
+PrimitiveT<Scalar> feedbackCell();
 // Caller supplies the delay length in updates, and explicitly chooses its clock.
 // Reference shift register costs O(length); no claimed production delay optimization.
-Primitive delay(std::size_t lengthInUpdates);
+template <typename Scalar = float>
+PrimitiveT<Scalar> delay(std::size_t lengthInUpdates);
 
 // All readouts observe S_t before transition and scale only the output by activation.
 // They never invent tensor routing semantics. The compiler must explicitly bind

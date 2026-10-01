@@ -1,3 +1,4 @@
+#include "TensorEditor.h"
 #include "TensorProcessor.h"
 
 #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
@@ -9,7 +10,7 @@ namespace alfa::tensorhost
 class TensorApplication final : public juce::JUCEApplication
 {
 public:
-    const juce::String getApplicationName() override { return "Alfamedomega Tensor"; }
+    const juce::String getApplicationName() override { return "Alfamedomega"; }
     const juce::String getApplicationVersion() override { return "0.1.0"; }
     bool moreThanOneInstanceAllowed() override { return true; }
     void anotherInstanceStarted(const juce::String&) override {}
@@ -20,13 +21,33 @@ public:
             try
             {
                 Processor processor;
+                processor.setPlayConfigDetails(2, 2, 48000, 64);
                 processor.prepareToPlay(48000, 64);
                 std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
                 juce::AudioBuffer<float> audio(2, 64);
                 audio.clear();
                 juce::MidiBuffer midi;
                 midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.5f), 0);
-                processor.processBlock(audio, midi);
+                for (int block = 0; block < 64; ++block)
+                {
+                    audio.clear();
+                    processor.processBlock(audio, midi);
+                    midi.clear();
+                }
+                const auto screenshot = juce::SystemStats::getEnvironmentVariable("ALFA_UI_SNAPSHOT", {});
+                if (screenshot.isNotEmpty())
+                {
+                    if (auto* console = dynamic_cast<Editor*>(editor.get()))
+                        console->snapshotView(
+                            juce::SystemStats::getEnvironmentVariable("ALFA_UI_VIEW", "0").getIntValue());
+                    if (juce::SystemStats::getEnvironmentVariable("ALFA_UI_SMALL", "0") == "1")
+                        editor->setSize(1040, 700);
+                    const auto image = editor->createComponentSnapshot(editor->getLocalBounds());
+                    juce::FileOutputStream output{juce::File(screenshot)};
+                    juce::PNGImageFormat png;
+                    if (!output.openedOk() || !png.writeImageToStream(image, output))
+                        throw std::runtime_error("Could not save editor snapshot");
+                }
                 const auto instrumentOK = audio.getMagnitude(0, 64) > 0 && processor.failures.load() == 0;
                 juce::String error;
                 const auto compiled = processor.loadJSON(Processor::referenceDocument(1), error);

@@ -3,6 +3,7 @@ add_library(alfa_tensor STATIC ${ALFA_TENSOR_SOURCES})
 add_library(Alfa::tensor ALIAS alfa_tensor)
 target_include_directories(alfa_tensor PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+target_include_directories(alfa_tensor PRIVATE ${PROJECT_SOURCE_DIR}/src/dsp/include)
 target_compile_features(alfa_tensor PUBLIC cxx_std_20)
 target_link_libraries(alfa_tensor PRIVATE nlohmann_json::nlohmann_json)
 set_target_properties(alfa_tensor PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -18,6 +19,7 @@ if(ALFA_BUILD_TESTS)
         SOURCES ${ALFA_TENSOR_TESTS}
         LIBRARIES Alfa::tensor nlohmann_json::nlohmann_json)
     target_compile_definitions(alfa_tensor_tests PRIVATE ALFA_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+    target_include_directories(alfa_tensor_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/dsp/include)
     find_package(Python3 QUIET COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
         set(ALFA_AOM_TRAINING_PYTHON "${Python3_EXECUTABLE}" CACHE FILEPATH
@@ -43,3 +45,8 @@ if(ALFA_BUILD_TESTS)
         endif()
     endif()
 endif()
+
+# Explicit profiling tool; timings are machine-specific and never a test threshold.
+add_executable(alfa_tensor_precision_bench bench/PrecisionBench.cpp)
+target_link_libraries(alfa_tensor_precision_bench PRIVATE Alfa::tensor)
+alfa_set_compile_options(alfa_tensor_precision_bench)

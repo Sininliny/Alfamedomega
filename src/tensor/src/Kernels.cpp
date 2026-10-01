@@ -48,101 +48,115 @@ const Metadata delayInfo{"math.integer_delay",
                          "explicit positive update clock; delay length measured in updates",
                          "configuration/hardware capacity; no per-kind instance limit"};
 
-bool common(const Step& s, std::size_t parameters) noexcept
+template <typename Scalar>
+bool common(const StepT<Scalar>& s, std::size_t parameters) noexcept
 {
     if (s.parameters.size() != parameters || !std::isfinite(s.sampleRate) || s.sampleRate <= 0 ||
         s.clock.periodSamples == 0 || !std::isfinite(s.activation) || s.activation < 0)
         return false;
-    return std::all_of(s.parameters.begin(), s.parameters.end(), [](float v) { return std::isfinite(v); }) &&
-           std::all_of(s.localState.begin(), s.localState.end(), [](float v) { return std::isfinite(v); });
+    return std::all_of(s.parameters.begin(), s.parameters.end(), [](Scalar v) { return std::isfinite(v); }) &&
+           std::all_of(s.localState.begin(), s.localState.end(), [](Scalar v) { return std::isfinite(v); });
 }
-float excitation(const Step& s) noexcept
+template <typename Scalar>
+Scalar excitation(const StepT<Scalar>& s) noexcept
 {
     return s.inputs.audio.values.empty() || !std::isfinite(s.inputs.audio.values.front())
                ? 0.0f
                : s.inputs.audio.values.front();
 }
-float bounded(double value) noexcept
+template <typename Scalar>
+Scalar bounded(double value) noexcept
 {
     if (!std::isfinite(value))
         return 0;
-    constexpr double limit = std::numeric_limits<float>::max();
-    return static_cast<float>(std::clamp(value, -limit, limit));
+    constexpr double limit = std::numeric_limits<Scalar>::max();
+    return static_cast<Scalar>(std::clamp(value, -limit, limit));
 }
-void silence(std::span<float> out) noexcept
+template <typename Scalar>
+void silence(std::span<Scalar> out) noexcept
 {
     std::fill(out.begin(), out.end(), 0.0f);
 }
-void hold(const Step& s, std::span<float> next) noexcept
+template <typename Scalar>
+void hold(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
 {
-    silence(next);
+    silence<Scalar>(next);
     std::copy_n(s.localState.begin(), std::min(s.localState.size(), next.size()), next.begin());
 }
-bool validSine(const Step& s) noexcept
+template <typename Scalar>
+bool validSine(const StepT<Scalar>& s) noexcept
 {
-    return common(s, 2) && s.localState.size() == 1 && s.localState[0] >= 0 && s.localState[0] < 1;
+    return common<Scalar>(s, 2) && s.localState.size() == 1 && s.localState[0] >= 0 && s.localState[0] < 1;
 }
-void sineTransition(const Step& s, std::span<float> next) noexcept
+template <typename Scalar>
+void sineTransition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
 {
-    hold(s, next);
-    if (!validSine(s) || next.size() != 1)
+    hold<Scalar>(s, next);
+    if (!validSine<Scalar>(s) || next.size() != 1)
         return;
     const double advance =
         static_cast<double>(s.parameters[0]) / s.sampleRate * static_cast<double>(s.clock.periodSamples);
     if (!std::isfinite(advance))
         return;
     const double phase = std::fmod(s.localState[0] + std::fmod(advance, 1.0), 1.0);
-    next[0] = static_cast<float>(phase < 0 ? phase + 1 : phase);
+    next[0] = static_cast<Scalar>(phase < 0 ? phase + 1 : phase);
     if (next[0] >= 1)
         next[0] = 0; // Rounding cannot produce an invalid phase.
 }
-void sineReadout(const Step& s, std::span<float> out) noexcept
+template <typename Scalar>
+void sineReadout(const StepT<Scalar>& s, std::span<Scalar> out) noexcept
 {
-    silence(out);
-    if (!validSine(s) || out.size() != 1)
+    silence<Scalar>(out);
+    if (!validSine<Scalar>(s) || out.size() != 1)
         return;
-    out[0] = bounded(std::sin(2 * std::numbers::pi * s.localState[0]) * static_cast<double>(s.parameters[1]) *
+    out[0] = bounded<Scalar>(std::sin(2 * std::numbers::pi * s.localState[0]) * static_cast<double>(s.parameters[1]) *
                      s.activation);
 }
-bool validPole(const Step& s) noexcept
+template <typename Scalar>
+bool validPole(const StepT<Scalar>& s) noexcept
 {
-    return common(s, 1) && s.localState.size() == 1 && s.parameters[0] >= 0;
+    return common<Scalar>(s, 1) && s.localState.size() == 1 && s.parameters[0] >= 0;
 }
-void poleTransition(const Step& s, std::span<float> next) noexcept
+template <typename Scalar>
+void poleTransition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
 {
-    hold(s, next);
-    if (!validPole(s) || next.size() != 1)
+    hold<Scalar>(s, next);
+    if (!validPole<Scalar>(s) || next.size() != 1)
         return;
     const double interval = static_cast<double>(s.clock.periodSamples) / s.sampleRate;
     const double alpha =
         s.parameters[0] == 0 ? 0 : -std::expm1(-2 * std::numbers::pi * s.parameters[0] * interval);
-    next[0] = bounded(s.localState[0] + alpha * (static_cast<double>(excitation(s)) - s.localState[0]));
+    next[0] = bounded<Scalar>(s.localState[0] + alpha * (static_cast<double>(excitation<Scalar>(s)) - s.localState[0]));
 }
-void poleReadout(const Step& s, std::span<float> out) noexcept
+template <typename Scalar>
+void poleReadout(const StepT<Scalar>& s, std::span<Scalar> out) noexcept
 {
-    silence(out);
-    if (validPole(s) && out.size() == 1)
-        out[0] = bounded(static_cast<double>(s.localState[0]) * s.activation);
+    silence<Scalar>(out);
+    if (validPole<Scalar>(s) && out.size() == 1)
+        out[0] = bounded<Scalar>(static_cast<double>(s.localState[0]) * s.activation);
 }
-bool validFeedback(const Step& s) noexcept
+template <typename Scalar>
+bool validFeedback(const StepT<Scalar>& s) noexcept
 {
-    return common(s, 1) && !s.localState.empty() && std::abs(s.parameters[0]) < 1;
+    return common<Scalar>(s, 1) && !s.localState.empty() && std::abs(s.parameters[0]) < 1;
 }
-void delayTransition(const Step& s, std::span<float> next) noexcept
+template <typename Scalar>
+void delayTransition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
 {
-    hold(s, next);
-    if (!validFeedback(s) || next.size() != s.localState.size())
+    hold<Scalar>(s, next);
+    if (!validFeedback<Scalar>(s) || next.size() != s.localState.size())
         return;
-    next[0] = bounded(static_cast<double>(excitation(s)) +
+    next[0] = bounded<Scalar>(static_cast<double>(excitation<Scalar>(s)) +
                       static_cast<double>(s.parameters[0]) * s.localState.back());
     for (std::size_t i = 1; i < next.size(); ++i)
         next[i] = s.localState[i - 1];
 }
-void delayReadout(const Step& s, std::span<float> out) noexcept
+template <typename Scalar>
+void delayReadout(const StepT<Scalar>& s, std::span<Scalar> out) noexcept
 {
-    silence(out);
-    if (validFeedback(s) && out.size() == 1)
-        out[0] = bounded(static_cast<double>(s.localState.back()) * s.activation);
+    silence<Scalar>(out);
+    if (validFeedback<Scalar>(s) && out.size() == 1)
+        out[0] = bounded<Scalar>(static_cast<double>(s.localState.back()) * s.activation);
 }
 } // namespace
 const Metadata& sineMetadata() noexcept
@@ -161,20 +175,32 @@ const Metadata& delayMetadata() noexcept
 {
     return delayInfo;
 }
-Primitive sine()
+template <typename Scalar>
+PrimitiveT<Scalar> sine()
 {
-    return {std::string(sineInfo.id), 1, 1, sineTransition, sineReadout};
+    return {std::string(sineInfo.id), 1, 1, sineTransition<Scalar>, sineReadout<Scalar>};
 }
-Primitive onePole()
+template <typename Scalar>
+PrimitiveT<Scalar> onePole()
 {
-    return {std::string(poleInfo.id), 1, 1, poleTransition, poleReadout};
+    return {std::string(poleInfo.id), 1, 1, poleTransition<Scalar>, poleReadout<Scalar>};
 }
-Primitive feedbackCell()
+template <typename Scalar>
+PrimitiveT<Scalar> feedbackCell()
 {
-    return {std::string(cellInfo.id), 1, 1, delayTransition, delayReadout};
+    return {std::string(cellInfo.id), 1, 1, delayTransition<Scalar>, delayReadout<Scalar>};
 }
-Primitive delay(std::size_t length)
+template <typename Scalar>
+PrimitiveT<Scalar> delay(std::size_t length)
 {
-    return {std::string(delayInfo.id), length, 1, delayTransition, delayReadout};
+    return {std::string(delayInfo.id), length, 1, delayTransition<Scalar>, delayReadout<Scalar>};
 }
+template PrimitiveT<float> sine<float>();
+template PrimitiveT<float> onePole<float>();
+template PrimitiveT<float> feedbackCell<float>();
+template PrimitiveT<float> delay<float>(std::size_t);
+template PrimitiveT<double> sine<double>();
+template PrimitiveT<double> onePole<double>();
+template PrimitiveT<double> feedbackCell<double>();
+template PrimitiveT<double> delay<double>(std::size_t);
 } // namespace alfa::tensor::kernels

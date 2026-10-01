@@ -224,7 +224,7 @@ jobs:
           path: |
             ${{ matrix.artefacts }}/VST3
             ${{ matrix.artefacts }}/AU
-            build/src/tensor_plugin/AlfamedomegaTensor_artefacts/**/VST3
-            build/src/tensor_plugin/AlfamedomegaTensor_artefacts/**/Standalone
+            build/src/plugin/Alfamedomega_artefacts/**/VST3
+            build/src/plugin/Alfamedomega_artefacts/**/Standalone
           if-no-files-found: warn
           retention-days: 14

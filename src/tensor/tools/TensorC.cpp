@@ -1,13 +1,16 @@
 #include "alfa/tensor/Compiler.h"
 #include "alfa/tensor/Model.h"
+#include "alfa/tensor/Precision.h"
 
 #include <algorithm>
 #include <array>
+#include <limits>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 #if defined(_WIN32)
 #define AOM_EXPORT extern "C" __declspec(dllexport)
@@ -17,12 +20,136 @@
 
 namespace
 {
-struct Handle
+struct HandleBase
 {
-    alfa::tensor::Runtime runtime;
-    std::unique_ptr<alfa::tensor::TensorModel> model;
-    std::array<std::string, 1> axes{"feature"};
+    virtual ~HandleBase() = default;
+    virtual std::size_t outputCount() const noexcept = 0;
+    virtual std::size_t scalarBytes() const noexcept = 0;
+    virtual void reset() noexcept = 0;
+    virtual int render(std::size_t frames, const float* const* sources, const std::size_t* widths,
+                       float* output, std::size_t capacity) noexcept = 0;
 };
+
+template <typename Scalar>
+struct Handle final : HandleBase
+{
+    alfa::tensor::RuntimeT<Scalar> runtime;
+    std::unique_ptr<alfa::tensor::TensorModelT<Scalar>> model;
+    alfa::tensor::Clock modelClock;
+    std::array<std::string, 1> axes{"feature"};
+    std::array<std::vector<Scalar>, 6> conversion;
+    std::array<std::size_t, 6> inputCapacity{};
+    bool boundedInputs = false;
+    std::size_t outputCount() const noexcept override { return runtime.output().size(); }
+    std::size_t scalarBytes() const noexcept override { return sizeof(Scalar); }
+    void reset() noexcept override
+    {
+        runtime.reset();
+        if (model)
+            model->reset();
+    }
+    int render(std::size_t frames, const float* const* sources, const std::size_t* widths, float* output,
+               std::size_t capacity) noexcept override
+    {
+        const auto outputs = outputCount();
+        if ((outputs != 0 && frames > capacity / outputs) ||
+            (outputs != 0 && frames != 0 && output == nullptr))
+            return 0;
+        for (std::size_t category = 0; category < 6; ++category)
+        {
+            if (widths[category] != 0 && sources[category] == nullptr)
+                return 0;
+            if (widths[category] != 0 && frames > std::numeric_limits<std::size_t>::max() / widths[category])
+                return 0;
+            if (boundedInputs && widths[category] > inputCapacity[category])
+                return 0;
+            if constexpr (!std::is_same_v<Scalar, float>)
+                if (widths[category] > conversion[category].size())
+                    return 0;
+        }
+        for (std::size_t sample = 0; sample < frames; ++sample)
+        {
+            std::array<alfa::tensor::TensorViewT<Scalar>, 6> views;
+            std::array<std::array<std::size_t, 1>, 6> shapes;
+            for (std::size_t category = 0; category < 6; ++category)
+                if (widths[category] != 0)
+                {
+                    shapes[category] = {widths[category]};
+                    std::span<const Scalar> values;
+                    const auto* source = sources[category] + sample * widths[category];
+                    if constexpr (std::is_same_v<Scalar, float>)
+                        values = {source, widths[category]};
+                    else
+                    {
+                        std::copy_n(source, widths[category], conversion[category].begin());
+                        values = {conversion[category].data(), widths[category]};
+                    }
+                    views[category] = {axes, shapes[category], values, {}};
+                }
+            const alfa::tensor::InputsT<Scalar> inputs{views[0], views[1], views[2],
+                                                       views[3], views[4], views[5]};
+            if ((model && runtime.sample() % modelClock.periodSamples == modelClock.phaseSamples &&
+                 !model->apply(inputs, runtime)) ||
+                !runtime.tick(inputs))
+                return 0;
+            if (outputs != 0)
+                std::transform(runtime.output().begin(), runtime.output().end(), output + sample * outputs,
+                               [](Scalar value) { return static_cast<float>(value); });
+        }
+        return 1;
+    }
+};
+
+template <typename Scalar>
+std::unique_ptr<HandleBase> prepare(const char* text, double rate, const nlohmann::json& parsed,
+                                    std::string& error)
+{
+    auto handle = std::make_unique<Handle<Scalar>>();
+    if (!alfa::tensor::compileJSON(text, rate, handle->runtime, error))
+        return {};
+    if (parsed.contains("runtimeModel"))
+    {
+        alfa::tensor::ConfigurationT<Scalar> configuration;
+        handle->model = std::make_unique<alfa::tensor::TensorModelT<Scalar>>();
+        if (!alfa::tensor::parseJSON(text, configuration, error) ||
+            !handle->model->prepare(parsed.at("runtimeModel").dump(), configuration, error))
+            return {};
+        const auto& clock = parsed.at("runtimeModel").at("clock");
+        handle->modelClock = {clock.at("period_samples").get<uint64_t>(),
+                              clock.at("phase_samples").get<uint64_t>()};
+    }
+    if (parsed.contains("input_capacity") || !std::is_same_v<Scalar, float>)
+    {
+        // The external ABI remains float32. Producers supply six capacities for
+        // double boundary conversion; storage is allocated only during prepare.
+        const auto& limits = parsed.at("input_capacity");
+        if (!limits.is_array() || limits.size() != 6)
+            throw std::invalid_argument("float64 C ABI requires explicit input_capacity for six sources");
+        handle->boundedInputs = true;
+        std::size_t total = 0;
+        const auto& requestedAllowance = parsed.at("budget").at("boundary_conversion_bytes");
+        if (!requestedAllowance.is_number_unsigned() &&
+            (!requestedAllowance.is_number_integer() || requestedAllowance.get<std::int64_t>() < 0))
+            throw std::invalid_argument("Invalid boundary conversion memory allowance");
+        const auto allowance = requestedAllowance.get<std::size_t>();
+        for (std::size_t category = 0; category < 6; ++category)
+        {
+            if (!limits[category].is_number_unsigned() &&
+                (!limits[category].is_number_integer() || limits[category].get<std::int64_t>() < 0))
+                throw std::invalid_argument("Invalid boundary source capacity");
+            const auto width = limits[category].get<std::size_t>();
+            handle->inputCapacity[category] = width;
+            if constexpr (!std::is_same_v<Scalar, float>)
+            {
+                if (width > (allowance / sizeof(Scalar)) - total)
+                    throw std::invalid_argument("Boundary conversion exceeds explicit memory allowance");
+                total += width;
+                handle->conversion[category].resize(width);
+            }
+        }
+    }
+    return handle;
+}
 
 void writeError(char* destination, std::size_t capacity, std::string_view error) noexcept
 {
@@ -44,24 +171,21 @@ AOM_EXPORT void* aom_create(const char* document, double sampleRate, char* error
             writeError(error, errorCapacity, "No tensor computation document supplied");
             return nullptr;
         }
-        auto handle = std::make_unique<Handle>();
         std::string failure;
-        if (!alfa::tensor::compileJSON(document, sampleRate, handle->runtime, failure))
+        alfa::tensor::PrecisionProfile precision;
+        if (!alfa::tensor::resolvePrecisionJSON(document, precision, failure))
         {
             writeError(error, errorCapacity, failure);
             return nullptr;
         }
         const auto parsed = nlohmann::json::parse(document);
-        if (parsed.contains("runtimeModel"))
+        auto handle = precision.scalarType == alfa::tensor::ScalarType::Float64
+                          ? prepare<double>(document, sampleRate, parsed, failure)
+                          : prepare<float>(document, sampleRate, parsed, failure);
+        if (!handle)
         {
-            alfa::tensor::Configuration configuration;
-            handle->model = std::make_unique<alfa::tensor::TensorModel>();
-            if (!alfa::tensor::parseJSON(document, configuration, failure) ||
-                !handle->model->prepare(parsed.at("runtimeModel").dump(), configuration, failure))
-            {
-                writeError(error, errorCapacity, failure);
-                return nullptr;
-            }
+            writeError(error, errorCapacity, failure);
+            return nullptr;
         }
         writeError(error, errorCapacity, "");
         return handle.release();
@@ -75,20 +199,21 @@ AOM_EXPORT void* aom_create(const char* document, double sampleRate, char* error
 
 AOM_EXPORT void aom_destroy(void* opaque) noexcept
 {
-    delete static_cast<Handle*>(opaque);
+    delete static_cast<HandleBase*>(opaque);
 }
 AOM_EXPORT std::size_t aom_output_count(void* opaque) noexcept
 {
-    return opaque == nullptr ? 0 : static_cast<Handle*>(opaque)->runtime.output().size();
+    return opaque == nullptr ? 0 : static_cast<HandleBase*>(opaque)->outputCount();
+}
+AOM_EXPORT std::size_t aom_scalar_bytes(void* opaque) noexcept
+{
+    return opaque == nullptr ? 0 : static_cast<HandleBase*>(opaque)->scalarBytes();
 }
 AOM_EXPORT void aom_reset(void* opaque) noexcept
 {
     if (opaque != nullptr)
     {
-        auto& handle = *static_cast<Handle*>(opaque);
-        handle.runtime.reset();
-        if (handle.model)
-            handle.model->reset();
+        static_cast<HandleBase*>(opaque)->reset();
     }
 }
 
@@ -99,34 +224,5 @@ AOM_EXPORT int aom_render(void* opaque, std::size_t frames, const float* const* 
 {
     if (opaque == nullptr || sources == nullptr || widths == nullptr)
         return 0;
-    auto& handle = *static_cast<Handle*>(opaque);
-    const auto outputs = handle.runtime.output().size();
-    if ((outputs != 0 && frames > outputCapacity / outputs) ||
-        (outputs != 0 && frames != 0 && output == nullptr))
-        return 0;
-    for (std::size_t category = 0; category < 6; ++category)
-        if (widths[category] != 0 && sources[category] == nullptr)
-            return 0;
-    for (std::size_t sample = 0; sample < frames; ++sample)
-    {
-        std::array<alfa::tensor::TensorView, 6> views;
-        std::array<std::array<std::size_t, 1>, 6> shapes;
-        for (std::size_t category = 0; category < 6; ++category)
-            if (widths[category] != 0)
-            {
-                shapes[category] = {widths[category]};
-                views[category] = {
-                    handle.axes,
-                    shapes[category],
-                    std::span<const float>(sources[category] + sample * widths[category], widths[category]),
-                    {}};
-            }
-        const alfa::tensor::Inputs input{views[0], views[1], views[2], views[3], views[4], views[5]};
-        if ((handle.model && !handle.model->apply(input, handle.runtime)) || !handle.runtime.tick(input))
-            return 0;
-        if (outputs != 0)
-            std::copy(handle.runtime.output().begin(), handle.runtime.output().end(),
-                      output + sample * outputs);
-    }
-    return 1;
+    return static_cast<HandleBase*>(opaque)->render(frames, sources, widths, output, outputCapacity);
 }

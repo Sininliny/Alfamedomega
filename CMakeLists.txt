@@ -7,6 +7,7 @@ project(Alfamedomega
 
 # Options -----------------------------------------------------------------------
 option(ALFA_BUILD_PLUGIN "Build the JUCE plugin (downloads JUCE)" ON)
+option(ALFA_BUILD_LEGACY_PLUGIN "Build the compatibility-only pre-tensor plugin entry" OFF)
 option(ALFA_BUILD_TESTS "Build unit tests (downloads Catch2)" ${PROJECT_IS_TOP_LEVEL})
 option(ALFA_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(ALFA_ENABLE_SANITIZERS "Build with AddressSanitizer and UBSan (Clang/GCC only)" OFF)

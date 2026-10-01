@@ -26,11 +26,12 @@ enum class Interpolation : unsigned char
 
 /// 4-point, 3rd-order Hermite (Catmull-Rom). Unity gain at DC; magnitude <= 1 at every
 /// frequency, so it is safe inside feedback loops.
-[[nodiscard]] inline float hermite(float ym1, float y0, float y1, float y2, float f) noexcept
+template <typename Scalar>
+[[nodiscard]] inline Scalar hermite(Scalar ym1, Scalar y0, Scalar y1, Scalar y2, Scalar f) noexcept
 {
-    const float c1 = 0.5f * (y1 - ym1);
-    const float c2 = ym1 - 2.5f * y0 + 2.0f * y1 - 0.5f * y2;
-    const float c3 = 0.5f * (y2 - ym1) + 1.5f * (y0 - y1);
+    const Scalar c1 = 0.5f * (y1 - ym1);
+    const Scalar c2 = ym1 - 2.5f * y0 + 2.0f * y1 - 0.5f * y2;
+    const Scalar c3 = 0.5f * (y2 - ym1) + 1.5f * (y0 - y1);
     return ((c3 * f + c2) * f + c1) * f + y0;
 }
 
@@ -71,16 +72,17 @@ enum class Interpolation : unsigned char
 /// (plus one guard row) and linearly interpolated between rows. Row r holds the weights for
 /// f = r / kPhases, for the taps at offsets -3..+4 from y0. Each row is normalised to unity DC
 /// gain so reads of constant signals are exact.
-struct SincTable
+template <typename Scalar>
+struct SincTableT
 {
     static constexpr int kTaps = 8;
     static constexpr int kPhases = 512;
     static constexpr int kBefore = 3; ///< newer taps used before y0; the minimum read delay
     static constexpr double kBeta = 6.0;
 
-    std::array<float, static_cast<std::size_t>((kPhases + 1) * kTaps)> w{};
+    std::array<Scalar, static_cast<std::size_t>((kPhases + 1) * kTaps)> w{};
 
-    SincTable() noexcept
+    SincTableT() noexcept
     {
         for (int r = 0; r <= kPhases; ++r)
         {
@@ -97,19 +99,19 @@ struct SincTable
             }
             for (int j = 0; j < kTaps; ++j)
                 w[static_cast<std::size_t>(r * kTaps + j)] =
-                    static_cast<float>(row[static_cast<std::size_t>(j)] / sum);
+                    static_cast<Scalar>(row[static_cast<std::size_t>(j)] / sum);
         }
     }
 
     /// Writes the 8 weights for fraction f in [0, 1).
-    void weights(float f, float* out) const noexcept
+    void weights(Scalar f, Scalar* out) const noexcept
     {
-        const float pos = f * static_cast<float>(kPhases);
+        const Scalar pos = f * static_cast<Scalar>(kPhases);
         int r = static_cast<int>(pos);
         r = r < 0 ? 0 : (r >= kPhases ? kPhases - 1 : r);
-        const float t = pos - static_cast<float>(r);
-        const float* a = w.data() + r * kTaps;
-        const float* b = a + kTaps;
+        const Scalar t = pos - static_cast<Scalar>(r);
+        const Scalar* a = w.data() + r * kTaps;
+        const Scalar* b = a + kTaps;
         for (int j = 0; j < kTaps; ++j)
             out[j] = a[j] + t * (b[j] - a[j]);
     }
@@ -117,10 +119,16 @@ struct SincTable
 
 /// The shared table (16 KB, built once). DelayLine::prepare touches it so the one-time build
 /// never happens on the audio thread.
+using SincTable = SincTableT<float>;
+template <typename Scalar>
+[[nodiscard]] inline const SincTableT<Scalar>& typedSincTable() noexcept
+{
+    static const SincTableT<Scalar> table;
+    return table;
+}
 [[nodiscard]] inline const SincTable& sincTable() noexcept
 {
-    static const SincTable table;
-    return table;
+    return typedSincTable<float>();
 }
 
 /// First-order Thiran allpass coefficient for a fractional delay delta, best in [0.5, 1.5):

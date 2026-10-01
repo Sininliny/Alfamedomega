@@ -110,3 +110,43 @@ The native Standalone smoke was rerun against the final binary and returned 0.
 The CI workflow now has a dedicated CPU tensor-learning job and retains the new
 Standalone/VST3 artifacts. Remote CI has not run; local success does not claim
 cross-platform or remote validation.
+
+## Unified product and scalar precision, 2026-10-01
+
+The canonical `Alfamedomega` assembly now combines the tensor host with reused
+legacy DSP math and UI components. Current generated products are
+`build/src/plugin/Alfamedomega_artefacts/Release/Standalone/Alfamedomega.exe` and
+`build/src/plugin/Alfamedomega_artefacts/Release/VST3/Alfamedomega.vst3`.
+Earlier `AlfamedomegaTensor` build outputs are stale prototype artifacts.
+
+Local Release builds succeeded for the canonical Standalone, VST3, native C
+runtime, tensor tests, host tests, retained plugin tests and precision benchmark.
+The current tensor suite passed 59 cases / 142,771 assertions. The host suite
+passed 30 cases / 204,488 assertions, including actual note execution in float64,
+same-coordinate tier transfer, editor tier selection, double parameter preservation,
+invalid-edit transactional refusal, preset/project restore, MIDI/pedal/release,
+phase-preserving edits, explicit many-to-many layers, themes and functional bypass.
+The retained plugin suite passed 18 cases / 482 assertions. Earlier shared filter
+regressions passed 56 cases / 19,830 assertions.
+
+The final VST3 bundle was scanned and loaded by an independent JUCE plugin host,
+rendered MIDI audio, saved/restored state and constructed its editor: 5,127
+assertions passed. The actual Standalone's instrument, FX and state round-trip
+smoke passed for all four editor pages at 1040 x 700. PNG snapshots were inspected
+for layout, visible waveform/spectrum and meters, indexed controls, lowest-level
+parameter names, editable matrix/JSON and the precision selector. Numeric display
+uses shortest exact round-trip strings instead of unnecessary binary decimal tails.
+
+Native C interface checks rendered finite nonzero float32 and float64 audio,
+verified bitwise reset replay, refused over-capacity inputs and refused inadequate
+conversion-memory allocation. No neural training was run during this product pass.
+Precision/resource measurements and their scope are in
+[runtime precision](../tiers/runtime-precision.md).
+
+These checks establish local Windows operation, not validation in every DAW or
+on every platform. Authored factory configurations contain no trained model.
+Reference FFT/STFT, convolution, long delay and several physical operations still
+need the optimized legacy implementations adapted to the typed state contract;
+the reuse audits distinguish these from the components already shared. Catalog
+coverage of 52 operations does not establish production CPU bounds for arbitrary
+configurations or every requested historical audio technique.

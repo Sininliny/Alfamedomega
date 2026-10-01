@@ -20,6 +20,21 @@
 namespace alfa::dsp::detail
 {
 
+/// The same transition with caller-owned memory, for recurrent tensor runtimes.
+template <typename T>
+struct SvfStep
+{
+    T band, low, ic1, ic2;
+};
+template <typename T>
+[[nodiscard]] inline SvfStep<T> svfStep(T input, T g, T k, T ic1, T ic2) noexcept
+{
+    const T a1 = T(1) / (T(1) + g * (g + k));
+    const T band = a1 * (ic1 + g * (input - ic2));
+    const T low = ic2 + g * band;
+    return {band, low, T(2) * band - ic1, T(2) * low - ic2};
+}
+
 /// Prewarped integrator gain g = tan(pi f / fs), f clamped to [1 Hz, 0.49 fs] so g stays finite.
 [[nodiscard]] inline float svfGain(double hz, double sampleRate) noexcept
 {
@@ -103,13 +118,11 @@ public:
     /// Advances one sample; writes band (v1) and low (v2). g >= 0, k > 0.
     void tick(float v0, float g, float k, float& band, float& low) noexcept
     {
-        const float a1 = 1.0f / (1.0f + g * (g + k));
-        const float v1 = a1 * (ic1_ + g * (v0 - ic2_));
-        const float v2 = ic2_ + g * v1;
-        ic1_ = 2.0f * v1 - ic1_;
-        ic2_ = 2.0f * v2 - ic2_;
-        band = v1;
-        low = v2;
+        const auto step = svfStep(v0, g, k, ic1_, ic2_);
+        ic1_ = step.ic1;
+        ic2_ = step.ic2;
+        band = step.band;
+        low = step.low;
     }
 
     [[nodiscard]] float process(float v0, const SvfCoeffs& c) noexcept

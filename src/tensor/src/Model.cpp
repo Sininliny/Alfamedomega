@@ -11,25 +11,28 @@ namespace alfa::tensor
 {
 namespace
 {
-float sigmoid(float value) noexcept
+template <typename Scalar>
+Scalar sigmoid(Scalar value) noexcept
 {
-    if (value >= 0.0f)
-        return 1.0f / (1.0f + std::exp(-value));
+    if (value >= Scalar{0})
+        return Scalar{1} / (Scalar{1} + std::exp(-value));
     const auto exponential = std::exp(value);
-    return exponential / (1.0f + exponential);
+    return exponential / (Scalar{1} + exponential);
 }
 
-bool finite(std::span<const float> values) noexcept
+template <typename Scalar>
+bool finite(std::span<const Scalar> values) noexcept
 {
-    return std::all_of(values.begin(), values.end(), [](float value) { return std::isfinite(value); });
+    return std::all_of(values.begin(), values.end(), [](Scalar value) { return std::isfinite(value); });
 }
 
-void linear(std::span<const float> input, std::span<const float> weight, std::span<const float> bias,
-            std::span<float> output) noexcept
+template <typename Scalar>
+void linear(std::span<const Scalar> input, std::span<const Scalar> weight, std::span<const Scalar> bias,
+            std::span<Scalar> output) noexcept
 {
     for (std::size_t row = 0; row < output.size(); ++row)
     {
-        float value = bias[row];
+        Scalar value = bias[row];
         for (std::size_t column = 0; column < input.size(); ++column)
             value += weight[row * input.size() + column] * input[column];
         output[row] = value;
@@ -47,7 +50,8 @@ std::size_t positiveSize(const nlohmann::json& value, bool allowZero = false)
 }
 } // namespace
 
-bool TensorModel::prepare(std::string_view json, const Configuration& controls, std::string& error)
+template <typename Scalar>
+bool TensorModelT<Scalar>::prepare(std::string_view json, const ConfigurationT<Scalar>& controls, std::string& error)
 {
     error.clear();
     try
@@ -55,7 +59,7 @@ bool TensorModel::prepare(std::string_view json, const Configuration& controls, 
         const auto document = nlohmann::json::parse(json);
         if (document.at("schema") != "aom.runtime.gru/1" || document.at("ontology") != "aom.math/1")
             throw std::invalid_argument("Unsupported runtime compiler model");
-        TensorModel candidate;
+        TensorModelT<Scalar> candidate;
         const std::array<std::string, 6> categories{"audio",           "midi",   "gesture",
                                                     "user_preference", "latent", "context"};
         std::size_t inputWidth = 0;
@@ -72,8 +76,8 @@ bool TensorModel::prepare(std::string_view json, const Configuration& controls, 
                             positiveSize(document.at("clock").at("phase_samples"), true)};
         if (candidate.clock_.phaseSamples >= candidate.clock_.periodSamples)
             throw std::invalid_argument("Invalid model execution clock");
-        candidate.threshold_ = document.at("presence_threshold").get<float>();
-        if (!(candidate.threshold_ > 0.0f && candidate.threshold_ < 1.0f))
+        candidate.threshold_ = document.at("presence_threshold").get<Scalar>();
+        if (!(candidate.threshold_ > Scalar{0} && candidate.threshold_ < Scalar{1}))
             throw std::invalid_argument("Invalid model presence threshold");
         candidate.controls_ = {controls.activation, controls.parameters, controls.routing,
                                controls.modulation};
@@ -112,7 +116,7 @@ bool TensorModel::prepare(std::string_view json, const Configuration& controls, 
             throw std::invalid_argument("Compiler model exceeds its independent RAM allowance");
         std::size_t parameters = 0;
         const auto read =
-            [&](const char* name, std::size_t rows, std::size_t columns, std::vector<float>& destination)
+            [&](const char* name, std::size_t rows, std::size_t columns, std::vector<Scalar>& destination)
         {
             if (columns != 0 && rows > std::numeric_limits<std::size_t>::max() / columns)
                 throw std::invalid_argument("Weight dimensions overflow");
@@ -122,10 +126,10 @@ bool TensorModel::prepare(std::string_view json, const Configuration& controls, 
             if (source.size() > std::numeric_limits<std::size_t>::max() - parameters)
                 throw std::invalid_argument("Weight capacity overflow");
             parameters += source.size();
-            if (static_cast<long double>(parameters) * sizeof(float) > availableBytes)
+            if (static_cast<long double>(parameters) * sizeof(Scalar) > availableBytes)
                 throw std::invalid_argument("Compiler weights exceed RAM allowance before allocation");
-            destination = source.get<std::vector<float>>();
-            if (!finite(destination))
+            destination = source.get<std::vector<Scalar>>();
+            if (!finite<Scalar>(destination))
                 throw std::invalid_argument("Invalid compiler model weights");
         };
         read("cell.weight_ih", gates, inputWidth, candidate.inputWeights_);
@@ -138,18 +142,18 @@ bool TensorModel::prepare(std::string_view json, const Configuration& controls, 
         read("presence.bias", outputs, 1, candidate.maskBias_);
         if (parameters != positiveSize(budget.at("parameter_elements")))
             throw std::invalid_argument("Compiler model parameter count differs from its budget");
-        const long double minimumBytes = 4.0L * (static_cast<long double>(parameters) + inputWidth +
+        const long double minimumBytes = static_cast<long double>(sizeof(Scalar)) * (static_cast<long double>(parameters) + inputWidth +
                                                  8.0L * candidate.hidden_ + 6.0L * outputs);
         if (estimatedBytes > availableBytes || minimumBytes > availableBytes)
             throw std::invalid_argument("Compiler model exceeds its independent RAM allowance");
-        candidate.bounds_ = document.at("output_bounds").get<std::vector<std::array<float, 2>>>();
+        candidate.bounds_ = document.at("output_bounds").get<std::vector<std::array<Scalar, 2>>>();
         if (candidate.bounds_.size() != outputs)
             throw std::invalid_argument("Every output requires explicit bounds");
         for (const auto& bound : candidate.bounds_)
             if (!std::isfinite(bound[0]) || !std::isfinite(bound[1]) || bound[0] > bound[1])
                 throw std::invalid_argument("Invalid compiler output bounds");
-        candidate.state_ = document.at("initial_state").get<std::vector<float>>();
-        if (candidate.state_.size() != candidate.hidden_ || !finite(candidate.state_))
+        candidate.state_ = document.at("initial_state").get<std::vector<Scalar>>();
+        if (candidate.state_.size() != candidate.hidden_ || !finite<Scalar>(candidate.state_))
             throw std::invalid_argument("Invalid neural context state");
         candidate.initialState_ = candidate.state_;
         candidate.input_.resize(inputWidth);
@@ -168,11 +172,12 @@ bool TensorModel::prepare(std::string_view json, const Configuration& controls, 
     }
 }
 
-bool TensorModel::infer(const Inputs& inputs) noexcept
+template <typename Scalar>
+bool TensorModelT<Scalar>::infer(const InputsT<Scalar>& inputs) noexcept
 {
     if (hidden_ == 0)
         return false;
-    const std::array<TensorView, 6> sources{inputs.audio,          inputs.midi,        inputs.gesture,
+    const std::array<TensorViewT<Scalar>, 6> sources{inputs.audio,          inputs.midi,        inputs.gesture,
                                             inputs.userPreference, inputs.latentSound, inputs.context};
     std::size_t offset = 0;
     for (std::size_t category = 0; category < sources.size(); ++category)
@@ -180,30 +185,31 @@ bool TensorModel::infer(const Inputs& inputs) noexcept
         if (sources[category].values.size() < widths_[category])
             return false;
         const auto values = sources[category].values.first(widths_[category]);
-        if (!finite(values))
+        if (!finite<Scalar>(values))
             return false;
         std::copy(values.begin(), values.end(), input_.begin() + static_cast<std::ptrdiff_t>(offset));
         offset += widths_[category];
     }
-    linear(input_, inputWeights_, inputBias_, inputGates_);
-    linear(state_, stateWeights_, stateBias_, stateGates_);
+    linear<Scalar>(input_, inputWeights_, inputBias_, inputGates_);
+    linear<Scalar>(state_, stateWeights_, stateBias_, stateGates_);
     for (std::size_t index = 0; index < hidden_; ++index)
     {
         const auto reset = sigmoid(inputGates_[index] + stateGates_[index]);
         const auto update = sigmoid(inputGates_[hidden_ + index] + stateGates_[hidden_ + index]);
         const auto candidate =
             std::tanh(inputGates_[2 * hidden_ + index] + reset * stateGates_[2 * hidden_ + index]);
-        nextState_[index] = (1.0f - update) * candidate + update * state_[index];
+        nextState_[index] = (Scalar{1} - update) * candidate + update * state_[index];
     }
-    linear(nextState_, valueWeights_, valueBias_, values_);
-    linear(nextState_, maskWeights_, maskBias_, logits_);
-    if (!finite(nextState_) || !finite(values_) || !finite(logits_))
+    linear<Scalar>(nextState_, valueWeights_, valueBias_, values_);
+    linear<Scalar>(nextState_, maskWeights_, maskBias_, logits_);
+    if (!finite<Scalar>(nextState_) || !finite<Scalar>(values_) || !finite<Scalar>(logits_))
         return false;
     state_.swap(nextState_);
     return true;
 }
 
-bool TensorModel::apply(const Inputs& inputs, Runtime& runtime) noexcept
+template <typename Scalar>
+bool TensorModelT<Scalar>::apply(const InputsT<Scalar>& inputs, RuntimeT<Scalar>& runtime) noexcept
 {
     if (hidden_ == 0)
         return false;
@@ -225,12 +231,12 @@ bool TensorModel::apply(const Inputs& inputs, Runtime& runtime) noexcept
                 return false; // A structural change must be recompiled off-thread.
             }
             tensor.values[element] =
-                represented ? std::clamp(values_[index], bounds_[index][0], bounds_[index][1]) : 0.0f;
+                represented ? std::clamp(values_[index], bounds_[index][0], bounds_[index][1]) : Scalar{0};
             if (head.first == 1 && !locks_.empty() && locks_[element] != 0)
                 tensor.values[element] = lockedValues_[element];
         }
     }
-    const auto view = [](const Tensor& tensor) -> TensorView
+    const auto view = [](const TensorT<Scalar>& tensor) -> TensorViewT<Scalar>
     {
         return {tensor.axes, tensor.shape, tensor.values, tensor.presence};
     };
@@ -243,8 +249,11 @@ bool TensorModel::apply(const Inputs& inputs, Runtime& runtime) noexcept
     return true;
 }
 
-void TensorModel::reset() noexcept
+template <typename Scalar>
+void TensorModelT<Scalar>::reset() noexcept
 {
     std::copy(initialState_.begin(), initialState_.end(), state_.begin());
 }
+template class TensorModelT<float>;
+template class TensorModelT<double>;
 } // namespace alfa::tensor

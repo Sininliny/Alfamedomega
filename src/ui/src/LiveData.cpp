@@ -1,5 +1,7 @@
 #include "alfa/ui/LiveData.h"
 
+#include "alfa/ui/Visuals.h"
+
 namespace alfa::ui
 {
 
@@ -118,22 +120,7 @@ void LiveData::computeSpectrum(const std::array<float, 2048>& samples)
     window.multiplyWithWindowingTable(data.data(), 2048);
     fft.performFrequencyOnlyForwardTransform(data.data());
 
-    // Log-spaced bands from 30 Hz to 20 kHz.
-    const auto sr = static_cast<float>(snap.sampleRate);
-    for (int b = 0; b < Snapshot::kSpectrumBands; ++b)
-    {
-        const auto f0 = 30.0f * std::pow(20000.0f / 30.0f, static_cast<float>(b) / Snapshot::kSpectrumBands);
-        const auto f1 =
-            30.0f * std::pow(20000.0f / 30.0f, static_cast<float>(b + 1) / Snapshot::kSpectrumBands);
-        const auto i0 = juce::jlimit(1, 1023, static_cast<int>(f0 / sr * 2048.0f));
-        const auto i1 = juce::jlimit(i0 + 1, 1024, static_cast<int>(f1 / sr * 2048.0f) + 1);
-        float peak = 0.0f;
-        for (int i = i0; i < i1; ++i)
-            peak = juce::jmax(peak, data[static_cast<size_t>(i)]);
-        const auto db = juce::Decibels::gainToDecibels(peak / 512.0f, -90.0f);
-        auto& slot = snap.spectrum[static_cast<size_t>(b)];
-        slot = juce::jmax(db, slot - 3.0f); // fall at 90 dB/s
-    }
+    visuals::logSpectrum(data, 2048, static_cast<float>(snap.sampleRate), snap.spectrum);
 }
 
 // Visualisations
@@ -269,26 +256,7 @@ void methodBars(juce::Graphics& g, juce::Rectangle<float> area, const Theme& t, 
 void waveform(juce::Graphics& g, juce::Rectangle<float> area, const Theme& t, const Snapshot& s,
               juce::Colour colour)
 {
-    g.setColour(t.line);
-    g.drawHorizontalLine(juce::roundToInt(area.getCentreY()), area.getX(), area.getRight());
-
-    float peak = 0.05f;
-    for (auto v : s.scope)
-        peak = juce::jmax(peak, std::abs(v));
-
-    juce::Path p;
-    const auto n = s.scope.size();
-    for (size_t i = 0; i < n; ++i)
-    {
-        const auto x = area.getX() + area.getWidth() * static_cast<float>(i) / static_cast<float>(n - 1);
-        const auto y = area.getCentreY() - s.scope[i] / peak * area.getHeight() * 0.45f;
-        if (i == 0)
-            p.startNewSubPath(x, y);
-        else
-            p.lineTo(x, y);
-    }
-    g.setColour(colour);
-    g.strokePath(p, juce::PathStrokeType(1.5f));
+    visuals::waveform(g, area, t, s.scope, colour);
 }
 
 void envelope(juce::Graphics& g, juce::Rectangle<float> area, const Theme& t, const Snapshot& s)
@@ -324,33 +292,11 @@ void envelope(juce::Graphics& g, juce::Rectangle<float> area, const Theme& t, co
 
 void spectrum(juce::Graphics& g, juce::Rectangle<float> area, const Theme& t, const Snapshot& s)
 {
-    const auto n = static_cast<float>(s.spectrum.size());
-    const auto w = area.getWidth() / n;
-    for (size_t i = 0; i < s.spectrum.size(); ++i)
-    {
-        const auto norm = juce::jlimit(0.0f, 1.0f, (s.spectrum[i] + 90.0f) / 90.0f);
-        auto bar =
-            juce::Rectangle<float>(area.getX() + static_cast<float>(i) * w, area.getY(), w, area.getHeight());
-        bar = bar.withTop(bar.getBottom() - bar.getHeight() * norm).reduced(w * 0.1f, 0.0f);
-        g.setColour(t.accent.withAlpha(0.35f + 0.65f * norm));
-        g.fillRect(bar);
-    }
+    visuals::spectrum(g, area, t, s.spectrum);
 }
-
 void meter(juce::Graphics& g, juce::Rectangle<float> area, const Theme& t, float peakL, float peakR)
 {
-    auto draw = [&](juce::Rectangle<float> r, float peak)
-    {
-        g.setColour(t.line);
-        g.fillRoundedRectangle(r, 2.0f);
-        const auto db = juce::Decibels::gainToDecibels(peak, -60.0f);
-        const auto norm = (db + 60.0f) / 60.0f;
-        g.setColour(db > -1.0f ? t.warn : t.accent);
-        g.fillRoundedRectangle(r.withTop(r.getBottom() - r.getHeight() * norm), 2.0f);
-    };
-    const auto half = area.getWidth() * 0.5f;
-    draw(area.withWidth(half - 1.0f), peakL);
-    draw(area.withTrimmedLeft(half + 1.0f), peakR);
+    visuals::meter(g, area, t, peakL, peakR, t.accent);
 }
 } // namespace viz
 

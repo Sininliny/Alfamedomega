@@ -98,7 +98,7 @@ and model/runtime resources. No new numerical budgets are specified here.
 The tiers are different computational resolutions of the same space. They must not be
 different feature sets or impose artificial UI restrictions. Every executable preset can
 expose its available controls. Lower tiers may approximate internal detail, while users
-retain conceptually consistent semantic, synthesis, routing and expert tensor controls.
+retain consistent indexed control layers, routing and expert tensor access.
 
 All tiers share a padded training representation with explicit validity/capacity information.
 Unused dimensions must not become real observations or consume active runtime resources merely
@@ -143,16 +143,20 @@ parameter behavior and performance context. Similar waveform matching alone is i
 
 ## User interaction and migration
 
-Three abstraction layers are required: simple musical intentions (brightness, warmth,
-movement, aggression, organic character), advanced synthesis controls (harmonic distribution,
-spectral density, routing intensity, contributions), and expert raw tensor/mapping controls.
-Developer inspection includes weights, activations, allocations and inference cost. These
-are examples, not a fixed control vocabulary. Locks and selected overrides must have explicit
-authority over model suggestions.
+Control layers are expandable and indexed as X0, X1 or X[layer,index]. Only bottom DSP
+instance parameters carry semantic names such as filter cutoff. A higher control can affect
+many lower controls through an editable matrix. Current configurations use explicitly authored
+default mappings and ordering; future training can learn the mappings and perceptual ranking.
+Do not label the current ordering as learned or add brightness/warmth macro definitions.
+There is no fixed internal knob count: pagination and the finite host automation interface do
+not limit the executable tensor dimensions. Raw tensor editing includes activation, routing,
+state allocation, clocks and processing relationships. Locks and selected overrides must have
+explicit authority over model suggestions. Training is deferred while the VST is completed.
 
 Compatibility adjustments are authorized by Sinin's later response. Keep the legacy plugin
-entry alongside the new tensor contract, recurrent runtime and explicit migration boundary
-until the architecture stabilizes; authorization is not a requirement to discard old data.
+entry available through the compatibility build option while the main product uses the
+tensor contract, recurrent runtime and shared DSP/UI components; authorization is not a
+requirement to discard old data.
 Do not claim an opaque legacy snapshot is a semantic preset conversion.
 
 Unspecified directional choices must be raised with Sinin. Established DSP knowledge may

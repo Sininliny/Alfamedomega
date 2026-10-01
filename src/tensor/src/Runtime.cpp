@@ -9,12 +9,14 @@ namespace alfa::tensor
 {
 namespace
 {
-bool finite(std::span<const float> values) noexcept
+template <typename Scalar>
+bool finite(std::span<const Scalar> values) noexcept
 {
-    return std::all_of(values.begin(), values.end(), [](float value) { return std::isfinite(value); });
+    return std::all_of(values.begin(), values.end(), [](Scalar value) { return std::isfinite(value); });
 }
 
-bool validTensor(TensorView tensor) noexcept
+template <typename Scalar>
+bool validTensor(TensorViewT<Scalar> tensor) noexcept
 {
     if (tensor.axes.empty() && tensor.shape.empty() && tensor.values.empty() && tensor.presence.empty())
         return true; // Explicitly absent input/tensor.
@@ -33,7 +35,7 @@ bool validTensor(TensorView tensor) noexcept
             return false;
         elements *= dimension;
     }
-    if (elements != tensor.values.size() || !finite(tensor.values))
+    if (elements != tensor.values.size() || !finite<Scalar>(tensor.values))
         return false;
     if (tensor.presence.empty())
         return true;
@@ -45,7 +47,8 @@ bool validTensor(TensorView tensor) noexcept
     return true;
 }
 
-std::size_t representedElements(const Tensor& tensor) noexcept
+template <typename Scalar>
+std::size_t representedElements(const TensorT<Scalar>& tensor) noexcept
 {
     if (tensor.presence.empty())
         return tensor.values.size();
@@ -65,14 +68,16 @@ bool append(std::size_t& used, std::size_t count, std::size_t capacity) noexcept
     return true;
 }
 
-TensorView view(const Tensor& tensor) noexcept
+template <typename Scalar>
+TensorViewT<Scalar> view(const TensorT<Scalar>& tensor) noexcept
 {
     return {tensor.axes, tensor.shape, tensor.values, tensor.presence};
 }
 
-bool matches(const Tensor& tensor, TensorView incoming) noexcept
+template <typename Scalar>
+bool matches(const TensorT<Scalar>& tensor, TensorViewT<Scalar> incoming) noexcept
 {
-    return validTensor(incoming) &&
+    return validTensor<Scalar>(incoming) &&
            std::equal(tensor.axes.begin(), tensor.axes.end(), incoming.axes.begin(), incoming.axes.end()) &&
            std::equal(tensor.shape.begin(), tensor.shape.end(), incoming.shape.begin(),
                       incoming.shape.end()) &&
@@ -81,13 +86,16 @@ bool matches(const Tensor& tensor, TensorView incoming) noexcept
            tensor.values.size() == incoming.values.size();
 }
 
-struct SourceValues
+template <typename Scalar>
+struct SourceValuesT
 {
-    std::span<const float> values;
+    std::span<const Scalar> values;
     std::span<const std::uint8_t> presence;
 };
 
-SourceValues sourceValues(SourceKind source, const Inputs& inputs, std::span<const float> state) noexcept
+template <typename Scalar>
+SourceValuesT<Scalar> sourceValues(SourceKind source, const InputsT<Scalar>& inputs, std::span<const Scalar> state,
+                          std::span<const Scalar> history) noexcept
 {
     switch (source)
     {
@@ -105,17 +113,21 @@ SourceValues sourceValues(SourceKind source, const Inputs& inputs, std::span<con
         return {inputs.context.values, inputs.context.presence};
     case SourceKind::State:
         return {state, {}};
+    case SourceKind::OutputHistory:
+        return {history, {}};
     }
     return {};
 }
 
-bool represented(const Tensor& tensor, std::size_t index) noexcept
+template <typename Scalar>
+bool represented(const TensorT<Scalar>& tensor, std::size_t index) noexcept
 {
     return index < tensor.values.size() && (tensor.presence.empty() || tensor.presence[index] != 0);
 }
 } // namespace
 
-bool Runtime::prepare(const Configuration& configuration, const Budget& budget, double sampleRate,
+template <typename Scalar>
+bool RuntimeT<Scalar>::prepare(const ConfigurationT<Scalar>& configuration, const Budget& budget, double sampleRate,
                       std::string& error)
 {
     error.clear();
@@ -126,25 +138,31 @@ bool Runtime::prepare(const Configuration& configuration, const Budget& budget, 
     };
     if (!std::isfinite(sampleRate) || sampleRate <= 0.0)
         return fail("Sample rate must be finite and positive");
-    if (!validTensor(view(configuration.activation)) || !validTensor(view(configuration.parameters)) ||
-        !validTensor(view(configuration.routing)) || !validTensor(view(configuration.modulation)))
+    if (!validTensor<Scalar>(view<Scalar>(configuration.activation)) || !validTensor<Scalar>(view<Scalar>(configuration.parameters)) ||
+        !validTensor<Scalar>(view<Scalar>(configuration.routing)) || !validTensor<Scalar>(view<Scalar>(configuration.modulation)))
         return fail("Tensor shape, axis names or values are invalid");
-    if (representedElements(configuration.parameters) > budget.parameterElements ||
-        representedElements(configuration.routing) > budget.routingElements ||
-        representedElements(configuration.modulation) > budget.modulationElements)
+    if (representedElements<Scalar>(configuration.parameters) > budget.parameterElements ||
+        representedElements<Scalar>(configuration.routing) > budget.routingElements ||
+        representedElements<Scalar>(configuration.modulation) > budget.modulationElements)
         return fail("Tensor exceeds the supplied capacity; compression must be explicit");
     std::size_t stored = 0;
     for (const auto* tensor : {&configuration.activation, &configuration.parameters, &configuration.routing,
                                &configuration.modulation})
         if (!append(stored, tensor->values.size(), budget.storedTensorElements))
             return fail("Full padded tensor storage exceeds the supplied hardware capacity");
+    std::size_t projectionTerms = configuration.projections.size();
     for (const auto& instance : configuration.instances)
+    {
+        if (!append(stored, instance.inputChannels, budget.storedTensorElements) ||
+            !append(projectionTerms, instance.audioBindings.size(), budget.projectionTerms))
+            return fail("Audio operands or binding terms exceed supplied capacity");
         for (const auto& asset : instance.assets)
-            if (!validTensor(view(asset)) ||
+            if (!validTensor<Scalar>(view<Scalar>(asset)) ||
                 !append(stored, asset.values.size(), budget.storedTensorElements))
                 return fail("Immutable primitive asset is invalid or exceeds storage capacity");
+    }
     if (configuration.initialState.size() != configuration.instances.size() ||
-        !finite(configuration.sharedInitialState))
+        !finite<Scalar>(configuration.sharedInitialState))
         return fail("Initial state does not match the configuration");
     if ((!configuration.parameterLocks.empty() &&
          configuration.parameterLocks.size() != configuration.parameters.values.size()) ||
@@ -154,11 +172,11 @@ bool Runtime::prepare(const Configuration& configuration, const Budget& budget, 
     if (configuration.projections.size() > budget.projectionTerms)
         return fail("Affine projection terms exceed the supplied capacity");
     if (std::any_of(configuration.activation.values.begin(), configuration.activation.values.end(),
-                    [](float value) { return value < 0.0f; }))
+                    [](Scalar value) { return value < 0.0f; }))
         return fail("Primitive activation must be nonnegative");
 
     // Build a candidate so a refused configuration leaves the playing runtime intact.
-    Runtime candidate;
+    RuntimeT<Scalar> candidate;
     candidate.configuration_ = configuration;
     candidate.initialActivation_ = configuration.activation.values;
     candidate.initialParameters_ = configuration.parameters.values;
@@ -170,6 +188,8 @@ bool Runtime::prepare(const Configuration& configuration, const Budget& budget, 
     candidate.outputs_.resize(configuration.instances.size());
     candidate.allocated_.resize(configuration.instances.size(), 0);
     candidate.assets_.resize(configuration.instances.size());
+    candidate.audioOperands_.resize(configuration.instances.size());
+    candidate.audioShapes_.resize(configuration.instances.size());
     candidate.initial_ = configuration.sharedInitialState;
     std::size_t stateCount = configuration.sharedInitialState.size();
     std::size_t outputCount = 0;
@@ -186,14 +206,14 @@ bool Runtime::prepare(const Configuration& configuration, const Budget& budget, 
         candidate.primitives_.push_back(*primitive);
         candidate.configuration_.instances[index].primitive = &candidate.primitives_.back();
         for (const auto& asset : candidate.configuration_.instances[index].assets)
-            candidate.assets_[index].push_back(view(asset));
+            candidate.assets_[index].push_back(view<Scalar>(asset));
         if (instance.activationIndex >= configuration.activation.values.size() ||
             !fits(instance.parameters, configuration.parameters.values.size()))
             return fail("Primitive tensor selection is out of range");
         if (instance.clock.periodSamples == 0 || instance.clock.phaseSamples >= instance.clock.periodSamples)
             return fail("Each primitive must supply a valid explicit clock");
         const auto& localInitial = configuration.initialState[index];
-        if (localInitial.size() != primitive->stateElements || !finite(localInitial))
+        if (localInitial.size() != primitive->stateElements || !finite<Scalar>(localInitial))
             return fail("Primitive initial state is invalid");
 
         candidate.states_[index] = {stateCount, 0};
@@ -218,7 +238,7 @@ bool Runtime::prepare(const Configuration& configuration, const Budget& budget, 
     candidate.state_ = candidate.initial_;
     for (const auto& projection : configuration.projections)
     {
-        if (projection.source < SourceKind::Audio || projection.source > SourceKind::State ||
+        if (projection.source < SourceKind::Audio || projection.source > SourceKind::OutputHistory ||
             (projection.weightTensor != WeightTensor::Routing &&
              projection.weightTensor != WeightTensor::Modulation) ||
             (projection.missingSource != MissingSource::Reject &&
@@ -226,12 +246,34 @@ bool Runtime::prepare(const Configuration& configuration, const Budget& budget, 
             return fail("Affine projection has an unknown source, weight or missing-input policy");
         const auto& weights = projection.weightTensor == WeightTensor::Routing ? configuration.routing
                                                                                : configuration.modulation;
-        if (!represented(configuration.parameters, projection.parameterElement) ||
-            !represented(weights, projection.weightElement) ||
-            (projection.source == SourceKind::State && projection.sourceElement >= stateCount))
+        if (!represented<Scalar>(configuration.parameters, projection.parameterElement) ||
+            !represented<Scalar>(weights, projection.weightElement) ||
+            (projection.source == SourceKind::State && projection.sourceElement >= stateCount) ||
+            (projection.source == SourceKind::OutputHistory && projection.sourceElement >= outputCount))
             return fail("Affine projection selects missing or padded tensor/state elements");
     }
     candidate.next_ = candidate.initial_;
+    for (size_t i = 0; i < configuration.instances.size(); ++i)
+    {
+        const auto& instance = configuration.instances[i];
+        candidate.audioOperands_[i].resize(instance.inputChannels, 0);
+        candidate.audioShapes_[i] = {instance.inputChannels};
+        for (const auto& binding : instance.audioBindings)
+        {
+            const auto& weights = binding.weightTensor == WeightTensor::Routing ? configuration.routing
+                                                                                : configuration.modulation;
+            if (binding.source < SourceKind::Audio || binding.source > SourceKind::OutputHistory ||
+                (binding.weightTensor != WeightTensor::Routing &&
+                 binding.weightTensor != WeightTensor::Modulation) ||
+                (binding.missingSource != MissingSource::Zero &&
+                 binding.missingSource != MissingSource::Reject) ||
+                binding.destinationElement >= instance.inputChannels ||
+                !represented<Scalar>(weights, binding.weightElement) ||
+                (binding.source == SourceKind::State && binding.sourceElement >= stateCount) ||
+                (binding.source == SourceKind::OutputHistory && binding.sourceElement >= outputCount))
+                return fail("Invalid recurrent audio operand binding");
+        }
+    }
     candidate.output_.resize(outputCount, 0.0f);
     candidate.candidateOutput_.resize(outputCount, 0.0f);
     candidate.effectiveParameters_ = configuration.parameters.values;
@@ -240,11 +282,12 @@ bool Runtime::prepare(const Configuration& configuration, const Budget& budget, 
     return true;
 }
 
-bool Runtime::tick(const Inputs& inputs) noexcept
+template <typename Scalar>
+bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
 {
-    if (!prepared_ || !validTensor(inputs.audio) || !validTensor(inputs.midi) ||
-        !validTensor(inputs.gesture) || !validTensor(inputs.userPreference) ||
-        !validTensor(inputs.latentSound) || !validTensor(inputs.context) ||
+    if (!prepared_ || !validTensor<Scalar>(inputs.audio) || !validTensor<Scalar>(inputs.midi) ||
+        !validTensor<Scalar>(inputs.gesture) || !validTensor<Scalar>(inputs.userPreference) ||
+        !validTensor<Scalar>(inputs.latentSound) || !validTensor<Scalar>(inputs.context) ||
         sample_ == std::numeric_limits<std::uint64_t>::max())
     {
         std::fill(output_.begin(), output_.end(), 0.0f);
@@ -259,7 +302,7 @@ bool Runtime::tick(const Inputs& inputs) noexcept
         if (!configuration_.parameterLocks.empty() &&
             configuration_.parameterLocks[projection.parameterElement] != 0)
             continue;
-        const auto sources = sourceValues(projection.source, inputs, state_);
+        const auto sources = sourceValues<Scalar>(projection.source, inputs, state_, output_);
         if (projection.sourceElement >= sources.values.size() ||
             (!sources.presence.empty() && sources.presence[projection.sourceElement] == 0))
         {
@@ -273,7 +316,7 @@ bool Runtime::tick(const Inputs& inputs) noexcept
         effectiveParameters_[projection.parameterElement] +=
             weights.values[projection.weightElement] * sources.values[projection.sourceElement];
     }
-    if (!finite(effectiveParameters_))
+    if (!finite<Scalar>(effectiveParameters_))
     {
         std::fill(output_.begin(), output_.end(), 0.0f);
         return false;
@@ -283,7 +326,7 @@ bool Runtime::tick(const Inputs& inputs) noexcept
         const auto index = update.instance;
         const auto& instance = configuration_.instances[index];
         const auto out = outputs_[index];
-        auto output = std::span<float>(candidateOutput_).subspan(out.offset, out.count);
+        auto output = std::span<Scalar>(candidateOutput_).subspan(out.offset, out.count);
         if (configuration_.activation.values[instance.activationIndex] == 0.0f)
         {
             std::fill(output.begin(), output.end(), 0.0f);
@@ -296,24 +339,53 @@ bool Runtime::tick(const Inputs& inputs) noexcept
             continue;
         }
         const auto local = states_[index];
-        const Step step{sample_,
+        auto operandInputs = inputs;
+        if (instance.inputChannels > 0)
+        {
+            auto& operands = audioOperands_[index];
+            std::fill(operands.begin(), operands.end(), 0.0f);
+            for (const auto& binding : instance.audioBindings)
+            {
+                const auto source = sourceValues<Scalar>(binding.source, inputs, state_, output_);
+                if (binding.sourceElement >= source.values.size() ||
+                    (!source.presence.empty() && source.presence[binding.sourceElement] == 0))
+                {
+                    if (binding.missingSource == MissingSource::Zero)
+                        continue;
+                    std::fill(output_.begin(), output_.end(), 0.0f);
+                    return false;
+                }
+                const auto& weights = binding.weightTensor == WeightTensor::Routing
+                                          ? configuration_.routing
+                                          : configuration_.modulation;
+                operands[binding.destinationElement] +=
+                    weights.values[binding.weightElement] * source.values[binding.sourceElement];
+            }
+            if (!finite<Scalar>(operands))
+            {
+                std::fill(output_.begin(), output_.end(), 0.0f);
+                return false;
+            }
+            operandInputs.audio = {audioAxes_, audioShapes_[index], operands, {}};
+        }
+        const StepT<Scalar> step{sample_,
                         sampleRate_,
                         update.clock,
                         configuration_.activation.values[instance.activationIndex],
-                        inputs,
+                        operandInputs,
                         state_,
-                        std::span<const float>(state_).subspan(local.offset, local.count),
+                        std::span<const Scalar>(state_).subspan(local.offset, local.count),
                         states_,
-                        std::span<const float>(effectiveParameters_)
+                        std::span<const Scalar>(effectiveParameters_)
                             .subspan(instance.parameters.offset, instance.parameters.count),
-                        view(configuration_.routing),
-                        view(configuration_.modulation),
+                        view<Scalar>(configuration_.routing),
+                        view<Scalar>(configuration_.modulation),
                         assets_[index]};
         std::fill(output.begin(), output.end(), 0.0f);
         instance.primitive->readout(step, output);
-        instance.primitive->transition(step, std::span<float>(next_).subspan(local.offset, local.count));
+        instance.primitive->transition(step, std::span<Scalar>(next_).subspan(local.offset, local.count));
     }
-    if (!finite(next_) || !finite(candidateOutput_))
+    if (!finite<Scalar>(next_) || !finite<Scalar>(candidateOutput_))
     {
         std::fill(output_.begin(), output_.end(), 0.0f);
         return false;
@@ -324,7 +396,8 @@ bool Runtime::tick(const Inputs& inputs) noexcept
     return true;
 }
 
-void Runtime::reset() noexcept
+template <typename Scalar>
+void RuntimeT<Scalar>::reset() noexcept
 {
     for (const auto& pair : {std::pair{&configuration_.activation.values, &initialActivation_},
                              std::pair{&configuration_.parameters.values, &initialParameters_},
@@ -337,15 +410,37 @@ void Runtime::reset() noexcept
     std::fill(candidateOutput_.begin(), candidateOutput_.end(), 0.0f);
     sample_ = 0;
 }
-
-bool Runtime::updateTensors(TensorView activation, TensorView parameters, TensorView routing,
-                            TensorView modulation) noexcept
+template <typename Scalar>
+bool RuntimeT<Scalar>::adoptStateFrom(const RuntimeT<Scalar>& previous) noexcept
 {
-    if (!prepared_ || !matches(configuration_.activation, activation) ||
-        !matches(configuration_.parameters, parameters) || !matches(configuration_.routing, routing) ||
-        !matches(configuration_.modulation, modulation) ||
+    if (!prepared_ || !previous.prepared_ || sampleRate_ != previous.sampleRate_ ||
+        states_.size() != previous.states_.size() || state_.size() != previous.state_.size() ||
+        output_.size() != previous.output_.size())
+        return false;
+    for (size_t i = 0; i < states_.size(); ++i)
+        if (configuration_.instances[i].primitive->id != previous.configuration_.instances[i].primitive->id ||
+            states_[i].offset != previous.states_[i].offset ||
+            states_[i].count != previous.states_[i].count ||
+            outputs_[i].offset != previous.outputs_[i].offset ||
+            outputs_[i].count != previous.outputs_[i].count)
+            return false;
+    std::copy(previous.state_.begin(), previous.state_.end(), state_.begin());
+    std::copy(state_.begin(), state_.end(), next_.begin());
+    std::copy(previous.output_.begin(), previous.output_.end(), output_.begin());
+    std::copy(output_.begin(), output_.end(), candidateOutput_.begin());
+    sample_ = previous.sample_;
+    return true;
+}
+
+template <typename Scalar>
+bool RuntimeT<Scalar>::updateTensors(TensorViewT<Scalar> activation, TensorViewT<Scalar> parameters, TensorViewT<Scalar> routing,
+                            TensorViewT<Scalar> modulation) noexcept
+{
+    if (!prepared_ || !matches<Scalar>(configuration_.activation, activation) ||
+        !matches<Scalar>(configuration_.parameters, parameters) || !matches<Scalar>(configuration_.routing, routing) ||
+        !matches<Scalar>(configuration_.modulation, modulation) ||
         std::any_of(activation.values.begin(), activation.values.end(),
-                    [](float value) { return value < 0.0f; }))
+                    [](Scalar value) { return value < 0.0f; }))
         return false;
     for (std::size_t index = 0; index < configuration_.instances.size(); ++index)
         if (allocated_[index] == 0 &&
@@ -363,4 +458,18 @@ bool Runtime::updateTensors(TensorView activation, TensorView parameters, Tensor
     return true;
 }
 
+template <typename Scalar>
+std::size_t RuntimeT<Scalar>::numericStorageBytes() const noexcept
+{
+    size_t elements=initialActivation_.size()+initialParameters_.size()+initialRouting_.size()+initialModulation_.size()+
+        initial_.size()+state_.size()+next_.size()+output_.size()+candidateOutput_.size()+effectiveParameters_.size();
+    elements+=configuration_.activation.values.size()+configuration_.parameters.values.size()+
+        configuration_.routing.values.size()+configuration_.modulation.values.size()+configuration_.sharedInitialState.size();
+    for(const auto& values:configuration_.initialState)elements+=values.size();
+    for(const auto& instance:configuration_.instances)for(const auto& asset:instance.assets)elements+=asset.values.size();
+    for(const auto& values:audioOperands_)elements+=values.size();
+    return elements*sizeof(Scalar);
+}
+template class RuntimeT<float>;
+template class RuntimeT<double>;
 } // namespace alfa::tensor

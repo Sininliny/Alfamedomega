@@ -1,3 +1,7 @@
+> Historical model-weight planning document. The active tensor runtime uses the
+> [uniform runtime precision policy](runtime-precision.md); the int8/fp16 estimates
+> and 250 Hz assumptions below do not apply to its execution contract.
+
 # Alfamedomega model size tiers (draft v5.8, 2026-09-30)
 
 Four tiers. Every number is a planning estimate from `tier_budget.py` (same folder); change an

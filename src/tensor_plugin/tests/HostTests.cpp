@@ -2,6 +2,7 @@
 #include "alfa/tensor/Compiler.h"
 #include "alfa/tensor/Kernels.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <nlohmann/json.hpp>
@@ -30,6 +31,48 @@ juce::String document(bool midiProjection = false)
     return j.dump();
 }
 } // namespace
+TEST_CASE("Built VST3 loads and renders in an independent plugin host", "[.vst3-binary]")
+{
+    juce::ScopedJuceInitialiser_GUI gui;
+    const auto path = juce::SystemStats::getEnvironmentVariable("ALFA_VST3_BINARY", {});
+    REQUIRE(path.isNotEmpty());
+    juce::VST3PluginFormat format;
+    juce::OwnedArray<juce::PluginDescription> types;
+    format.findAllTypesForFile(types, path);
+    REQUIRE(types.size() == 1);
+    juce::String error;
+    auto plugin = format.createInstanceFromDescription(*types[0], 48000, 128, error);
+    INFO(error.toStdString());
+    REQUIRE(plugin != nullptr);
+    plugin->prepareToPlay(48000, 128);
+    juce::AudioBuffer<float> audio(2, 128);
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.75f), 0);
+    double energy = 0;
+    for (int block = 0; block < 20; ++block)
+    {
+        audio.clear();
+        plugin->processBlock(audio, midi);
+        midi.clear();
+        for (int channel = 0; channel < audio.getNumChannels(); ++channel)
+            for (int sample = 0; sample < audio.getNumSamples(); ++sample)
+            {
+                const auto value = audio.getSample(channel, sample);
+                REQUIRE(std::isfinite(value));
+                energy += value * value;
+            }
+    }
+    CHECK(energy > 0.01);
+    juce::MemoryBlock state;
+    plugin->getStateInformation(state);
+    REQUIRE(state.getSize() > 0);
+    plugin->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+    std::unique_ptr<juce::AudioProcessorEditor> editor(plugin->createEditorIfNeeded());
+    REQUIRE(editor != nullptr);
+    CHECK(editor->getWidth() >= 1040);
+    editor.reset();
+    plugin->releaseResources();
+}
 TEST_CASE("Native FX host preserves audio input for recurrent tensor processing", "[tensor-host]")
 {
     juce::ScopedJuceInitialiser_GUI gui;
@@ -66,21 +109,21 @@ TEST_CASE("Hybrid host routes MIDI velocity and audio through same compiled stat
     CHECK(audio.getSample(0, 2) == 0.1f);
     CHECK(p.failures.load() == 0);
 }
-TEST_CASE("Tensor host configuration and intentions survive project persistence", "[tensor-host]")
+TEST_CASE("Tensor host configuration and xControls survive project persistence", "[tensor-host]")
 {
     juce::ScopedJuceInitialiser_GUI gui;
     alfa::tensorhost::Processor original;
     juce::String error;
     REQUIRE(original.loadJSON(document(), error));
     original.mode.store(1);
-    original.intentions[2].store(0.5f);
+    original.xControls[2].store(0.5f);
     juce::MemoryBlock bytes;
     original.getStateInformation(bytes);
     alfa::tensorhost::Processor restored;
     restored.setStateInformation(bytes.getData(), static_cast<int>(bytes.getSize()));
     CHECK(restored.document() == original.document());
     CHECK(restored.mode.load() == 1);
-    CHECK(restored.intentions[2].load() == 0.5f);
+    CHECK(restored.xControls[2].load() == Catch::Approx(0.5f).margin(0.000001f));
     REQUIRE_FALSE(restored.loadJSON("{}", error));
     CHECK(restored.document() == original.document());
 }
@@ -88,6 +131,8 @@ TEST_CASE("Embedded instrument executes MIDI projection and note-off without aud
 {
     juce::ScopedJuceInitialiser_GUI gui;
     alfa::tensorhost::Processor p;
+    juce::String error;
+    REQUIRE(p.loadJSON(alfa::tensorhost::Processor::referenceDocument(0), error));
     p.prepareToPlay(48000, 64);
     p.mode.store(0);
     juce::AudioBuffer<float> audio(2, 64);

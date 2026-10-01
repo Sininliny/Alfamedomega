@@ -2,6 +2,8 @@
 
 #include "alfa/tensor/Kernels.h"
 #include "alfa/tensor/Universe.h"
+#include "alfa/tensor/Precision.h"
+#include <type_traits>
 
 #include <limits>
 #include <nlohmann/json.hpp>
@@ -40,19 +42,21 @@ std::vector<std::uint8_t> mask(const Json& value)
     return result;
 }
 
-Tensor tensor(const Json& value)
+template <typename Scalar>
+TensorT<Scalar> tensor(const Json& value)
 {
-    Tensor result;
+    TensorT<Scalar> result;
     result.axes = value.at("axes").get<std::vector<std::string>>();
     for (const auto& extent : value.at("shape"))
         result.shape.push_back(size(extent));
-    result.values = value.at("values").get<std::vector<float>>();
+    result.values = value.at("values").get<std::vector<Scalar>>();
     if (value.contains("presence"))
         result.presence = mask(value.at("presence"));
     return result;
 }
 
-Json tensorJSON(const Tensor& value)
+template <typename Scalar>
+Json tensorJSON(const TensorT<Scalar>& value)
 {
     Json result{{"axes", value.axes}, {"shape", value.shape}, {"values", value.values}};
     if (!value.presence.empty())
@@ -76,6 +80,8 @@ SourceKind source(std::string_view name)
         return SourceKind::Context;
     if (name == "state")
         return SourceKind::State;
+    if (name == "output_history")
+        return SourceKind::OutputHistory;
     throw std::invalid_argument("Unknown source representation");
 }
 
@@ -97,21 +103,24 @@ std::string_view sourceName(SourceKind kind)
         return "context";
     case SourceKind::State:
         return "state";
+    case SourceKind::OutputHistory:
+        return "output_history";
     }
     throw std::invalid_argument("Unknown source representation");
 }
 
-Primitive primitive(std::string_view id, std::size_t stateElements, const PrimitiveResolver& extension)
+template <typename Scalar>
+PrimitiveT<Scalar> primitive(std::string_view id, std::size_t stateElements, const PrimitiveResolverT<Scalar>& extension)
 {
-    Primitive result;
+    PrimitiveT<Scalar> result;
     if (id == "math.sine" && stateElements == 1)
-        return kernels::sine();
+        return kernels::sine<Scalar>();
     if (id == "math.one_pole_lowpass" && stateElements == 1)
-        return kernels::onePole();
+        return kernels::onePole<Scalar>();
     if (id == "math.feedback_cell" && stateElements == 1)
-        return kernels::feedbackCell();
+        return kernels::feedbackCell<Scalar>();
     if (id == "math.integer_delay" && stateElements > 0)
-        return kernels::delay(stateElements);
+        return kernels::delay<Scalar>(stateElements);
     std::string error;
     if (!universe::createPrimitive(id, stateElements, result, error))
     {
@@ -130,27 +139,49 @@ void validateHeader(const Json& document)
 }
 } // namespace
 
-bool parseJSON(std::string_view text, Configuration& output, std::string& error,
-               const PrimitiveResolver& extension)
+template <typename Scalar>
+bool parseJSON(std::string_view text, ConfigurationT<Scalar>& output, std::string& error,
+               const PrimitiveResolverT<Scalar>& extension)
 {
     error.clear();
     try
     {
         const auto document = Json::parse(text);
         validateHeader(document);
-        Configuration candidate;
+        PrecisionProfile precision;
+        if(!resolvePrecisionJSON(text,precision,error))return false;
+        constexpr auto actual=std::is_same_v<Scalar,double>?ScalarType::Float64:ScalarType::Float32;
+        if(precision.scalarType!=actual) {error="Compiler scalar type differs from declared tier/type";return false;}
+        ConfigurationT<Scalar> candidate;
         const auto& tensors = document.at("tensors");
-        candidate.activation = tensor(tensors.at("activation"));
-        candidate.parameters = tensor(tensors.at("parameters"));
-        candidate.routing = tensor(tensors.at("routing"));
-        candidate.modulation = tensor(tensors.at("modulation"));
+        candidate.activation = tensor<Scalar>(tensors.at("activation"));
+        candidate.parameters = tensor<Scalar>(tensors.at("parameters"));
+        candidate.routing = tensor<Scalar>(tensors.at("routing"));
+        candidate.modulation = tensor<Scalar>(tensors.at("modulation"));
         for (const auto& serialized : document.at("instances"))
         {
-            Instance instance;
+            InstanceT<Scalar> instance;
             const auto stateElements = size(serialized.at("state_size"));
-            instance.descriptor = std::make_shared<Primitive>(
-                primitive(serialized.at("primitive").get<std::string>(), stateElements, extension));
+            instance.descriptor = std::make_shared<PrimitiveT<Scalar>>(
+                primitive<Scalar>(serialized.at("primitive").get<std::string>(), stateElements, extension));
             instance.primitive = instance.descriptor.get();
+            instance.inputChannels =
+                serialized.contains("input_channels") ? size(serialized.at("input_channels")) : 0;
+            if (serialized.contains("audio_bindings"))
+                for (const auto& binding : serialized.at("audio_bindings"))
+                {
+                    const auto weights = binding.at("weights").get<std::string>();
+                    const auto missing = binding.at("missing_source").get<std::string>();
+                    if ((weights != "routing" && weights != "modulation") ||
+                        (missing != "zero" && missing != "reject"))
+                        throw std::invalid_argument("Invalid audio binding policy");
+                    instance.audioBindings.push_back(
+                        {source(binding.at("source").get<std::string>()), size(binding.at("source_element")),
+                         size(binding.at("destination_element")),
+                         weights == "routing" ? WeightTensor::Routing : WeightTensor::Modulation,
+                         size(binding.at("weight_element")),
+                         missing == "zero" ? MissingSource::Zero : MissingSource::Reject});
+                }
             instance.activationIndex = size(serialized.at("activation"));
             const auto& parameters = serialized.at("parameters");
             instance.parameters = {size(parameters.at("offset")), size(parameters.at("count"))};
@@ -163,8 +194,8 @@ bool parseJSON(std::string_view text, Configuration& output, std::string& error,
                 between == "hold" ? OutputBetweenUpdates::Hold : OutputBetweenUpdates::Zero;
             if (serialized.contains("assets"))
                 for (const auto& asset : serialized.at("assets"))
-                    instance.assets.push_back(tensor(asset));
-            candidate.initialState.push_back(serialized.at("initial_state").get<std::vector<float>>());
+                    instance.assets.push_back(tensor<Scalar>(asset));
+            candidate.initialState.push_back(serialized.at("initial_state").get<std::vector<Scalar>>());
             candidate.instances.push_back(std::move(instance));
         }
         if (document.contains("projections"))
@@ -189,7 +220,7 @@ bool parseJSON(std::string_view text, Configuration& output, std::string& error,
         if (document.contains("parameter_locks"))
             candidate.parameterLocks = mask(document.at("parameter_locks"));
         if (document.contains("shared_initial_state"))
-            candidate.sharedInitialState = document.at("shared_initial_state").get<std::vector<float>>();
+            candidate.sharedInitialState = document.at("shared_initial_state").get<std::vector<Scalar>>();
         output = std::move(candidate);
         return true;
     }
@@ -222,15 +253,16 @@ bool readBudgetJSON(std::string_view text, Budget& output, std::string& error)
     }
 }
 
-std::string serializeJSON(const Configuration& configuration)
+template <typename Scalar>
+std::string serializeJSON(const ConfigurationT<Scalar>& configuration)
 {
     Json document{{"schema", "aom.tensor/1"},
                   {"ontology", "aom.math/1"},
                   {"tensors",
-                   {{"activation", tensorJSON(configuration.activation)},
-                    {"parameters", tensorJSON(configuration.parameters)},
-                    {"routing", tensorJSON(configuration.routing)},
-                    {"modulation", tensorJSON(configuration.modulation)}}},
+                   {{"activation", tensorJSON<Scalar>(configuration.activation)},
+                    {"parameters", tensorJSON<Scalar>(configuration.parameters)},
+                    {"routing", tensorJSON<Scalar>(configuration.routing)},
+                    {"modulation", tensorJSON<Scalar>(configuration.modulation)}}},
                   {"parameter_locks", configuration.parameterLocks},
                   {"shared_initial_state", configuration.sharedInitialState}};
     document["instances"] = Json::array();
@@ -251,8 +283,18 @@ std::string serializeJSON(const Configuration& configuration)
             {"state_size", instance.primitive->stateElements},
             {"initial_state", configuration.initialState[index]}};
         entry["assets"] = Json::array();
+        entry["input_channels"] = instance.inputChannels;
+        entry["audio_bindings"] = Json::array();
+        for (const auto& binding : instance.audioBindings)
+            entry["audio_bindings"].push_back(
+                {{"source", sourceName(binding.source)},
+                 {"source_element", binding.sourceElement},
+                 {"destination_element", binding.destinationElement},
+                 {"weights", binding.weightTensor == WeightTensor::Routing ? "routing" : "modulation"},
+                 {"weight_element", binding.weightElement},
+                 {"missing_source", binding.missingSource == MissingSource::Zero ? "zero" : "reject"}});
         for (const auto& asset : instance.assets)
-            entry["assets"].push_back(tensorJSON(asset));
+            entry["assets"].push_back(tensorJSON<Scalar>(asset));
         document["instances"].push_back(std::move(entry));
     }
     document["projections"] = Json::array();
@@ -264,14 +306,23 @@ std::string serializeJSON(const Configuration& configuration)
              {"weights", projection.weightTensor == WeightTensor::Routing ? "routing" : "modulation"},
              {"weight_element", projection.weightElement},
              {"missing_source", projection.missingSource == MissingSource::Reject ? "reject" : "zero"}});
+    document["scalar_type"]=std::is_same_v<Scalar,double>?"float64":"float32";
     return document.dump(2);
 }
 
-bool compileJSON(std::string_view text, double sampleRate, Runtime& runtime, std::string& error)
+template <typename Scalar>
+bool compileJSON(std::string_view text, double sampleRate, RuntimeT<Scalar>& runtime, std::string& error)
 {
-    Configuration configuration;
+    ConfigurationT<Scalar> configuration;
     Budget budget;
     return parseJSON(text, configuration, error) && readBudgetJSON(text, budget, error) &&
            runtime.prepare(configuration, budget, sampleRate, error);
 }
+
+template bool parseJSON<float>(std::string_view, ConfigurationT<float>&, std::string&, const PrimitiveResolverT<float>&);
+template std::string serializeJSON<float>(const ConfigurationT<float>&);
+template bool compileJSON<float>(std::string_view,double,RuntimeT<float>&,std::string&);
+template bool parseJSON<double>(std::string_view, ConfigurationT<double>&, std::string&, const PrimitiveResolverT<double>&);
+template std::string serializeJSON<double>(const ConfigurationT<double>&);
+template bool compileJSON<double>(std::string_view,double,RuntimeT<double>&,std::string&);
 } // namespace alfa::tensor

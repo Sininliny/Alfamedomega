@@ -8,12 +8,14 @@ for a deterministic recurrent DSP runtime.
 The core abstraction is **Audio Tensor Space**. Instrument, FX and hybrid operation are native
 requirements. This is not a traditional synthesizer, a preset generator or a modular DSP graph.
 
-**Status: executable tensor compiler and native tensor plugin alongside the legacy entry.**
+**Status: one Alfamedomega product entry with recurrent tensor execution and shared legacy DSP/UI components.**
 `src/tensor` supplies versioned tensor programs, recurrent deterministic execution, independent
 clocks, padding masks, capacity validation, immutable assets, parameter locks and a migration
-boundary. Fifty mathematical operations cover the required primitive families. The new
-`AlfamedomegaTensor` Standalone/VST3 entry supports native audio, MIDI/MPE, instrument/FX/hybrid
-execution, semantic intentions, inspection and expert tensor editing. A separately budgeted
+boundary. Fifty-two mathematical operations cover the required primitive families.
+The `Alfamedomega` Standalone/VST3 entry supports native audio, MIDI/MPE, instrument/FX/hybrid
+execution, expandable indexed X controls, editable control matrices, raw instance parameters,
+preset management and expert tensor editing. High controls have explicit authored default
+mappings; semantic names appear only on the bottom DSP instance parameters. A separately budgeted
 recurrent neural compiler predicts tensor controls; DSP generates audio.
 
 `training/aom` supplies dual-supervised WAV learning, native DSP rendering, runtime model
@@ -27,7 +29,9 @@ The [project direction](docs/audio-tensor-space/mission.md),
 [migration audit](docs/audio-tensor-space/migration.md) and
 [training requirements](training/METHOD.md) describe the new direction and actual limits.
 Older component documents describe the existing implementation and must not override it.
-Compatibility adjustments are authorized; the legacy plugin entry remains during stabilization.
+Compatibility adjustments are authorized. The original plugin remains buildable with
+`ALFA_BUILD_LEGACY_PLUGIN=ON` for original projects; it is a compatibility entry, while the
+default product uses one tensor host and shared DSP/UI implementations.
 
 ## Build
 

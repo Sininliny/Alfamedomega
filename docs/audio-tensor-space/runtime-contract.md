@@ -128,7 +128,7 @@ prediction tensors, dynamically described primitive instances, assets, explicit
 projection terms, clocks, initial state, locks and independent capacity limits.
 The compiler validates them and derives state allocation and an execution
 schedule. Instance descriptors own their primitive callbacks for the program's
-lifetime. `Universe.h` extends the four original kernels by 46 operations.
+lifetime. `Universe.h` extends the four original kernels by 48 operations. Cubic and normalized Kaiser-windowed sinc8 asset interpolation reuse the legacy numerical kernels; neither is a ratio-dependent anti-alias downsampler.
 
 The host's explicit `outputMix` rows are `[primitive_output_element, channel,
 gain]`. Mixing is performed after simultaneous recurrent updates; it does not
@@ -158,3 +158,37 @@ An explicit off-thread `PrimitiveResolver` can resolve extension operation IDs
 while retaining tensor serialization and state allocation contracts. Unknown
 operations without a registered implementation are rejected. This is an open
 mathematical operation boundary, not a closed list of instrument types.
+
+## Product control layers and recurrent audio operands
+
+`control_layers` is an arbitrary-length list of indexed X layers. Each layer owns
+`values`, per-coordinate `ranges`, and a matrix with named destination/source axes.
+Matrix multiplication adds into the next layer's declared base values; the last
+layer adds into the parameter tensor. Parameter locks restore the locked base value
+after these transformations. Current matrices are authored defaults, not trained
+semantic mappings. Eight stable host automation ports address the first eight
+highest coordinates; all remaining coordinates and layers remain directly editable.
+
+An instance can declare `input_channels` and `audio_bindings`. Each binding names
+an input, persistent state or `output_history` element, an operand channel, and a
+routing/modulation weight. Every primitive reads the same previous-state/output
+snapshot. Its operand buffer is allocated during preparation and counted in the
+budget. This permits summed audio operands and recurrent interactions without
+graph sorting. Missing operands have explicit zero/reject policy.
+
+Validated control edits publish a prepared configuration at the block boundary.
+Compatible primitive state slices, sample clock and note layout can be retained;
+structural changes reset explicitly. Compilation, file I/O and undo snapshots stay
+outside the audio callback. A model with no state migration interface is reset
+rather than combining incompatible neural and DSP context.
+
+The canonical product target is `Alfamedomega` in `src/plugin`. It assembles the
+tensor host and shared legacy DSP/UI components. `ALFA_BUILD_LEGACY_PLUGIN=ON`
+retains the original Afmo compatibility entry; the product retains the tensor
+entry's Aftn identity. These identities are distinct because their state formats
+and host automation contracts differ.
+
+Numerical execution uses one scalar type per tier, including assets, learned
+compiler weights and recurrent state. Lite/Standard use float32; Pro/Studio use
+float64. See [the measured precision policy](../tiers/runtime-precision.md) for
+storage, accuracy evidence and explicit native host conversion boundaries.
