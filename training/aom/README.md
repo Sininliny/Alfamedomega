@@ -125,3 +125,21 @@ requires bitwise DSP/model reset equivalence and verifies rejection of an
 insufficient model RAM budget. All inputs and evidence are written to the chosen
 output directory. Use `--dll PATH` when the native library is outside standard
 build directories.
+
+
+## AOM Centre training workflow
+
+The four model roles now use the shared optimizer-session lifecycle with progress,
+atomic checkpoints/publication, exact local resume, explicit CPU/CUDA selection,
+held-out group validation and optional publication gates. WAV preparation streams
+recordings one at a time. `build-dataset` generates controlled native pairs;
+`evaluate-wav` independently checks both complete predicted heads through native DSP.
+An optional finite-difference native waveform objective trains explicitly selected
+continuous unlocked parameters independently of coordinate/presence losses.
+
+See [the training system guide](../../docs/control-center/aom-training-system.md) for
+GUI/CLI operation, all manifest contracts, example data, memory policy, cancellation,
+quality gates and the limits of the reference analysis/reconstruction policies.
+Synthetic executable examples are in [examples](examples/controlled-dataset-plan.json).
+Run the expanded lifecycle/CPU/CUDA/native regression suite with `python -m pytest
+training/tests`; the existing unittest examples remain usable for the earlier tests.

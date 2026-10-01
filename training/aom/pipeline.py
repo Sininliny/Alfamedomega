@@ -1,20 +1,11 @@
 """Serialize learned tensor predictions into the native compiler document."""
 import copy
-import json
 import math
-import wave
 from pathlib import Path
 
-from .contracts import Representation, Tensor, TensorSchema, NormalizationRecord, WavExample
+from .dataset import representation
 from .analysis import AnalysisProfile, read_wav, extract
 from .learner import LearnSpec, train, save, load, predict
-
-
-def representation(document):
-    return Representation(document["ontology"], tuple(
-        (name, Tensor(tuple(tensor["axes"]), tuple(tensor["shape"]), tuple(tensor["values"]),
-                     tuple(tensor["presence"]) if "presence" in tensor else None))
-        for name, tensor in document["tensors"].items()))
 
 
 def export_prediction(template: dict, prediction: dict, *, head: str, bounds: dict):
@@ -42,6 +33,8 @@ def export_prediction(template: dict, prediction: dict, *, head: str, bounds: di
         values = []
         locks = result.get("parameter_locks", []) if name == "parameters" else []
         presence = list(tensor["mask"])
+        if len(presence) != len(limits) or locks and len(locks) != len(limits):
+            raise ValueError("Presence and parameter locks must cover their tensor dimensions")
         for index, (value, (low, high)) in enumerate(zip(tensor["values"], limits)):
             if not all(math.isfinite(v) for v in (value, low, high)) or low > high:
                 raise ValueError("Invalid prediction bounds")
@@ -55,36 +48,52 @@ def export_prediction(template: dict, prediction: dict, *, head: str, bounds: di
     return result
 
 
-def train_manifest(path: Path, destination: Path):
-    """Manifest points to producer-labeled canonical/instance JSON and WAV files."""
-    path = Path(path)
-    manifest = json.loads(path.read_text(encoding="utf-8"))
-    profile = AnalysisProfile(**{**manifest["analysis"], "harmonic_ratios": tuple(manifest["analysis"]["harmonic_ratios"])})
-    schemas = {name: TensorSchema(tuple(value["axes"]), tuple(value["padded_shape"]))
-               for name, value in manifest["schemas"].items()}
-    examples, features = [], []
-    # Check aggregate resident dataset estimates before loading any WAV labels.
-    from .contracts import ModelBudget
-    from .hardware import detect
-    allowance = min(manifest["learn"]["available_ram_bytes"], detect(gpu_device=None).available_ram_bytes)
-    dataset_estimate = 0
-    for row in manifest["examples"]:
-        with wave.open(str(path.parent / row["normalized_wav"]), "rb") as wav:
-            dataset_estimate += wav.getnframes() * wav.getnchannels() * (wav.getsampwidth() + 96)
-    ModelBudget(dataset_estimate, allowance, 0, 0)
-    for row in manifest["examples"]:
-        audio, rate = read_wav(path.parent / row["normalized_wav"], available_ram_bytes=allowance)
-        canonical = representation(json.loads((path.parent / row["canonical_json"]).read_text(encoding="utf-8")))
-        instance = representation(json.loads((path.parent / row["instance_json"]).read_text(encoding="utf-8")))
-        record = row["normalization"]
-        normalization = NormalizationRecord(record["policy_id"], frozenset(record["removed"]), frozenset(record["preserved"]))
-        examples.append(WavExample(row["id"], row["canonical_id"], canonical, instance,
-                        Tensor(("sample", "channel"), tuple(audio.shape), tuple(audio.flat)),
-                        rate, normalization, row["perturbation_id"]))
-        features.append(extract(audio, rate, profile))
-    spec = {**manifest["learn"], "available_ram_bytes": allowance - dataset_estimate}
-    model, metadata = train(tuple(examples), features, manifest["ontology"], schemas, LearnSpec(**spec))
+def train_manifest(path: Path, destination: Path, *, session=None):
+    """Stream WAV analysis, retain labels/features, and validate held-out groups."""
+    from .dataset import prepare_wav
+    manifest, schemas, splits, audit, allowance = prepare_wav(
+        path, cancelled=session.cancelled if session else None)
+    from .session import protect_outputs
+    protect_outputs(destination, [path, *(Path(path).parent / row[key] for row in manifest["examples"] for key in ("normalized_wav", "canonical_json", "instance_json"))], session)
+    examples, features = splits["train"]
+    held = splits["validation"] if splits["validation"][0] else None
+    from .session import TrainingSession
+    session = session or TrainingSession("wav_preset_learning")
+    from .session import fingerprint
+    session.producer_identity = fingerprint({"session": session.producer_identity, "dataset": audit["identity"]})
+    reconstruction = None
+    if manifest.get("reconstruction"):
+        from .reconstruction import NativeReconstruction
+        reconstruction = NativeReconstruction(path, manifest, schemas, available_ram_bytes=allowance, cancelled=session.cancelled)
+        allowance -= reconstruction.estimated_peak_bytes
+    model, metadata = train(tuple(examples), features, manifest["ontology"], schemas,
+                            LearnSpec(**{**manifest["learn"], "available_ram_bytes": allowance}),
+                            session=session, validation=held, reconstruction=reconstruction)
     metadata["analysis"] = manifest["analysis"]
+    metadata["dataset"] = audit
+    metadata["estimated_peak_training_bytes"] += audit["resident_dataset_estimate_bytes"] + (reconstruction.estimated_peak_bytes if reconstruction else 0)
+    from .workflow import acceptance
+    metadata.update(acceptance(manifest, metadata["losses"][-1]))
+    if manifest.get("reconstruction_acceptance"):
+        import os
+        import tempfile
+        from .producer import evaluate_wav
+        Path(destination).parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(suffix=".pt", dir=Path(destination).parent)
+        os.close(fd)
+        try:
+            save(temporary, model, metadata)
+            reconstruction = evaluate_wav(temporary, path)
+            acceptance({"acceptance": manifest["reconstruction_acceptance"]}, reconstruction["metrics"])
+            reconstruction["candidate_package_sha256"] = reconstruction.pop("model_sha256")
+            metadata["reconstruction"] = reconstruction
+            metadata["reconstruction_gates_passed"] = True
+            metadata["quality_gates_passed"] = True
+        finally:
+            os.unlink(temporary)
+    if session.cancelled():
+        from .session import TrainingCancelled
+        raise TrainingCancelled("Cancelled before model publication; checkpoint retained")
     save(destination, model, metadata)
     return metadata
 
@@ -92,7 +101,7 @@ def train_manifest(path: Path, destination: Path):
 def infer_wav(model_path: Path, wav_path: Path, *, mask_threshold: float):
     model, metadata = load(model_path)
     profile = AnalysisProfile(**{**metadata["analysis"], "harmonic_ratios": tuple(metadata["analysis"]["harmonic_ratios"])})
-    audio, rate = read_wav(wav_path, available_ram_bytes=metadata["spec"]["available_ram_bytes"])
+    audio, rate = read_wav(wav_path)
     return predict(model, metadata, extract(audio, rate, profile), mask_threshold=mask_threshold)
 
 
@@ -107,32 +116,6 @@ def import_wav(model_path: Path, wav_path: Path, template: dict, bounds: dict, *
     return document
 
 
-def train_runtime_manifest(path: Path, destination: Path):
-    """Independent runtime event learner and exact C++ model export."""
-    import torch
-    from .runtime_model import RuntimeTensorModel, train_runtime_sequences, export_runtime_model
-    from .contracts import ModelBudget
-    path = Path(path)
-    manifest = json.loads(path.read_text(encoding="utf-8"))
-    schemas = {name: TensorSchema(tuple(value["axes"]), tuple(value["padded_shape"]))
-               for name, value in manifest["schemas"].items()}
-    input_width = sum(manifest["input_widths"].values())
-    hidden = manifest["hidden_width"]
-    outputs = sum(math.prod(schema.padded_shape) for schema in schemas.values())
-    parameter_count = 3 * hidden * input_width + 3 * hidden * hidden + 6 * hidden + 2 * outputs * (hidden + 1)
-    ModelBudget(16 * parameter_count, manifest["available_ram_bytes"], 0, 0)
-    torch.manual_seed(manifest["seed"])
-    model = RuntimeTensorModel(manifest["input_widths"], hidden, schemas)
-    sequences = []
-    for sequence in manifest["sequences"]:
-        sequences.append([(event["inputs"], representation(json.loads((path.parent / event["target_json"]).read_text(encoding="utf-8"))))
-                          for event in sequence])
-    report = train_runtime_sequences(model, sequences, ontology=manifest["ontology"],
-                                    steps=manifest["steps"], learning_rate=manifest["learning_rate"],
-                                    mask_weight=manifest["mask_weight"], available_ram_bytes=manifest["available_ram_bytes"])
-    export_runtime_model(destination, model, ontology=manifest["ontology"],
-                         period_samples=manifest["clock"]["period_samples"], phase_samples=manifest["clock"]["phase_samples"],
-                         mask_threshold=manifest["mask_threshold"], available_ram_bytes=manifest["available_ram_bytes"],
-                         bounds=manifest["bounds"], golden_inputs=[event["inputs"] for event in manifest["sequences"][0]])
-    return {"model": str(destination), "initial_loss": report["losses"][0], "final_loss": report["losses"][-1],
-            "estimated_peak_training_bytes": report["estimated_peak_training_bytes"]}
+def train_runtime_manifest(path: Path, destination: Path, *, session=None):
+    from .workflow import train_runtime
+    return train_runtime(path, destination, session=session)

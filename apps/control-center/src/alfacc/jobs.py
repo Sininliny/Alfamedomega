@@ -90,6 +90,8 @@ class JobManager:
         self._queue = []
         self._worker = None
         self._proc = None
+        self._proc_job = None
+        self._proc_cancel_file = None
         self._cancel = set()
         self._save_lock = threading.Lock()
         self._live = {}          # job id -> in-memory record, for jobs this manager owns
@@ -147,10 +149,23 @@ class JobManager:
         path = self.log_path(job_id)
         if not path.exists():
             return ""
-        text = path.read_text(encoding="utf-8", errors="replace")
-        if tail:
-            text = "\n".join(text.splitlines()[-tail:])
-        return text
+        if tail is None:
+            return path.read_text(encoding="utf-8", errors="replace")
+        if type(tail) is not int or tail < 1:
+            return ""
+        # Read backwards in bounded chunks; live views do not reread a multi-GB
+        # optimization log every refresh. Decode only after joining boundaries.
+        chunks, line_count = [], 0
+        with path.open("rb") as stream:
+            position = stream.seek(0, os.SEEK_END)
+            while position and line_count <= tail:
+                size = min(position, 65536)
+                position -= size
+                stream.seek(position)
+                chunk = stream.read(size)
+                chunks.append(chunk)
+                line_count += chunk.count(b"\n")
+        return "\n".join(b"".join(reversed(chunks)).decode("utf-8", errors="replace").splitlines()[-tail:])
 
     def _reap_stale(self) -> None:
         """Close out jobs left behind by a session that has since exited."""
@@ -213,9 +228,19 @@ class JobManager:
             return
         with self._lock:
             self._cancel.add(job_id)
-            proc = self._proc
+            proc = self._proc if self._proc_job == job_id else None
+            cancel_file = self._proc_cancel_file if self._proc_job == job_id else None
+        if cancel_file is None:
+            record = self.get(job_id)
+            if record.get("status") not in FINISHED:
+                cancel_file = next((s.get("cancel_file") for s in record.get("steps", []) if s.get("cancel_file")), None)
+        if cancel_file:
+            path = Path(cancel_file)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
         if proc is not None and proc.poll() is None:
-            proc.terminate()
+            if not cancel_file:
+                proc.terminate()
 
     def run(self, job_id: str, echo=None) -> dict:
         """Run a job in the calling thread and return its final record. echo(line) mirrors the log."""
@@ -247,6 +272,8 @@ class JobManager:
 
         _current.job = (self, job_id)
         try:
+            if job_id in self._cancel:
+                raise JobCancelled()
             for i, step in enumerate(job["steps"]):
                 if job_id in self._cancel:
                     raise JobCancelled()
@@ -285,7 +312,7 @@ class JobManager:
     @staticmethod
     def _popen(step: dict):
         env = {**os.environ, "PYTHONUNBUFFERED": "1", **step.get("env", {})}
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+        flags = (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW) if sys.platform == "win32" else 0
         return subprocess.Popen(step["argv"], cwd=step.get("cwd"), env=env,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, encoding="utf-8", errors="replace",
@@ -322,18 +349,35 @@ class JobManager:
     def _run_cmd(self, job_id: str, step: dict, log, timeout: float | None = None) -> None:
         log("$ " + subprocess.list2cmdline(step["argv"]))
         with self._lock:
-            if job_id in self._cancel:
+            if job_id in self._cancel or step.get("cancel_file") and Path(step["cancel_file"]).exists():
                 raise JobCancelled()
             proc = self._popen(step)
             self._proc = proc
+            self._proc_job = job_id
+            self._proc_cancel_file = step.get("cancel_file")
+        stopped = threading.Event()
+        if step.get("cancel_file"):
+            def observe_cancel():
+                while not stopped.wait(.2):
+                    if Path(step["cancel_file"]).exists():
+                        # Also bounds cancellation requested from another Centre
+                        # process, which does not own this Popen object.
+                        if not stopped.wait(15) and proc.poll() is None:
+                            proc.terminate()
+                        return
+            watcher = threading.Thread(target=observe_cancel, daemon=True)
+            watcher.start()
         try:
             self._pump(proc, step, log, timeout)
         except RuntimeError:
-            if job_id in self._cancel:
+            if job_id in self._cancel or step.get("cancel_file") and Path(step["cancel_file"]).exists():
                 raise JobCancelled() from None
             raise
         finally:
+            stopped.set()
             with self._lock:
                 self._proc = None
+                self._proc_job = None
+                self._proc_cancel_file = None
         if job_id in self._cancel:
             raise JobCancelled()

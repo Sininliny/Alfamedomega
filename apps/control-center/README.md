@@ -30,10 +30,11 @@ export ALFA_MODELS_DIR=/tmp/alfa/Models ALFA_CC_HOME=/tmp/alfa/home
 
 | Area | Actions |
 |---|---|
-| **Models** | See which sizes are installed; import a `.alfamodel` bundle, a training export folder or a zipped export from Colab; export a bundle; verify SHA-256; remove; set the default size. Folder layout and manifest: [model-store.md](../../docs/control-center/model-store.md). |
-| **Training** | Run `training/alfamedomega_train.py` with a Python that has PyTorch, for any tier and stage (pretrain, polish, fine-tune, distil), then export and install the result in the same job. Or write a self-contained Colab notebook, and import the export zip when it is done. |
-| **Preference learning** | Choose sample and preset folders, index them into weak text labels from file and folder names, and run the preference learner over them. Forget everything with one button. [preference-batch.md](../../docs/control-center/preference-batch.md). |
-| **Plugin assimilation** | Find installed VST3 (and AU on macOS) instruments, open the ones you pick in a separate render host, find each preset's playable range, render it at Fast, Normal, Detailed or Unreasonable density and analyse the notes into a local timbre knowledge base. AAX can't be loaded outside Pro Tools; the page points to the VST3 or AU twin. [plugin-assimilation.md](../../docs/control-center/plugin-assimilation.md). |
+| **Audio Tensor Space** | Build controlled native datasets; preflight manifests; train separate WAV/runtime/preference/importance models; cancel/resume; measure native reconstruction; import editable tensor presets. [Training system guide](../../docs/control-center/aom-training-system.md). |
+| **Legacy models** | See which sizes are installed; import a `.alfamodel` bundle, a training export folder or a zipped export from Colab; export a bundle; verify SHA-256; remove; set the default size. Folder layout and manifest: [model-store.md](../../docs/control-center/model-store.md). |
+| **Legacy training** | Run `training/alfamedomega_train.py` with a Python that has PyTorch, for any tier and stage (pretrain, polish, fine-tune, distil), then export and install the result in the same job. Or write a self-contained Colab notebook, and import the export zip when it is done. |
+| **Legacy preference learning** | Choose sample and preset folders, index them into weak text labels from file and folder names, and run the preference learner over them. Forget everything with one button. [preference-batch.md](../../docs/control-center/preference-batch.md). |
+| **Legacy plugin assimilation** | Find installed VST3 (and AU on macOS) instruments, open the ones you pick in a separate render host, find each preset's playable range, render it at Fast, Normal, Detailed or Unreasonable density and analyse the notes into a local timbre knowledge base. AAX can't be loaded outside Pro Tools; the page points to the VST3 or AU twin. [plugin-assimilation.md](../../docs/control-center/plugin-assimilation.md). |
 | **Jobs** | One queue for all of the above, with progress, a live log and cancel. History survives restarts. |
 
 ## CLI examples
@@ -70,7 +71,8 @@ src/alfacc/
   settings.py    paths and settings.json
   models.py      the Models folder: manifest, import, bundles, verify
   jobs.py        background job queue with logs and progress
-  training.py    training/export jobs and Colab notebooks
+  aom.py         independent tensor training/data/evaluation jobs
+  training.py    legacy training/export jobs and Colab notebooks
   preference.py  libraries, index, labels, learner batches
   assimilate/    plugin discovery, range finding, densities, harvest jobs, analysis worker
   cli.py         alfa-cc
