@@ -70,8 +70,10 @@ Do not assume pitch shifting, peak normalization or denoising automatically meet
 
 Validation must compare canonical recovery across nuisance variations, instance recovery after
 perturbation, and reconstruction/performance behavior. Include cases where articulation or temporal
-structure changes while superficial spectral resemblance remains similar. The implementation of
-normalization and a validated dataset pipeline are still pending.
+structure changes while superficial spectral resemblance remains similar. A controlled-render dataset producer and independent native reconstruction checks are
+implemented in `training/aom`. The pitch-relative reference feature policy is validated
+on small controlled fixtures; general perceptual normalization remains producer-owned
+and is not certified for arbitrary recordings.
 
 ## Shared tiers, padding and distillation
 
@@ -83,8 +85,10 @@ identity across capacity limits.
 
 Each tier budgets internal tensor resolution, active primitives, routing, temporal state, parameter
 precision, simultaneous processing and model/runtime cost. It must not remove user controls or define
-an incompatible synthesis universe. The current CPU contract validates masks and resources; it does
-not yet train padded heads or choose numerical tier budgets.
+an incompatible synthesis universe. The current learners train padded value/presence heads, validate shared axes and
+resources, and refuse truncation. Numerical tier budgets and compatible trained
+perceptual models remain producer decisions; no universal tier dataset or distilled
+pretrained model is bundled.
 
 ## Learned importance and constrained conversion
 
@@ -100,8 +104,22 @@ acceptable conversion algorithm. Capacity rejection must not trigger silent dest
 
 ## Implementation status
 
-The new `src/tensor` runtime is an execution/validation foundation. There are no trained universal
-compiler, dual-supervised WAV model, learned importance model or cross-tier optimizer supplied by
-this change. Existing legacy training commands remain tied to their historical outputs. They must
-not be presented as training the new tensor architecture until data, model, runtime and export
-contracts are implemented and validated together.
+The `src/tensor` runtime executes and validates the four shared tensors. The AOM
+Centre training system now supplies separate WAV, recurrent runtime, local-preference
+and measured-importance workflows, explicit data provenance/group validation,
+RAM/VRAM checks, CPU/CUDA training, cancellation and reproducible checkpoints.
+WAV training retains original and instance losses, masked presence supervision and
+an optional independent native waveform reconstruction objective for explicitly
+selected continuous unlocked parameters. Discrete topology is supervised separately;
+native reconstruction acceptance tests both complete predicted heads.
+
+The controlled dataset producer, native GRU export/golden vectors and local queue/GUI
+integration are verified with small deterministic fixtures. Publication is atomic and
+can be gated by held-out numerical/native reconstruction thresholds. No universal
+trained compiler, arbitrary-recording normalization guarantee, perceptually validated
+cross-tier model or pretrained musical history is supplied. Shared ontology/padding
+and constrained measured-candidate tier conversion are implemented; full learned
+cross-tier distillation remains outside these reference fixtures. Legacy training
+commands keep their historical outputs and are explicitly identified as legacy.
+
+Operational manifests, examples and limits: [AOM Centre training system](../docs/control-center/aom-training-system.md).

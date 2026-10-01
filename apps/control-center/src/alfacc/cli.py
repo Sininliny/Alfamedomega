@@ -7,7 +7,8 @@ from dataclasses import asdict, fields
 from pathlib import Path
 
 from . import __version__
-from .aom import train_tensor_model, train_runtime_tensor_model, infer_tensor_preset, import_tensor_wav
+from .aom import (train_tensor_model, train_runtime_tensor_model, infer_tensor_preset, import_tensor_wav,
+                  create_tensor_job, TRAINING_CATEGORIES)
 from .assimilate.harvest import create_assimilation_job, create_scan_job, host_formats
 from .assimilate.plans import DENSITIES, custom_density, estimate
 from .context import Context
@@ -251,16 +252,45 @@ def cmd_jobs(ctx: Context, a) -> int:
 
 
 def cmd_aom(ctx, a) -> int:
+    if a.action in (*TRAINING_CATEGORIES, "preflight", "build-dataset", "evaluate-wav") and (
+            a.action in ("train-preference", "train-importance", "preflight", "build-dataset", "evaluate-wav") or a.job or a.python or a.checkpoint or a.resume):
+        from .jobs import JobManager
+        from .settings import default_home, load_settings
+        home = Path(a.home) if a.home else default_home()
+        manager = JobManager(home)
+        settings = load_settings(home)
+        settings.repo_dir = str(a.repository)
+        if a.action == "build-dataset":
+            arguments = [str(a.plan.resolve()), str(a.output.resolve())]
+        elif a.action == "evaluate-wav":
+            arguments = [str(a.model.resolve()), str(a.manifest.resolve()), str(a.output.resolve())]
+        else:
+            arguments = [str(a.manifest.resolve())]
+        if a.action == "preflight":
+            arguments += ["--category", a.category]
+        elif a.action in TRAINING_CATEGORIES:
+            arguments += [str(a.model.resolve())]
+        if getattr(a, "dll", None):
+            arguments += ["--dll", str(a.dll.resolve())]
+        job = create_tensor_job(manager, a.repository, a.action, arguments,
+            python=a.python or settings.resolved_training_python(), checkpoint=a.checkpoint,
+            resume=a.resume, checkpoint_every=a.checkpoint_every)
+        result = manager.run(job["id"], echo=lambda line: print(line, file=sys.stderr))
+        print(json.dumps(result, indent=2))
+        return 0 if result["status"] == SUCCEEDED else 1
+    options = {"home": a.home} if a.home else {}
+    if getattr(a, "python", None):
+        options["python"] = a.python
     if a.action == "train":
-        result = train_tensor_model(a.repository, a.manifest, a.model)
+        result = train_tensor_model(a.repository, a.manifest, a.model, **options)
     elif a.action == "train-runtime":
-        result = train_runtime_tensor_model(a.repository, a.manifest, a.model)
+        result = train_runtime_tensor_model(a.repository, a.manifest, a.model, **options)
     elif a.action == "infer":
-        result = infer_tensor_preset(a.repository, a.model, a.wav, a.output, mask_threshold=a.mask_threshold)
+        result = infer_tensor_preset(a.repository, a.model, a.wav, a.output, mask_threshold=a.mask_threshold, **options)
     else:
         result = import_tensor_wav(a.repository, a.model, a.wav, a.template, a.bounds, a.output,
                                   head=a.head, mask_threshold=a.mask_threshold, sample_rate=a.sample_rate,
-                                  dll_path=a.dll)
+                                  dll_path=a.dll, **options)
     print(json.dumps(result, indent=2))
     return 0
 
@@ -275,15 +305,40 @@ def build_parser() -> argparse.ArgumentParser:
     aom.add_argument("--repository", type=Path, required=True, help="repository containing the tensor learner and native runtime")
     actions = aom.add_subparsers(dest="action", required=True)
     for action, help_text in (("train", "dual-supervised offline WAV tensor learning"),
-                              ("train-runtime", "train recurrent runtime tensor compiler and export native GRU weights")):
+                              ("train-runtime", "train recurrent runtime tensor compiler and export native GRU weights"),
+                              ("train-preference", "learn independent local pairwise preference"),
+                              ("train-importance", "learn measured context-dependent dimension importance")):
         command = actions.add_parser(action, help=help_text)
         command.add_argument("manifest", type=Path)
         command.add_argument("model", type=Path)
+        command.add_argument("--python", help="PyTorch interpreter (otherwise use Settings)")
+        command.add_argument("--job", action="store_true", help="record logs, progress and checkpoint in Jobs")
+        command.add_argument("--checkpoint", type=Path)
+        command.add_argument("--resume", action="store_true")
+        command.add_argument("--checkpoint-every", type=int, default=100)
+    checking = actions.add_parser("preflight", help="validate provenance, group splits and memory without optimizing")
+    checking.add_argument("manifest", type=Path)
+    checking.add_argument("--category", choices=list(TRAINING_CATEGORIES.values()), required=True)
+    checking.add_argument("--python")
+    checking.set_defaults(job=True, checkpoint=None, resume=False, checkpoint_every=100)
+    producer = actions.add_parser("build-dataset", help="render grouped canonical/perturbation data with native DSP")
+    producer.add_argument("plan", type=Path)
+    producer.add_argument("output", type=Path)
+    producer.add_argument("--dll", type=Path)
+    producer.add_argument("--python")
+    producer.set_defaults(job=True, checkpoint=None, resume=False, checkpoint_every=100)
+    evaluation = actions.add_parser("evaluate-wav", help="measure held-out canonical and instance DSP reconstruction")
+    for name in ("model", "manifest", "output"):
+        evaluation.add_argument(name, type=Path)
+    evaluation.add_argument("--dll", type=Path)
+    evaluation.add_argument("--python")
+    evaluation.set_defaults(job=True, checkpoint=None, resume=False, checkpoint_every=100)
     inference = actions.add_parser("infer", help="inspect inferred canonical and rendered tensor targets")
     inference.add_argument("model", type=Path)
     inference.add_argument("wav", type=Path)
     inference.add_argument("output", type=Path)
     inference.add_argument("--mask-threshold", type=float, required=True)
+    inference.add_argument("--python")
     importing = actions.add_parser("import-wav", help="infer and compile an editable AOM preset")
     for name in ("model", "wav", "template", "bounds", "output"):
         importing.add_argument(name, type=Path)
@@ -291,6 +346,7 @@ def build_parser() -> argparse.ArgumentParser:
     importing.add_argument("--mask-threshold", type=float, required=True)
     importing.add_argument("--sample-rate", type=float, required=True)
     importing.add_argument("--dll", type=Path)
+    importing.add_argument("--python")
     aom.set_defaults(fn=cmd_aom)
 
     sub.add_parser("info", help="paths and whether training can run here").set_defaults(fn=cmd_info)

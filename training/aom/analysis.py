@@ -20,9 +20,9 @@ class AnalysisProfile:
     recording_policy: str
 
     def validate(self):
-        if self.frames <= 0 or not self.harmonic_ratios or any(not np.isfinite(x) or x <= 0 for x in self.harmonic_ratios):
+        if type(self.frames) is not int or self.frames <= 0 or not self.harmonic_ratios or any(not np.isfinite(x) or x <= 0 for x in self.harmonic_ratios):
             raise ValueError("Explicit frame count and positive spectral ratios required")
-        if not 0 < self.minimum_fundamental_hz < self.maximum_fundamental_hz:
+        if not all(np.isfinite(x) for x in (self.minimum_fundamental_hz, self.maximum_fundamental_hz)) or not 0 < self.minimum_fundamental_hz < self.maximum_fundamental_hz:
             raise ValueError("Explicit fundamental search range required")
         if self.recording_policy not in ("controlled_render", "known_calibration"):
             raise ValueError("Unknown recording conditions need an approved normalization policy")

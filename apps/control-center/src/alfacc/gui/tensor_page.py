@@ -1,11 +1,12 @@
 """Offline tensor tools run in a separate process, away from the audio host."""
-import sys
 from pathlib import Path
 
-from PySide6.QtCore import QProcess
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QLineEdit,
-                               QLabel, QPushButton, QHBoxLayout, QPlainTextEdit,
-                               QComboBox, QDoubleSpinBox)
+                               QLabel, QPushButton, QPlainTextEdit,
+                               QComboBox, QDoubleSpinBox, QCheckBox, QProgressBar, QGridLayout)
+from ..aom import create_tensor_job
+from ..jobs import FINISHED
 
 
 class TensorPage(QWidget):
@@ -14,24 +15,31 @@ class TensorPage(QWidget):
         self.win = win
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Audio Tensor Space"))
-        note = QLabel("Train construction representations or import a WAV into an editable "
-                      "tensor program. Offline learning runs separately from audio playback. "
-                      "Models and structural templates must be supplied explicitly.")
+        note = QLabel("Train models, build labelled recordings, check reconstruction, or turn a WAV into an editable preset. "
+                      "Choose the training Python in Settings. Every run is recorded in Jobs.")
         note.setWordWrap(True)
         layout.addWidget(note)
         form = QFormLayout()
         self.fields = {}
-        for key, title in (("repository", "Repository"), ("manifest", "Training manifest"),
-                           ("model", "Model package"), ("wav", "WAV recording"),
+        for key, title in (("repository", "Repository"), ("manifest", "Training manifest / dataset plan"),
+                           ("model", "Model package"), ("checkpoint", "Checkpoint (optional)"), ("wav", "WAV recording"),
                            ("template", "Tensor template"), ("bounds", "Parameter bounds"),
-                           ("output", "Output file")):
+                           ("output", "Output model / file / dataset folder")):
             edit = QLineEdit()
             self.fields[key] = edit
             form.addRow(title, edit)
         self.fields["repository"].setText(win.ctx.settings.repo_dir or
                                          str(Path(__file__).resolve().parents[5]))
+        self.resume = QCheckBox("Resume from checkpoint")
+        form.addRow("Training", self.resume)
+        self.category = QComboBox()
+        for title, value in (("WAV learning", "wav_preset_learning"), ("Runtime compiler", "runtime"),
+                             ("User preference", "user_preference"), ("Context importance", "context_importance")):
+            self.category.addItem(title, value)
+        form.addRow("Preflight model category", self.category)
         self.head = QComboBox()
-        self.head.addItems(["primary_canonical", "secondary_rendered_instance"])
+        self.head.addItem("Original preset", "primary_canonical")
+        self.head.addItem("Rendered variation", "secondary_rendered_instance")
         form.addRow("Recovery target", self.head)
         self.threshold = QDoubleSpinBox()
         self.threshold.setRange(.01, .99)
@@ -42,37 +50,72 @@ class TensorPage(QWidget):
         self.rate.setValue(48000)
         form.addRow("Render sample rate", self.rate)
         layout.addLayout(form)
-        actions = QHBoxLayout()
+        actions = QGridLayout()
         self.buttons = []
-        for title, action in (("Train WAV model", "train"),
+        for index, (title, action) in enumerate((("Train WAV model", "train"),
                               ("Train runtime compiler", "train-runtime"),
-                              ("Import WAV", "import-wav")):
+                              ("Train preference", "train-preference"),
+                              ("Train importance", "train-importance"),
+                              ("Check manifest", "preflight"),
+                              ("Build dataset", "build-dataset"),
+                              ("Evaluate reconstruction", "evaluate-wav"),
+                              ("Import WAV", "import-wav"))):
             button = QPushButton(title)
             button.clicked.connect(lambda checked=False, action=action: self.run(action))
-            actions.addWidget(button)
+            actions.addWidget(button, index // 3, index % 3)
             self.buttons.append(button)
         stop = QPushButton("Cancel")
         stop.clicked.connect(self.cancel)
-        actions.addWidget(stop)
+        actions.addWidget(stop, 3, 0)
         layout.addLayout(actions)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        layout.addWidget(self.progress)
+        self.status = QLabel("Ready. Training uses the Python interpreter selected in Settings.")
+        layout.addWidget(self.status)
+        history = QPushButton("Open job history")
+        history.clicked.connect(lambda: self.win.jobs_changed(self.job_id))
+        layout.addWidget(history)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(1000)
         layout.addWidget(self.log)
-        self.process = QProcess(self)
-        self.process.setProcessChannelMode(QProcess.MergedChannels)
-        self.process.readyReadStandardOutput.connect(self.read_output)
-        self.process.finished.connect(self.finished)
-        self.process.errorOccurred.connect(self.failed)
+        self.job_id = None
+        self._last_log = ""
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.refresh)
+        self.timer.start(500)
 
     def refresh(self):
-        pass
+        if not self.job_id:
+            return
+        job = self.win.ctx.jobs.get(self.job_id)
+        if not job:
+            return
+        text = self.win.ctx.jobs.read_log(self.job_id, tail=1000)
+        if text != self._last_log:
+            self.log.setPlainText(text)
+            self.log.verticalScrollBar().setValue(self.log.verticalScrollBar().maximum())
+            self._last_log = text
+        status = {"queued": "Queued", "running": "Working", "succeeded": "Completed",
+                  "failed": "Failed", "cancelled": "Cancelled", "interrupted": "Interrupted"}.get(job["status"], job["status"])
+        self.status.setText(status + (": " + job["error"] if job.get("error") else ""))
+        progress = job.get("progress")
+        if progress and progress[1] > 0:
+            self.progress.setRange(0, progress[1])
+            self.progress.setValue(progress[0])
+        elif job["status"] not in FINISHED:
+            self.progress.setRange(0, 0)
+        else:
+            self.progress.setRange(0, 100)
+            self.progress.setValue(100 if job["status"] == "succeeded" else 0)
 
     def run(self, action):
-        if self.process.state() != QProcess.NotRunning:
-            return
-        required = ["repository", "output", "manifest"] if action != "import-wav" else [
-            "repository", "model", "wav", "template", "bounds", "output"]
+        required = ["repository", "manifest"] if action == "preflight" else ["repository", "output", "manifest"]
+        if action == "evaluate-wav":
+            required = ["repository", "model", "manifest", "output"]
+        if action == "import-wav":
+            required = ["repository", "model", "wav", "template", "bounds", "output"]
         if any(not self.fields[key].text().strip() for key in required):
             self.log.appendPlainText("Fill the required paths before starting.")
             return
@@ -80,32 +123,26 @@ class TensorPage(QWidget):
                  for key, edit in self.fields.items() if edit.text().strip()}
         if action == "import-wav":
             args = [paths[key] for key in ("model", "wav", "template", "bounds", "output")]
-            args += ["--head", self.head.currentText(), "--mask-threshold", str(self.threshold.value()),
+            args += ["--head", self.head.currentData(), "--mask-threshold", str(self.threshold.value()),
                      "--sample-rate", str(self.rate.value())]
+        elif action == "evaluate-wav":
+            args = [paths["model"], paths["manifest"], paths["output"]]
+        elif action == "preflight":
+            args = [paths["manifest"], "--category", self.category.currentData()]
         else:
             args = [paths["manifest"], paths["output"]]
-        self.process.setWorkingDirectory(paths["repository"])
-        for button in self.buttons:
-            button.setEnabled(False)
-        self.log.appendPlainText("Started " + action)
-        self.process.start(self.win.ctx.settings.training_python or sys.executable,
-                           ["-m", "training.aom", action, *args])
-
-    def read_output(self):
-        self.log.appendPlainText(bytes(self.process.readAllStandardOutput()).decode("utf-8", "replace"))
-
-    def finished(self, code, status):
-        self.read_output()
-        self.log.appendPlainText("Completed" if code == 0 and status == QProcess.NormalExit else
-                                 "Stopped or failed; inspect the diagnostic above.")
-        for button in self.buttons:
-            button.setEnabled(True)
-
-    def failed(self, error):
-        self.log.appendPlainText(self.process.errorString())
-        for button in self.buttons:
-            button.setEnabled(True)
+        try:
+            job = create_tensor_job(self.win.ctx.jobs, paths["repository"], action, args,
+                                    python=self.win.ctx.settings.resolved_training_python(),
+                                    checkpoint=paths.get("checkpoint"), resume=self.resume.isChecked())
+            self.job_id = job["id"]
+            self._last_log = ""
+            self.win.ctx.jobs.enqueue(self.job_id)
+            self.refresh()
+        except Exception as error:
+            self.log.appendPlainText(str(error))
 
     def cancel(self):
-        if self.process.state() != QProcess.NotRunning:
-            self.process.kill()
+        if self.job_id:
+            self.win.ctx.jobs.cancel(self.job_id)
+            self.status.setText("Stopping; completed training steps will be checkpointed.")

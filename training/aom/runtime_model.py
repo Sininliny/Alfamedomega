@@ -1,10 +1,11 @@
 """Separate recurrent runtime compiler model; it predicts tensors, not audio."""
 import math
-import json
 from pathlib import Path
 import torch
 from torch import nn
 from .contracts import ModelBudget, Representation, TensorSchema
+from .session import optimize, atomic_json, inference_metadata
+from dataclasses import asdict
 
 
 INPUT_CATEGORIES = ("audio", "midi", "gesture", "user_preference", "latent", "context")
@@ -42,7 +43,10 @@ class RuntimeTensorModel(nn.Module):
             if len(values) != self.input_widths[category] or any(not math.isfinite(x) for x in values):
                 raise ValueError(f"Invalid {category} feature tensor")
             flat.extend(values)
-        return torch.tensor([flat], dtype=torch.float32)
+        encoded = torch.tensor([flat], dtype=torch.float32)
+        if not torch.isfinite(encoded).all():
+            raise ValueError("Runtime inputs overflow float32")
+        return encoded
 
     def forward(self, encoded, state):
         state = self.cell(encoded, state)
@@ -55,6 +59,8 @@ class RuntimeTensorModel(nn.Module):
             raise ValueError("Explicit finite neural hidden state required")
         with torch.no_grad():
             values, masks, next_state = self(self.encode(inputs), state)
+        if not all(torch.isfinite(t).all() for t in (values, masks, next_state)):
+            raise ValueError("Runtime inference produced nonfinite values")
         result, offset = {}, 0
         for name, schema in self.schemas.items():
             count = math.prod(schema.padded_shape)
@@ -68,54 +74,69 @@ class RuntimeTensorModel(nn.Module):
 
 def train_runtime_sequences(model: RuntimeTensorModel, sequences, *, ontology: str,
                             steps: int, learning_rate: float, mask_weight: float,
-                            available_ram_bytes: int):
+                            available_ram_bytes: int, session=None, device="cpu", available_vram_bytes=0,
+                            gradient_clip=1.0, validation=None):
     """Separate runtime supervision with ordered input/target event sequences.
 
     Each sequence contains (six-category feature dict, Representation) pairs.
     Epochs begin with zero neural context and backpropagate through all events;
     DSP execution is never part of this learned recurrence.
     """
-    if not sequences or any(not seq for seq in sequences) or steps <= 0 or not learning_rate > 0 or not mask_weight > 0:
+    if not sequences or any(not seq for seq in sequences) or steps <= 0 or not math.isfinite(learning_rate) or not learning_rate > 0 or not math.isfinite(mask_weight) or not mask_weight > 0:
         raise ValueError("Nonempty sequences and explicit positive training settings required")
     parameter_count = sum(p.numel() for p in model.parameters())
     output_width = model.values.out_features
     event_count = sum(len(seq) for seq in sequences)
-    estimate = 16 * parameter_count + 4 * event_count * (16 * model.hidden_width + 4 * output_width + model.cell.input_size)
+    estimate = 1024 * steps + 16 * parameter_count + event_count * (64 * (output_width + model.cell.input_size) + 4 * (16 * model.hidden_width + 4 * output_width + model.cell.input_size))
     ModelBudget(estimate, available_ram_bytes, 0, 0)
-    data = []
-    for sequence in sequences:
-        encoded_sequence = []
-        for inputs, target in sequence:
-            padded = target.pad(ontology, model.schemas)
-            values = torch.tensor([[v for name in model.schemas for v in padded[name].tensor.values]])
-            masks = torch.tensor([[float(v) for name in model.schemas for v in padded[name].mask]])
-            encoded_sequence.append((model.encode(inputs), values, masks))
-        data.append(encoded_sequence)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    losses = []
-    model.train()
-    for _ in range(steps):
-        optimizer.zero_grad(set_to_none=True)
-        loss = torch.tensor(0.)
-        for sequence in data:
-            state = torch.zeros(1, model.hidden_width)
+    def prepare(source):
+        data = []
+        for sequence in source:
+            encoded_sequence = []
+            for inputs, target in sequence:
+                padded = target.pad(ontology, model.schemas)
+                values = torch.tensor([[v for name in model.schemas for v in padded[name].tensor.values]], dtype=torch.float32)
+                masks = torch.tensor([[float(v) for name in model.schemas for v in padded[name].mask]], dtype=torch.float32)
+                encoded_sequence.append((model.encode(inputs), values, masks))
+            if not encoded_sequence:
+                raise ValueError("Empty runtime sequence")
+            if any(not torch.isfinite(t).all() for event in encoded_sequence for t in event):
+                raise ValueError("Runtime features or targets overflow float32")
+            data.append(encoded_sequence)
+        return data
+    if validation:
+        estimate += sum(map(len, validation)) * (64 * (output_width + model.cell.input_size) + 4 * (16 * model.hidden_width + 4 * output_width + model.cell.input_size))
+    ModelBudget(estimate, available_ram_bytes, 0, 0)
+    data = prepare(sequences)
+    held = prepare(validation) if validation else None
+    def objective(source, selected):
+        loss = torch.tensor(0., device=selected)
+        for sequence in source:
+            state = torch.zeros(1, model.hidden_width, device=selected)
             for encoded, target, mask in sequence:
-                values, presence, state = model(encoded, state)
+                values, presence, state = model(encoded.to(selected), state)
+                target, mask = target.to(selected), mask.to(selected)
                 loss = loss + ((values - target).square() * mask).sum() / mask.sum().clamp_min(1)
                 loss = loss + mask_weight * nn.functional.binary_cross_entropy_with_logits(presence, mask)
-        loss = loss / event_count
-        if not torch.isfinite(loss):
-            raise RuntimeError("Nonfinite runtime training loss")
-        loss.backward()
-        optimizer.step()
-        losses.append(float(loss.detach()))
-    model.eval()
-    return {"losses": losses, "estimated_peak_training_bytes": estimate, "ontology": ontology}
+        return loss / sum(map(len, source))
+    contract = {"category": "runtime", "ontology": ontology, "input_widths": model.input_widths,
+                "schema_order": list(model.schemas),
+                "hidden_width": model.hidden_width, "schemas": {k: asdict(v) for k, v in model.schemas.items()},
+                "sequences": [[(inputs, asdict(target)) for inputs, target in seq] for seq in sequences],
+                "validation": [[(inputs, asdict(target)) for inputs, target in seq] for seq in validation] if validation else None,
+                "mask_weight": mask_weight}
+    report = optimize(model, lambda selected: objective(data, selected), steps=steps,
+                      learning_rate=learning_rate, available_ram_bytes=available_ram_bytes,
+                      estimate=estimate, identity=contract, session=session, device=device,
+                      available_vram_bytes=available_vram_bytes, gradient_clip=gradient_clip,
+                      validation=(lambda selected: objective(held, selected)) if held else None)
+    report["ontology"] = ontology
+    return report
 
 
 def export_runtime_model(path: Path, model: RuntimeTensorModel, *, ontology: str,
                          period_samples: int, phase_samples: int, mask_threshold: float,
-                         available_ram_bytes: int, bounds: dict, golden_inputs=()):
+                         available_ram_bytes: int, bounds: dict, golden_inputs=(), training_metadata=None):
     """Export exact PyTorch r,z,n GRU gate weights for allocation-free C++ inference.
 
     The caller supplies model capacity, inference clock and all output bounds.
@@ -137,8 +158,12 @@ def export_runtime_model(path: Path, model: RuntimeTensorModel, *, ontology: str
             ordered_bounds.append([low, high])
         schemas.append({"name": name, "axes": list(schema.axes), "shape": list(schema.padded_shape)})
     count = sum(p.numel() for p in model.parameters())
+    golden_inputs = tuple(golden_inputs)
     estimate = 4 * (count + model.cell.input_size + 12 * model.hidden_width + 4 * model.values.out_features)
     ModelBudget(estimate, available_ram_bytes, 0, 0)
+    from .hardware import detect
+    export_estimate = 128 * count + 128 * len(golden_inputs) * (model.cell.input_size + 2 * model.values.out_features + model.hidden_width)
+    ModelBudget(export_estimate, min(available_ram_bytes, detect(gpu_device=None).available_ram_bytes), 0, 0)
     weights = {name: parameter.detach().cpu().flatten().tolist() for name, parameter in model.named_parameters()}
     if any(not math.isfinite(value) for values in weights.values() for value in values):
         raise ValueError("Runtime weights must be finite")
@@ -161,7 +186,9 @@ def export_runtime_model(path: Path, model: RuntimeTensorModel, *, ontology: str
             golden.append({"inputs": inputs, "values": values[0].tolist(),
                            "presence_logits": logits[0].tolist(), "state": state[0].tolist()})
     document["golden"] = golden
+    if training_metadata is not None:
+        document["training"] = inference_metadata(training_metadata)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(document, indent=2, allow_nan=False), encoding="utf-8")
+    atomic_json(path, document)
     return document

@@ -1,0 +1,276 @@
+{
+  "schema": "aom.dataset-plan/1",
+  "example_fixture": true,
+  "ontology": "aom.math/1",
+  "groups": [
+    {
+      "id": "fixture-0",
+      "split": "train",
+      "canonical_json": "canonical-0.aom.json",
+      "variants": [
+        {
+          "id": "fixture-0-0",
+          "perturbation_id": "amplitude-0",
+          "updates": {
+            "parameters": [
+              {
+                "index": 3,
+                "value": 0.09000000000000001
+              }
+            ]
+          },
+          "render": {
+            "frames": 1600,
+            "sample_rate": 16000,
+            "inputs": {
+              "audio": [],
+              "midi": [],
+              "gesture": [],
+              "preference": [],
+              "latent": [],
+              "context": []
+            }
+          }
+        },
+        {
+          "id": "fixture-0-1",
+          "perturbation_id": "amplitude-1",
+          "updates": {
+            "parameters": [
+              {
+                "index": 3,
+                "value": 0.11
+              }
+            ]
+          },
+          "render": {
+            "frames": 1600,
+            "sample_rate": 16000,
+            "inputs": {
+              "audio": [],
+              "midi": [],
+              "gesture": [],
+              "preference": [],
+              "latent": [],
+              "context": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "fixture-1",
+      "split": "train",
+      "canonical_json": "canonical-1.aom.json",
+      "variants": [
+        {
+          "id": "fixture-1-0",
+          "perturbation_id": "amplitude-0",
+          "updates": {
+            "parameters": [
+              {
+                "index": 3,
+                "value": 0.29
+              }
+            ]
+          },
+          "render": {
+            "frames": 1600,
+            "sample_rate": 16000,
+            "inputs": {
+              "audio": [],
+              "midi": [],
+              "gesture": [],
+              "preference": [],
+              "latent": [],
+              "context": []
+            }
+          }
+        },
+        {
+          "id": "fixture-1-1",
+          "perturbation_id": "amplitude-1",
+          "updates": {
+            "parameters": [
+              {
+                "index": 3,
+                "value": 0.31
+              }
+            ]
+          },
+          "render": {
+            "frames": 1600,
+            "sample_rate": 16000,
+            "inputs": {
+              "audio": [],
+              "midi": [],
+              "gesture": [],
+              "preference": [],
+              "latent": [],
+              "context": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "fixture-2",
+      "split": "validation",
+      "canonical_json": "canonical-2.aom.json",
+      "variants": [
+        {
+          "id": "fixture-2-0",
+          "perturbation_id": "amplitude-0",
+          "updates": {
+            "parameters": [
+              {
+                "index": 3,
+                "value": 0.19
+              }
+            ]
+          },
+          "render": {
+            "frames": 1600,
+            "sample_rate": 16000,
+            "inputs": {
+              "audio": [],
+              "midi": [],
+              "gesture": [],
+              "preference": [],
+              "latent": [],
+              "context": []
+            }
+          }
+        },
+        {
+          "id": "fixture-2-1",
+          "perturbation_id": "amplitude-1",
+          "updates": {
+            "parameters": [
+              {
+                "index": 3,
+                "value": 0.21000000000000002
+              }
+            ]
+          },
+          "render": {
+            "frames": 1600,
+            "sample_rate": 16000,
+            "inputs": {
+              "audio": [],
+              "midi": [],
+              "gesture": [],
+              "preference": [],
+              "latent": [],
+              "context": []
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "bounds": {
+    "activation": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        1
+      ]
+    ],
+    "parameters": [
+      [
+        200,
+        200
+      ],
+      [
+        0.01,
+        0.5
+      ],
+      [
+        400,
+        400
+      ],
+      [
+        0.01,
+        0.5
+      ]
+    ],
+    "routing": [],
+    "modulation": []
+  },
+  "schemas": {
+    "activation": {
+      "axes": [
+        "primitive"
+      ],
+      "padded_shape": [
+        2
+      ]
+    },
+    "parameters": {
+      "axes": [
+        "parameter"
+      ],
+      "padded_shape": [
+        4
+      ]
+    },
+    "routing": {
+      "axes": [
+        "coefficient"
+      ],
+      "padded_shape": [
+        0
+      ]
+    },
+    "modulation": {
+      "axes": [
+        "relationship"
+      ],
+      "padded_shape": [
+        0
+      ]
+    }
+  },
+  "analysis": {
+    "frames": 4,
+    "harmonic_ratios": [
+      1.0,
+      2.0,
+      3.0
+    ],
+    "minimum_fundamental_hz": 100.0,
+    "maximum_fundamental_hz": 300.0,
+    "recording_policy": "controlled_render"
+  },
+  "normalization": {
+    "policy_id": "controlled-reference-feature-policy",
+    "removed": [
+      "pitch",
+      "loudness",
+      "recording_condition"
+    ],
+    "preserved": [
+      "timbre",
+      "articulation",
+      "temporal_behavior"
+    ]
+  },
+  "learn": {
+    "hidden_width": 16,
+    "steps": 120,
+    "learning_rate": 0.02,
+    "primary_weight": 2.0,
+    "secondary_weight": 1.0,
+    "mask_weight": 0.1,
+    "available_ram_bytes": 100000000,
+    "seed": 7,
+    "batch_size": 4,
+    "device": "cpu"
+  },
+  "reconstruction_mask_threshold": 0.5,
+  "require_validation": true
+}
