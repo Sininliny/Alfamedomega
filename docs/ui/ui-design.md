@@ -20,13 +20,14 @@
 4. **Viewing never changes sound.** Selecting instances, layers, cells or tensors is inspection.
    Edits happen only through a value entry, a knob, a lock or an explicit Apply.
 5. **What changes the sound's running context lives in the header.** Input mode (Instrument / FX /
-   Hybrid) and tier were hidden in Settings; they are now always visible.
+   Hybrid) was hidden in Settings; it is now always visible. There is no tier selector: precision
+   and capacity come from the loaded sound (Sinin, 2026-10-01).
 
 ## Plugin layout (1280 × 800, minimum 1040 × 700)
 
 | Area | Contents |
 |---|---|
-| Header | Brand; Play / Structure / Tensor; input mode Instrument · FX · Hybrid; tier; Bypass; Panic; Settings |
+| Header | Brand; Play / Structure / Tensor; input mode Instrument · FX · Hybrid; Bypass; Panic; Settings |
 | Sound bar | Previous / next sound, current name (opens the library), Save as, Open, A / B (Shift-click captures), Capture, Undo, Redo |
 | Workspace | The selected view |
 | Footer | Input, Mix, Output; a live flow line `input → X controls → instances → output` with counts for the current sound; meters |
@@ -69,7 +70,7 @@
 
 ### Settings
 
-Theme, accent, knob drag, keyboard, preset library folder, tier profiles and precision notes, laid
+Theme, accent, knob drag, keyboard, preset library folder, and the loaded sound's precision and resource notes, laid
 out in two columns without overlapping text. Settings never change the sound.
 
 ## AOM Centre
