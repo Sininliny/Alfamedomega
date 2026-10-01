@@ -394,6 +394,7 @@ public:
                    << cap("output_elements") << " | parameters " << represented(controls_.parameters) << "/"
                    << cap("parameter_elements") << " | routing " << represented(controls_.routing) << "/"
                    << cap("routing_elements");
+            report << "\nBudget source: the loaded sound";
             report << "\nDeclared host latency: " << data.value("host_latency_samples", 0) << " samples";
             report
                 << "\nDeclared budgets, routing, activation, allocation and clocks are inspectable in JSON.";

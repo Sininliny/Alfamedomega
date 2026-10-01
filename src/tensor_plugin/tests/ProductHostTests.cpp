@@ -462,6 +462,7 @@ TEST_CASE("Precision tier switches execute real notes and restore the same tenso
     CHECK(processor.inspection().contains("float64"));
     // The sound's own capacity budget is retained and reported next to what the sound uses.
     CHECK(processor.inspection().contains("Used / budget: primitives"));
+    CHECK(processor.inspection().contains("Budget source: the loaded sound"));
     const auto pro = JSON::parse(processor.document().toStdString());
     CHECK(pro["budget"]["state_elements"] == original["budget"]["state_elements"]);
     CHECK(pro["budget"]["active_primitives"] == original["budget"]["active_primitives"]);
