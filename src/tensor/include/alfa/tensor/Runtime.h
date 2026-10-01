@@ -135,6 +135,7 @@ struct InstanceT
     std::shared_ptr<const PrimitiveT<Scalar>> descriptor{};
     std::size_t inputChannels = 0;
     std::vector<AudioBinding> audioBindings{};
+    std::string instanceId{};
 };
 
 enum class SourceKind
@@ -263,6 +264,8 @@ public:
                        TensorViewT<Scalar> routing, TensorViewT<Scalar> modulation) noexcept;
     void reset() noexcept;
     bool adoptStateFrom(const RuntimeT<Scalar>&) noexcept;
+    // Compatible live publication transfers buffer ownership in constant time.
+    bool takeStateFrom(RuntimeT<Scalar>&) noexcept;
 
     [[nodiscard]] std::span<const Scalar> state() const noexcept { return state_; }
     [[nodiscard]] std::span<const Scalar> output() const noexcept { return output_; }
@@ -313,6 +316,7 @@ private:
     std::uint64_t sample_ = 0;
     double sampleRate_ = 0.0;
     bool prepared_ = false;
+    std::array<std::uint64_t, 2> stateIdentity_{};
 };
 
 using Transition = TransitionT<float>;

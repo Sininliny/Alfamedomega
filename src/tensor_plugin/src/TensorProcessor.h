@@ -25,6 +25,7 @@ public:
     void releaseResources() override {}
     bool isBusesLayoutSupported(const BusesLayout&) const override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    void processBlockBypassed(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     using AudioProcessor::processBlock;
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -56,7 +57,8 @@ public:
     bool editTensorParameter(size_t index, double value, juce::String& error);
     bool setParameterLock(size_t index, bool locked, juce::String& error);
     bool editLayerValue(size_t layer, size_t index, double value, juce::String& error);
-    void requestPanic() noexcept { panic_.store(true); }
+    // UI/message-thread command: prepare reset storage before publication.
+    void requestPanic() noexcept;
     std::array<std::atomic<float>, 2048> waveformSnapshot{};
     std::atomic<size_t> waveformCursor{0};
     std::array<std::atomic<float>, 2> inputPeak{}, outputPeak{};
@@ -84,6 +86,9 @@ private:
         double releaseSeconds = 0;
         float bendSemitones = 0;
         bool preserveState = false;
+        int latencySamples = 0;
+        std::vector<std::array<float, 2>> dryHistory;
+        size_t dryCursor = 0;
     };
     std::atomic<int> scalarBytes_{4};
     std::vector<std::unique_ptr<Program>> owned_;
@@ -106,6 +111,7 @@ private:
     size_t waveformWrite_ = 0;
     class ConfigurationEdit;
     bool loadJSONImpl(const juce::String&, juce::String& error, bool preserveState);
+    void processBlockImpl(juce::AudioBuffer<float>&, juce::MidiBuffer&, bool forceBypass);
     juce::MidiBuffer mergedMidi_;
     struct KeyEvent
     {

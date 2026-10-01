@@ -1,9 +1,12 @@
 #include "alfa/tensor/Runtime.h"
 
+#include "alfa/tensor/Compiler.h"
+
 #include <algorithm>
 #include <bit>
 #include <cmath>
 #include <limits>
+#include <nlohmann/json.hpp>
 #include <utility>
 
 namespace alfa::tensor
@@ -348,6 +351,36 @@ bool RuntimeT<Scalar>::prepare(const ConfigurationT<Scalar>& configuration, cons
     candidate.candidateOutput_.resize(outputCount, 0.0f);
     candidate.committedOutput_.resize(outputCount, 0.0f);
     candidate.effectiveParameters_ = configuration.parameters.values;
+    // Fingerprint structural compatibility once, off thread. Numeric control edits
+    // retain recurrence; identities, assets, clocks and operand layouts do not.
+    auto identityConfiguration = configuration;
+    if (identityConfiguration.initialState.empty())
+    {
+        identityConfiguration.initialState.resize(configuration.instances.size());
+        for (size_t i = 0; i < configuration.instances.size(); ++i)
+            identityConfiguration.initialState[i].resize(configuration.instances[i].primitive->stateElements);
+    }
+    auto identity = nlohmann::json::parse(serializeJSON(identityConfiguration));
+    identity["allocated_instances"] = candidate.allocated_;
+    identity["allocation"] = nlohmann::json::array();
+    for (size_t i = 0; i < candidate.states_.size(); ++i)
+        identity["allocation"].push_back({candidate.states_[i].offset, candidate.states_[i].count,
+                                          candidate.outputs_[i].offset, candidate.outputs_[i].count});
+    for (const auto& instance : configuration.instances)
+        identity["callbacks"].push_back(
+            {reinterpret_cast<std::uintptr_t>(instance.primitive->transition),
+             reinterpret_cast<std::uintptr_t>(instance.primitive->readout),
+             reinterpret_cast<std::uintptr_t>(instance.primitive->sparseTransition)});
+    for (auto& tensor : identity["tensors"])
+        tensor.erase("values");
+    identity.erase("parameter_locks");
+    const auto bytes = identity.dump();
+    candidate.stateIdentity_ = {14695981039346656037ULL, 7809847782465536322ULL};
+    for (const unsigned char byte : bytes)
+    {
+        candidate.stateIdentity_[0] = (candidate.stateIdentity_[0] ^ byte) * 1099511628211ULL;
+        candidate.stateIdentity_[1] = (candidate.stateIdentity_[1] ^ byte) * 14029467366897019727ULL;
+    }
     candidate.prepared_ = true;
     *this = std::move(candidate);
     return true;
@@ -546,9 +579,9 @@ void RuntimeT<Scalar>::reset() noexcept
 template <typename Scalar>
 bool RuntimeT<Scalar>::adoptStateFrom(const RuntimeT<Scalar>& previous) noexcept
 {
-    if (!prepared_ || !previous.prepared_ || sampleRate_ != previous.sampleRate_ ||
-        states_.size() != previous.states_.size() || state_.size() != previous.state_.size() ||
-        output_.size() != previous.output_.size())
+    if (!prepared_ || !previous.prepared_ || stateIdentity_ != previous.stateIdentity_ ||
+        sampleRate_ != previous.sampleRate_ || states_.size() != previous.states_.size() ||
+        state_.size() != previous.state_.size() || output_.size() != previous.output_.size())
         return false;
     for (size_t i = 0; i < states_.size(); ++i)
         if (configuration_.instances[i].primitive->id != previous.configuration_.instances[i].primitive->id ||
@@ -564,6 +597,21 @@ bool RuntimeT<Scalar>::adoptStateFrom(const RuntimeT<Scalar>& previous) noexcept
     std::copy(previous.committedOutput_.begin(), previous.committedOutput_.end(), committedOutput_.begin());
     std::copy(previous.output_.begin(), previous.output_.end(), output_.begin());
     std::copy(output_.begin(), output_.end(), candidateOutput_.begin());
+    sample_ = previous.sample_;
+    return true;
+}
+
+template <typename Scalar>
+bool RuntimeT<Scalar>::takeStateFrom(RuntimeT<Scalar>& previous) noexcept
+{
+    if (!prepared_ || !previous.prepared_ || sampleRate_ != previous.sampleRate_ ||
+        stateIdentity_ != previous.stateIdentity_ || state_.size() != previous.state_.size() ||
+        output_.size() != previous.output_.size())
+        return false;
+    state_.swap(previous.state_);
+    output_.swap(previous.output_);
+    committedOutput_.swap(previous.committedOutput_);
+    candidateOutput_.swap(previous.candidateOutput_);
     sample_ = previous.sample_;
     return true;
 }

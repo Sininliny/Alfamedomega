@@ -58,6 +58,7 @@ private:
     juce::Component::SafePointer<juce::DialogWindow> libraryDialog_;
     juce::TextButton refresh_{"Refresh library"}, folder_{"Library folder"}, exportTheme_{"Export theme"};
     juce::TextButton importTheme_{"Import theme"};
+    juce::TextButton importTiers_{"Import tier profiles"};
     juce::ComboBox sourceKind_, routeDestination_, routeWeight_, routeWeightsTensor_, mappingLayer_,
         mappingSource_, mappingDestination_;
     juce::TextEditor sourceElement_, matrixValue_;

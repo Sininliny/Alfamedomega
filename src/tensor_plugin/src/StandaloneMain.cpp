@@ -192,6 +192,8 @@ private:
             else if (interactionStep_ == 6)
             {
                 require(processor->activeNotes.load() == 0, "Panic did not release notes");
+                require(processor->programRevision.load() == interactionRevision_ + 2,
+                        "Panic did not publish exactly one prepared reset");
                 juce::ComboBox* selector = nullptr;
                 for (auto* child : editor->getChildren())
                     if (auto* control = dynamic_cast<juce::ComboBox*>(child);
@@ -203,7 +205,7 @@ private:
             else if (interactionStep_ == 7)
             {
                 require(processor->scalarBytes() == 8, "Tier selection did not publish float64 execution");
-                require(processor->programRevision.load() == interactionRevision_ + 2,
+                require(processor->programRevision.load() == interactionRevision_ + 3,
                         "Tier selection repeated compilation");
                 require(processor->failures.load() == 0, "Runtime rejected device execution");
                 finishInteraction(true, "idle, instance/library inspection without mutation, explicit load, "
