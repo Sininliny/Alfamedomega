@@ -241,6 +241,24 @@ TEST_CASE("Tuned waveguide compensates loop filter and dispersion phase at the r
     REQUIRE(invalid.prepare(c, {1, 263, 4, 0, 0, 1, 5, 0, 8, 0}, 48000, error));
     CHECK_FALSE(tick(invalid, 0.));
     CHECK(std::isfinite(state));
+    c.parameters.values = {480., 0., 0., 0.}; // Integer roundtrip; no excitation/feedback.
+    c.initialState[0][3] = .25;               // Residue from a preceding fractional-delay setting.
+    Runtime64 integerDelay;
+    REQUIRE(integerDelay.prepare(c, {1, 263, 4, 0, 0, 1, 5, 0, 8, 0}, 48000, error));
+    for (int i = 0; i < 8; ++i)
+    {
+        REQUIRE(tick(integerDelay, 0.));
+        CHECK(integerDelay.output()[0] == 0.);
+    }
+    c.parameters.values[1] = -.9;
+    c.initialState[0][3] = 0.;
+    Runtime64 inverted;
+    REQUIRE(inverted.prepare(c, {1, 263, 4, 0, 0, 1, 5, 0, 8, 0}, 48000, error));
+    for (int i = 0; i <= 50; ++i)
+    {
+        REQUIRE(tick(inverted, i == 0 ? 1. : 0.));
+        CHECK(inverted.output()[0] == Catch::Approx(i == 50 ? 1. : 0.).margin(1e-12));
+    }
 }
 
 TEST_CASE("Phase-locked frame processor preserves Hermitian identity and emits exactly one delayed frame",

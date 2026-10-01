@@ -243,7 +243,7 @@ retained as a before-change record.
 
 Local Windows Release, warnings-as-errors:
 
-- Core tensor suite: **95 cases / 720784 assertions**, passed.
+- Core tensor suite: **95 cases / 720904 assertions**, passed.
 - Native host suite: **59 cases / 222932 assertions**, passed.
 - Rebuilt product VST3 in the independent JUCE host: **1 case / 5127 assertions**, passed.
 - Rebuilt Standalone actual-device interaction: passed idle stability, nonmutating instance
@@ -266,6 +266,15 @@ identity, initial state and active allocation. Host fixtures cover aligned dry/w
 0/50/100 percent, parameter/DAW bypass across blocks, scoped model composition, preserved
 matrix relationships, resource refusal, locked-candidate rejection, measured bad pitch and
 equivalent-recurrence tier reduction. Held MIDI survives a precision change.
+An additional waveguide boundary regression reproduced an undamped alternating residue when
+a fractional allpass reached exact integer delay. Explicit bypass/memory replacement removes
+that residue; it is verified with zero excitation and zero feedback.
+Inverting feedback also compensates its half-cycle phase so the requested fundamental
+does not drop an octave; an independent impulse-onset fixture verifies the half-cycle loop.
+
+At the user's request, GitHub CI was stopped due to quota limits. Final acceptance and merge
+use the local builds, tests, Clang frontend checks and actual-device/VST3 host evidence above.
+Subsequent push/merge commits explicitly skip CI. Remote macOS/Linux completion is not claimed.
 
 This pass did not start training. Perceptual listening, all DAWs/platforms, large-program
 deadline/allocation stress and complete legacy algorithm parity remain separate qualification.

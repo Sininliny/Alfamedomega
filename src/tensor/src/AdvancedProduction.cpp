@@ -298,7 +298,9 @@ bool waveguide(const StepT<S>& s, std::size_t& cursor, S& low, S& fractional, S&
     const S lpDelay = std::atan2(damp * std::sin(w), S(1) - damp * std::cos(w)) / w;
     const S dispersionDelay =
         S(1) - S(2) * std::atan2(dispersion * std::sin(w), S(1) + dispersion * std::cos(w)) / w;
-    const S delay = rate / f - lpDelay - dispersionDelay;
+    // An inverting feedback loop closes at half a cycle; otherwise its
+    // fundamental would drop an octave relative to the requested frequency.
+    const S delay = (gain < 0 ? S(.5) : S(1)) * rate / f - lpDelay - dispersionDelay;
     if (!std::isfinite(delay) || delay < 1 || delay > static_cast<S>(capacity))
         return false;
     const auto integer = static_cast<size_t>(std::floor(delay));
@@ -307,7 +309,9 @@ bool waveguide(const StepT<S>& s, std::size_t& cursor, S& low, S& fractional, S&
     low = (S(1) - damp) * s.localState[7 + position] + damp * s.localState[2];
     const S ratio = std::tan(w * part / S(2)) / std::tan(w / S(2));
     const S coefficient = (S(1) - ratio) / (S(1) + ratio);
-    fractional = coefficient * low + s.localState[3] - coefficient * s.localState[4];
+    // At exact integer delay the nominal allpass has a pole at -1. Bypass it
+    // and overwrite its memories so a prior fractional setting cannot ring forever.
+    fractional = part == S(0) ? low : coefficient * low + s.localState[3] - coefficient * s.localState[4];
     dispersed = dispersion * fractional + s.localState[5] - dispersion * s.localState[6];
     return std::isfinite(input(s)) && std::isfinite(dispersed);
 }
