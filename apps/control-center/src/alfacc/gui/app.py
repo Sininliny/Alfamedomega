@@ -27,6 +27,7 @@ from ..tiers import DEFAULT_TIER, STAGES, TIERS
 from ..training import (TrainSpec, check_environment, create_export_job, create_training_job,
                         write_colab_notebook)
 from .theme import TOKENS, stylesheet
+from .tensor_page import TensorPage
 
 STATUS_TEXT = {jobs.QUEUED: "Queued", jobs.RUNNING: "Running", jobs.SUCCEEDED: "Done",
                jobs.FAILED: "Failed", jobs.CANCELLED: "Cancelled", jobs.INTERRUPTED: "Interrupted"}
@@ -1125,8 +1126,8 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.jobs_page = JobsPage(self)
         self.pages = [ModelsPage(self), TrainingPage(self), PreferencePage(self), PluginsPage(self),
-                      self.jobs_page, SettingsPage(self)]
-        names = ["Models", "Training", "Preference learning", "Plugin assimilation", "Jobs", "Settings"]
+                      self.jobs_page, SettingsPage(self), TensorPage(self)]
+        names = ["Legacy models", "Legacy training", "Legacy preferences", "Legacy assimilation", "Jobs", "Settings", "Audio Tensor Space"]
         for name, page in zip(names, self.pages):
             self.nav.addItem(QListWidgetItem(name))
             self.stack.addWidget(page)
@@ -1149,7 +1150,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         self.job_status = QLabel("")
         self.statusBar().addPermanentWidget(self.job_status)
-        self.nav.setCurrentRow(0)
+        self.nav.setCurrentRow(6)
         for i in range(len(self.pages)):
             act = QAction(self)
             act.setShortcut(QKeySequence(f"Ctrl+{i + 1}"))

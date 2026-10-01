@@ -11,6 +11,8 @@
 //
 // Everything is fixed-size; nothing here allocates.
 
+#include "NonlinearHalfbandMath.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -33,6 +35,9 @@ struct NonlinearHalfband
     {
         k = std::clamp(halfK, 0, kMaxDense / 2 - 1);
         m = 2 * k + 2;
+        if (designNonlinearHalfbandDense<float>(dense, k, beta))
+            return;
+        // Preserve legacy handling of coefficients outside the tensor designer's domain.
         const int c = 2 * k + 1;
         const auto i0 = [](double x)
         {

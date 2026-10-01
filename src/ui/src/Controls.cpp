@@ -1,45 +1,21 @@
 #include "alfa/ui/Controls.h"
 
+#include "alfa/ui/Visuals.h"
+
 namespace alfa::ui
 {
 
 void drawPanel(juce::Graphics& g, const Theme& theme, juce::Rectangle<int> area, const juce::String& title,
                const juce::String& subtitle)
 {
-    const auto bounds = area.toFloat().reduced(0.5f);
-    g.setColour(theme.panel);
-    g.fillRoundedRectangle(bounds, 8.0f);
-    g.setColour(theme.line);
-    g.drawRoundedRectangle(bounds, 8.0f, 1.0f);
-
-    if (title.isEmpty())
-        return;
-
-    auto titleRow = area.reduced(12, 0).withHeight(kPanelTitleHeight).withTrimmedTop(6);
-    g.setColour(theme.text2);
-    g.setFont(AlfaLookAndFeel::labelFont(11.5f, true));
-    const auto upper = title.toUpperCase();
-    g.drawText(upper, titleRow, juce::Justification::centredLeft, false);
-
-    if (subtitle.isNotEmpty())
-    {
-        g.setFont(AlfaLookAndFeel::labelFont(11.5f));
-        g.drawText(subtitle, titleRow, juce::Justification::centredRight, true);
-    }
+    visuals::panel(g, theme, area, title, subtitle);
 }
-
 void drawBadge(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& text, juce::Colour colour,
                const Theme& theme)
 {
-    g.setColour(colour.withAlpha(0.18f));
-    g.fillRoundedRectangle(area, 3.0f);
-    g.setColour(colour);
-    g.drawRoundedRectangle(area.reduced(0.5f), 3.0f, 1.0f);
-    g.setFont(AlfaLookAndFeel::labelFont(10.0f, true));
-    g.drawText(text, area, juce::Justification::centred, false);
+    visuals::badge(g, area, text, colour);
     juce::ignoreUnused(theme);
 }
-
 // ParamControl
 // -----------------------------------------------------------------
 
@@ -174,18 +150,7 @@ void ParamControl::applyGesture()
     if (style != Style::knob && style != Style::smallKnob)
         return;
 
-    const auto gesture = ctx.ui.getString(UiState::Ids::knobGesture);
-    if (gesture == "horizontal")
-        control.setSliderStyle(juce::Slider::RotaryHorizontalDrag);
-    else if (gesture == "circular")
-        control.setSliderStyle(juce::Slider::Rotary);
-    else
-        control.setSliderStyle(juce::Slider::RotaryVerticalDrag);
-
-    // Shift switches to fine steps.
-    control.setVelocityBasedMode(false);
-    control.setVelocityModeParameters(0.15, 1, 0.0, true, juce::ModifierKeys::shiftModifier);
-    control.setMouseDragSensitivity(200);
+    visuals::rotaryGesture(control, ctx.ui.getString(UiState::Ids::knobGesture));
 }
 
 juce::String ParamControl::valueText() const

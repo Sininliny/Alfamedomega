@@ -1,5 +1,10 @@
 # Alfamedomega UI design
 
+> Legacy UI design. The [Audio Tensor Space direction](../audio-tensor-space/mission.md)
+> supersedes method-first selection and the fixed 32-knob model as target requirements.
+> The replacement needs semantic interaction, advanced tensor inspection/locks/overrides
+> and developer visualization; detailed interaction design remains open.
+
 - **Status:** Draft
 - **Date:** 2026-09-29
 - **Mockup:** https://claude.ai/artifact/EEkyiciMVE9cVzsWzwaHGH (seven boards: Perform, Signal flow, Sound design, Customize, Learning settings, Generate, Control states)
@@ -25,7 +30,7 @@ Alfamedomega puts a neural model that has learned nine synthesis methods behind 
 | Area | Contents | Why |
 |---|---|---|
 | Header | View switch, preset browser (prev/next, category, "made on" tier), model-size switch with params, CPU and latency | Everything that changes *which* sound or *how much* it costs lives in one bar |
-| Method | The nine choices in the model's order (subtractive, wavetable, additive, spectral, FM, physical model, granular, sampling, hybrid), each with its share of model capacity and a dot on the one playing. **Hybrid** opens A and B pickers for the two components and warns when the pair is not one the model was trained on | A sound is one method or one trained hybrid, which is what the model takes as input (`training/METHOD.md`, `src/inference/MODEL_CONTRACT.md`). Engines are never layered independently |
+| Method | The nine choices in the model's order (subtractive, wavetable, additive, spectral, FM, physical model, granular, sampling, hybrid), each with its share of model capacity and a dot on the one playing. **Hybrid** opens A and B pickers for the two components and warns when the pair is not one the model was trained on | A sound is one method or one trained hybrid, which is what the legacy model takes as input (`training/LEGACY_METHOD.md`, `src/inference/MODEL_CONTRACT.md`). Engines are never layered independently |
 | Knobs | The 32 model knobs, paged, showing only the knobs the current method uses, each named and given units for that method (for example Filter cutoff in Hz for subtractive, Op5 ratio for FM). The amp envelope and unison knobs are shared by every method. Knobs a larger model is needed for carry a PRO+ or STUDIO badge | Names come from the method's teacher program, so a knob means the same thing the model was trained on |
 | Timbre space | XY pad that moves the current method's two most characteristic knobs, two snapshots, "randomize nearby" | A fast way to explore a method without reading every knob |
 | Voice strip | The shared amp envelope knobs, voices, glide, bend, per-voice model activity, output level and meter | Always-needed performance basics |

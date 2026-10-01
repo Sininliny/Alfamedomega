@@ -1,0 +1,137 @@
+{
+  "schema": "aom.tensor/1",
+  "ontology": "aom.math/1",
+  "tier": "Standard",
+  "scalar_type": "float32",
+  "description": "Standalone mathematical primitive example: time.causal_fir_ring.v1. Capacities are example requirements, not tier limits.",
+  "preferred_mode": 1,
+  "tensors": {
+    "activation": {
+      "values": [
+        1
+      ],
+      "axes": [
+        "primitive"
+      ],
+      "shape": [
+        1
+      ]
+    },
+    "parameters": {
+      "values": [],
+      "axes": [
+        "parameter"
+      ],
+      "shape": [
+        0
+      ]
+    },
+    "routing": {
+      "values": [
+        1
+      ],
+      "axes": [
+        "coefficient"
+      ],
+      "shape": [
+        1
+      ]
+    },
+    "modulation": {
+      "values": [],
+      "axes": [
+        "relationship"
+      ],
+      "shape": [
+        0
+      ]
+    }
+  },
+  "instances": [
+    {
+      "primitive": "time.causal_fir_ring.v1",
+      "activation": 0,
+      "parameters": {
+        "count": 0,
+        "offset": 0
+      },
+      "clock": {
+        "period_samples": 1,
+        "phase_samples": 0
+      },
+      "output_between_updates": "zero",
+      "state_size": 6,
+      "initial_state": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "assets": [
+        {
+          "values": [
+            0.125,
+            0.375,
+            0.375,
+            0.125
+          ],
+          "axes": [
+            "tap"
+          ],
+          "shape": [
+            4
+          ]
+        }
+      ],
+      "input_channels": 1,
+      "audio_bindings": [
+        {
+          "destination_element": 0,
+          "weight_element": 0,
+          "weights": "routing",
+          "source": "audio",
+          "source_element": 0,
+          "missing_source": "zero"
+        }
+      ]
+    }
+  ],
+  "projections": [],
+  "parameter_locks": [],
+  "shared_initial_state": [],
+  "control_layers": [],
+  "outputMix": [
+    [
+      0,
+      0,
+      1
+    ],
+    [
+      0,
+      1,
+      1
+    ]
+  ],
+  "budget": {
+    "active_primitives": 1,
+    "state_elements": 6,
+    "parameter_elements": 0,
+    "routing_elements": 1,
+    "modulation_elements": 0,
+    "output_elements": 1,
+    "stored_tensor_elements": 7,
+    "projection_terms": 1,
+    "sparse_state_writes": 3,
+    "boundary_conversion_bytes": 0
+  },
+  "input_capacity": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    0
+  ]
+}

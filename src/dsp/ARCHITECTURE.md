@@ -1,5 +1,9 @@
 # Alfa::dsp architecture
 
+> Legacy implementation reference. The project direction is now
+> [Audio Tensor Space](../../docs/audio-tensor-space/mission.md). The slot graph, fixed
+> primitive counts and control rate below describe current code, not the replacement design.
+
 `src/dsp` is the JUCE-free real-time engine. A neural network writes control frames at 250 Hz, and
 this library turns them into audio. The network decides everything musical: which primitives
 sound, which processing families run, in what order, how much of each reaches the output, and how

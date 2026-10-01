@@ -49,6 +49,23 @@ endif()
 # Identity codes are PROVISIONAL. They must be fixed before the first public build,
 # because changing them breaks saved sessions and presets (packaging plan, section 2).
 juce_add_plugin(Alfamedomega
+    PRODUCT_NAME "Alfamedomega" COMPANY_NAME "Alfamedomega"
+    BUNDLE_ID "com.alfamedomega.tensor" PLUGIN_MANUFACTURER_CODE Alfm PLUGIN_CODE Aftn
+    FORMATS ${ALFA_FORMATS} IS_SYNTH FALSE NEEDS_MIDI_INPUT TRUE NEEDS_MIDI_OUTPUT FALSE
+    EDITOR_WANTS_KEYBOARD_FOCUS TRUE COPY_PLUGIN_AFTER_BUILD FALSE
+    VST3_CATEGORIES Fx Instrument
+    AU_MAIN_TYPE kAudioUnitType_MusicEffect)
+target_link_libraries(Alfamedomega PRIVATE Alfa::tensorHost
+    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+if(MSVC)
+    target_compile_options(Alfamedomega PRIVATE /utf-8)
+endif()
+target_sources(Alfamedomega_Standalone PRIVATE ${PROJECT_SOURCE_DIR}/src/tensor_plugin/src/StandaloneMain.cpp)
+target_compile_definitions(Alfamedomega_Standalone PRIVATE JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1)
+
+# Original sessions retain a separately buildable compatibility entry.
+if(ALFA_BUILD_LEGACY_PLUGIN)
+juce_add_plugin(AlfamedomegaLegacy
     PRODUCT_NAME "Alfamedomega"
     COMPANY_NAME "Alfamedomega"
     BUNDLE_ID "com.alfamedomega.alfamedomega"
@@ -65,13 +82,14 @@ juce_add_plugin(Alfamedomega
     AAX_CATEGORY AAX_ePlugInCategory_SWGenerators
     AU_MAIN_TYPE kAudioUnitType_MusicDevice)
 
-target_link_libraries(Alfamedomega
+target_link_libraries(AlfamedomegaLegacy
     PRIVATE
         Alfa::pluginShell
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+endif()
 
 if(ALFA_BUILD_TESTS)
     add_subdirectory(tests)
