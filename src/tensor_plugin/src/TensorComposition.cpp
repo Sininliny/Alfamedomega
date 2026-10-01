@@ -20,6 +20,8 @@ namespace
 {
 using JSON = nlohmann::json;
 constexpr std::array<const char*, 4> names{"activation", "parameters", "routing", "modulation"};
+constexpr std::array<const char*, 6> properties{"tier_profiles",  "tier_candidates", "tier_conversion",
+                                                "input_capacity", "tail_seconds",    "preferred_mode"};
 std::size_t checkedAdd(std::size_t first, std::size_t second)
 {
     if (second > std::numeric_limits<std::size_t>::max() - first)
@@ -135,9 +137,6 @@ JSON lower(const JSON& recipe, double rate)
                                                { return other.id == fragment.id; }))
             throw std::invalid_argument("Fragment identities must be unique and nonempty");
         fragment.document = entry.at("document");
-        if (fragment.document.contains("runtimeModel"))
-            throw std::invalid_argument(
-                "A unified runtimeModel must be compiled explicitly after composition");
         alfa::tensor::PrecisionProfile precision;
         if (!alfa::tensor::resolvePrecisionJSON(fragment.document.dump(), precision, error))
             throw std::invalid_argument(error);
@@ -177,6 +176,11 @@ JSON lower(const JSON& recipe, double rate)
         depth = std::max(depth, fragment.document.value("control_layers", JSON::array()).size());
         for (const auto* policy : {"performance", "latentSound"})
         {
+            if (recipe.contains(policy))
+            {
+                result[policy] = recipe.at(policy);
+                continue;
+            }
             if (!fragments.empty())
             {
                 const auto& first = fragments.front().document;
@@ -217,6 +221,24 @@ JSON lower(const JSON& recipe, double rate)
     JSON coordinates = JSON::array();
     for (const auto& fragment : fragments)
     {
+        if (fragment.document.contains("runtimeModel"))
+        {
+            auto controls = fragment.document;
+            controls.erase("runtimeModel");
+            controls.erase("composition");
+            result["runtimeModels"].push_back({{"id", fragment.id},
+                                               {"model", fragment.document.at("runtimeModel")},
+                                               {"controls", controls},
+                                               {"offsets", fragment.offsets}});
+        }
+        for (auto unit : fragment.document.value("runtimeModels", JSON::array()))
+        {
+            unit["id"] = fragment.id + "/" + unit.at("id").get<std::string>();
+            for (size_t category = 0; category < 4; ++category)
+                unit["offsets"][category] =
+                    checkedAdd(fragment.offsets[category], unit["offsets"][category].get<size_t>());
+            result["runtimeModels"].push_back(std::move(unit));
+        }
         JSON offsets = JSON::object();
         for (std::size_t category = 0; category < names.size(); ++category)
         {
@@ -395,7 +417,51 @@ JSON lower(const JSON& recipe, double rate)
                                                  {{"axes", {"destination", "source"}},
                                                   {"shape", {totalDestinations, totalSources}},
                                                   {"values", matrix}}}});
+            for (const auto& binding : recipe.value("control_bindings", JSON::array()))
+            {
+                if (binding.at("layer_from_bottom").get<size_t>() != depth - 1 - level)
+                    continue;
+                const auto& source = find(binding.at("source_fragment").get<std::string>());
+                const auto& destination = find(binding.at("destination_fragment").get<std::string>());
+                size_t sourceIndex = 0, destinationIndex = 0;
+                for (size_t i = 0; i < fragments.size(); ++i)
+                {
+                    if (fragments[i].id == source.id)
+                        break;
+                    sourceIndex += widths[i];
+                }
+                for (size_t i = 0; i < fragments.size(); ++i)
+                {
+                    if (fragments[i].id == destination.id)
+                        break;
+                    destinationIndex += destinations[i];
+                }
+                const auto sourceCoordinate = binding.at("source_element").get<size_t>();
+                const auto destinationCoordinate = binding.at("destination_element").get<size_t>();
+                const auto sourceFragment = static_cast<size_t>(&source - fragments.data());
+                const auto destinationFragment = static_cast<size_t>(&destination - fragments.data());
+                if (sourceCoordinate >= widths[sourceFragment] ||
+                    destinationCoordinate >= destinations[destinationFragment])
+                    throw std::invalid_argument(
+                        "Control relationship lies outside fragment layer coordinates");
+                const auto weight = binding.at("weight").get<double>();
+                if (!std::isfinite(weight))
+                    throw std::invalid_argument("Control relationship coefficient must be finite");
+                result["control_layers"][level]["matrix"]["values"]
+                      [(destinationIndex + destinationCoordinate) * totalSources + sourceIndex +
+                       sourceCoordinate] = weight;
+            }
         }
+    }
+    for (const auto& binding : recipe.value("control_bindings", JSON::array()))
+        if (binding.at("layer_from_bottom").get<size_t>() >= depth)
+            throw std::invalid_argument("Control relationship references absent layer");
+    for (const auto* property : properties)
+    {
+        if (recipe.contains("properties") && recipe.at("properties").contains(property))
+            result[property] = recipe.at("properties").at(property);
+        else if (!fragments.empty() && fragments.front().document.contains(property))
+            result[property] = fragments.front().document.at(property);
     }
     const auto digest = fingerprint(result);
     result["composition"] = recipe;
@@ -526,12 +592,151 @@ bool TensorComposition::restoreDocument(const juce::String& text, juce::String& 
     {
         const auto document = JSON::parse(text.toStdString());
         const auto& recipe = document.at("composition");
-        if (recipe.at("flattened_fingerprint") != fingerprint(document))
-            throw std::invalid_argument("Composition recipe is stale after flattened sound edits; use the "
-                                        "current sound as a new fragment explicitly");
         auto candidate = recipe;
         candidate.erase("coordinates");
         candidate.erase("flattened_fingerprint");
+        candidate["target_tier"] = document.value("tier", std::string{});
+        candidate["budget"] = document.at("budget");
+        for (const auto* property : properties)
+            if (document.contains(property))
+                candidate["properties"][property] = document.at(property);
+        if (recipe.at("flattened_fingerprint") != fingerprint(document))
+        {
+            const auto expected = lower(candidate, sampleRate_);
+            const auto structure = [](JSON value)
+            {
+                value.erase("composition");
+                value.erase("parameter_locks");
+                for (auto& tensor : value["tensors"])
+                    tensor.erase("values");
+                for (auto& layer : value["control_layers"])
+                {
+                    layer.erase("values");
+                    layer["matrix"].erase("values");
+                }
+                if (value["control_layers"].is_null())
+                    value.erase("control_layers");
+                if (value.contains("runtimeModels"))
+                    for (auto& unit : value["runtimeModels"])
+                    {
+                        for (auto& tensor : unit["controls"]["tensors"])
+                            tensor.erase("values");
+                        unit["controls"].erase("parameter_locks");
+                        unit["controls"].erase("control_layers");
+                    }
+                return value;
+            };
+            if (structure(expected) != structure(document))
+                throw std::invalid_argument("Composition recipe is stale after structural edits; use the "
+                                            "current sound as a new fragment explicitly");
+            std::array<size_t, 4> offset{};
+            const auto depth = expected.value("control_layers", JSON::array()).size();
+            std::vector<size_t> layerOffsets(depth);
+            for (auto& entry : candidate["fragments"])
+            {
+                auto& fragment = entry["document"];
+                for (size_t category = 0; category < 4; ++category)
+                {
+                    auto& values = fragment["tensors"][names[category]]["values"];
+                    for (size_t i = 0; i < values.size(); ++i)
+                        values[i] =
+                            document.at("tensors").at(names[category]).at("values").at(offset[category] + i);
+                    offset[category] += values.size();
+                }
+                const auto parameterCount = fragment["tensors"]["parameters"]["values"].size();
+                fragment["parameter_locks"] = JSON::array();
+                for (size_t i = 0; i < parameterCount; ++i)
+                    fragment["parameter_locks"].push_back(
+                        document.value("parameter_locks", JSON::array()).empty()
+                            ? JSON(0)
+                            : document["parameter_locks"][offset[1] - parameterCount + i]);
+                auto& layers = fragment["control_layers"];
+                if (layers.is_null())
+                {
+                    fragment.erase("control_layers");
+                    continue;
+                }
+                for (size_t local = 0; local < layers.size(); ++local)
+                {
+                    const auto level = depth - layers.size() + local;
+                    auto& values = layers[local]["values"];
+                    for (size_t i = 0; i < values.size(); ++i)
+                        values[i] = document["control_layers"][level]["values"][layerOffsets[level] + i];
+                    layerOffsets[level] += values.size();
+                }
+            }
+            for (size_t level = 0; level < depth; ++level)
+            {
+                struct Coordinates
+                {
+                    std::string id;
+                    size_t source = 0, destination = 0, sourceOffset = 0, destinationOffset = 0;
+                };
+                std::vector<Coordinates> coordinates;
+                size_t sourceOffset = 0, destinationOffset = 0;
+                for (const auto& entry : candidate["fragments"])
+                {
+                    const auto& fragment = entry.at("document");
+                    const auto layers = fragment.value("control_layers", JSON::array());
+                    const auto start = depth - layers.size();
+                    const auto sources =
+                        level >= start && !layers.empty() ? layers[level - start].at("values").size() : 0;
+                    const auto destinations =
+                        level + 1 == depth ? fragment.at("tensors").at("parameters").at("values").size()
+                                           : (level + 1 >= start && !layers.empty()
+                                                  ? layers[level + 1 - start].at("values").size()
+                                                  : 0);
+                    coordinates.push_back({entry.at("id").get<std::string>(), sources, destinations,
+                                           sourceOffset, destinationOffset});
+                    sourceOffset += sources;
+                    destinationOffset += destinations;
+                }
+                for (const auto& source : coordinates)
+                    for (const auto& destination : coordinates)
+                        for (size_t d = 0; d < destination.destination; ++d)
+                            for (size_t s = 0; s < source.source; ++s)
+                            {
+                                const auto index = (destination.destinationOffset + d) * sourceOffset +
+                                                   source.sourceOffset + s;
+                                const auto value =
+                                    document["control_layers"][level]["matrix"]["values"][index];
+                                if (value == expected["control_layers"][level]["matrix"]["values"][index])
+                                    continue;
+                                JSON binding{{"layer_from_bottom", depth - 1 - level},
+                                             {"source_fragment", source.id},
+                                             {"destination_fragment", destination.id},
+                                             {"source_element", s},
+                                             {"destination_element", d},
+                                             {"weight", value}};
+                                bool replaced = false;
+                                for (auto& prior : candidate["control_bindings"])
+                                    if (prior.at("layer_from_bottom") == binding["layer_from_bottom"] &&
+                                        prior.at("source_fragment") == source.id &&
+                                        prior.at("destination_fragment") == destination.id &&
+                                        prior.at("source_element") == s &&
+                                        prior.at("destination_element") == d)
+                                    {
+                                        prior = std::move(binding);
+                                        replaced = true;
+                                        break;
+                                    }
+                                if (!replaced)
+                                    candidate["control_bindings"].push_back(std::move(binding));
+                            }
+            }
+            for (auto& binding : candidate["recurrent_bindings"])
+            {
+                const auto category = binding.at("weights") == "routing" ? size_t(2) : size_t(3);
+                binding["weight"] = document["tensors"][names[category]]["values"][offset[category]++];
+            }
+            const auto reconciled = lower(candidate, sampleRate_);
+            auto normalized = document;
+            if (reconciled.contains("runtimeModels"))
+                normalized["runtimeModels"] = reconciled["runtimeModels"];
+            if (fingerprint(reconciled) != fingerprint(normalized))
+                throw std::invalid_argument("Composition edits cannot be reconciled without changing sound; "
+                                            "use current sound as base");
+        }
         return commit(candidate.dump(), error);
     }
     catch (const std::exception& failure)

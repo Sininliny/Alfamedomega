@@ -3,6 +3,7 @@
 #include "FactoryPrograms.h"
 #include "TensorEditor.h"
 #include "TensorReference.h"
+#include "TierConversion.h"
 #include "alfa/tensor/Compiler.h"
 
 #include <chrono>
@@ -205,6 +206,20 @@ void Processor::clearPerformance() noexcept
     gestures_.fill(0);
     context_.fill(0);
     activeNotes.store(0);
+}
+void Processor::requestPanic() noexcept
+{
+    try
+    {
+        juce::String error;
+        if (!loadJSONImpl(document(), error, false))
+            failures.fetch_add(1, std::memory_order_relaxed);
+    }
+    catch (...)
+    {
+        failures.fetch_add(1, std::memory_order_relaxed);
+    }
+    panic_.store(true);
 }
 bool Processor::editLayerValue(size_t layer, size_t index, double value, juce::String& error)
 {
@@ -466,6 +481,14 @@ bool Processor::indexedEvent(const juce::MidiMessage& message) noexcept
 }
 void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
+    processBlockImpl(buffer, midi, false);
+}
+void Processor::processBlockBypassed(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
+{
+    processBlockImpl(buffer, midi, true);
+}
+void Processor::processBlockImpl(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi, bool forceBypass)
+{
     juce::ScopedNoDenormals denormals;
     const auto began = std::chrono::steady_clock::now();
     double modelTime = 0;
@@ -475,11 +498,17 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
     {
         if (auto* program = pending_.exchange(nullptr, std::memory_order_acq_rel))
         {
-            const auto adopted = active_ && program->preserveState &&
-                                 program->voiceCapacity == active_->voiceCapacity &&
-                                 program->releaseSeconds == active_->releaseSeconds &&
-                                 program->bendSemitones == active_->bendSemitones &&
-                                 program->execution->adopt(*active_->execution);
+            const auto performanceCompatible = active_ && program->preserveState &&
+                                               program->voiceCapacity == active_->voiceCapacity &&
+                                               program->releaseSeconds == active_->releaseSeconds &&
+                                               program->bendSemitones == active_->bendSemitones;
+            if (performanceCompatible)
+                program->execution->adopt(*active_->execution);
+            if (performanceCompatible && program->latencySamples == active_->latencySamples)
+            {
+                program->dryHistory.swap(active_->dryHistory);
+                program->dryCursor = active_->dryCursor;
+            }
             if (active_)
             {
                 retired_[write] = active_;
@@ -487,15 +516,13 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
             }
             active_ = program;
             scalarBytes_.store(static_cast<int>(alfa::tensor::scalarBytes(program->execution->scalarType())));
-            if (!adopted)
+            if (!performanceCompatible)
                 clearPerformance();
         }
     }
     if (panic_.exchange(false))
     {
         clearPerformance();
-        if (active_)
-            active_->execution->reset();
     }
     std::array<float, 8> controls;
     for (size_t i = 0; i < controls.size(); ++i)
@@ -525,7 +552,7 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
     const auto targetGain = juce::Decibels::decibelsToGain(outputGain_->load());
     const auto inputGain = juce::Decibels::decibelsToGain(inputGain_->load());
     const auto dryWet = mix_->load();
-    const auto bypass = bypass_->load() > 0.5f;
+    const auto bypass = forceBypass || bypass_->load() > 0.5f;
     const auto gainSlew = static_cast<float>(1.0 - std::exp(-1.0 / (rate_.load() * 0.005)));
     std::array<float, 2> inPeak{}, outPeak{};
     for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
@@ -554,6 +581,13 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
         std::array<float, 2> audio{dry[0] * inputGain, dry[1] * inputGain};
         if (selectedMode != 0)
             input.audio = {audioAxes_, stereoShape_, audio, {}};
+        auto alignedDry = dry;
+        if (active_ && !active_->dryHistory.empty())
+        {
+            alignedDry = active_->dryHistory[active_->dryCursor];
+            active_->dryHistory[active_->dryCursor] = dry;
+            active_->dryCursor = (active_->dryCursor + 1) % active_->dryHistory.size();
+        }
         if (selectedMode != 1)
         {
             midiShape_[0] = noteCount_;
@@ -581,7 +615,8 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
         for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
         {
             const auto wet = buffer.getSample(channel, sample);
-            const auto original = selectedMode == 0 ? 0.0f : dry[static_cast<size_t>(juce::jmin(channel, 1))];
+            const auto original =
+                selectedMode == 0 ? 0.0f : alignedDry[static_cast<size_t>(juce::jmin(channel, 1))];
             auto value = bypass ? original : (dryWet * wet + (1 - dryWet) * original) * gainCurrent_;
             if (!std::isfinite(value))
             {
@@ -726,6 +761,12 @@ bool Processor::loadJSONImpl(const juce::String& text, juce::String& error, bool
                     "Declared host latency must be a nonnegative supported sample count");
             latency = value.get<int>();
         }
+        proposed->latencySamples = latency;
+        const auto alignmentBytes = static_cast<uint64_t>(latency) * sizeof(std::array<float, 2>);
+        const auto alignmentBudget = data.at("budget").value("host_alignment_bytes", uint64_t{0});
+        if (alignmentBytes > alignmentBudget)
+            throw std::invalid_argument("Dry/wet alignment exceeds explicit host_alignment_bytes budget");
+        proposed->dryHistory.resize(static_cast<size_t>(latency));
         const auto defaults = proposed->execution->highestDefaults();
         const auto report = proposed->execution->inspection();
         auto* publication = proposed.get();
@@ -755,6 +796,16 @@ bool Processor::setTier(const juce::String& tier, juce::String& error)
     try
     {
         auto data = nlohmann::json::parse(document().toStdString());
+        if (data.contains("tier_profiles"))
+        {
+            std::string converted, diagnostic;
+            if (!convertTier(data.dump(), tier.toStdString(), rate_.load(), converted, diagnostic))
+            {
+                error = diagnostic;
+                return false;
+            }
+            return editConfigurationJSON(converted, error);
+        }
         data["tier"] = tier.toStdString();
         data.erase("scalar_type");
         alfa::tensor::PrecisionProfile profile;

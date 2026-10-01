@@ -1,6 +1,7 @@
 #include "CompositionPanel.h"
 #include "PrimitiveFragmentPanel.h"
 #include "TensorProcessor.h"
+#include "TierConversion.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -59,6 +60,145 @@ juce::DialogWindow* dialog()
     return nullptr;
 }
 } // namespace
+
+TEST_CASE("Global FX mix and bypass align dry impulse to declared algorithm latency",
+          "[tensor-host][latency]")
+{
+    juce::ScopedJuceInitialiser_GUI gui;
+    for (const float mix : {0.f, .5f, 1.f})
+        for (const int bypass : {0, 1, 2})
+        {
+            Processor p;
+            p.prepareToPlay(48000, 4);
+            auto sound = sine();
+            sound["instances"][0]["primitive"] = "time.ring_delay.v1";
+            sound["instances"][0]["state_size"] = 7;
+            sound["instances"][0]["initial_state"] = std::vector<double>(7);
+            sound["tensors"]["parameters"]["values"] = {5., 0.};
+            sound["budget"]["state_elements"] = 7;
+            sound["budget"]["sparse_state_writes"] = 3;
+            sound["budget"]["host_alignment_bytes"] = 40;
+            sound["host_latency_samples"] = 5;
+            juce::String error;
+            REQUIRE(p.loadJSON(sound.dump(), error));
+            p.setParameterValue("mode", 1);
+            p.setParameterValue("mix", mix);
+            p.setParameterValue("bypass", bypass == 1 ? 1.f : 0.f);
+            juce::MidiBuffer midi;
+            for (int block = 0; block < 4; ++block)
+            {
+                juce::AudioBuffer<float> audio(2, 4);
+                audio.clear();
+                if (block == 0)
+                {
+                    audio.setSample(0, 0, 1);
+                    audio.setSample(1, 0, 1);
+                }
+                if (bypass == 2)
+                    p.processBlockBypassed(audio, midi);
+                else
+                    p.processBlock(audio, midi);
+                for (int sample = 0; sample < 4; ++sample)
+                    CHECK(audio.getSample(0, sample) ==
+                          Catch::Approx(block * 4 + sample == 5 ? 1.f : 0.f).margin(1e-6));
+            }
+        }
+}
+
+TEST_CASE("Tier switching enforces authored capacity preserves locks and measures explicit candidates",
+          "[tensor-host][tier-conversion]")
+{
+    juce::ScopedJuceInitialiser_GUI gui;
+    Processor p;
+    p.prepareToPlay(48000, 32);
+    auto source = sine();
+    auto capacity = source["budget"];
+    capacity["boundary_conversion_bytes"] = 20000;
+    for (const auto* tier : {"Lite", "Standard", "Pro", "Studio"})
+        source["tier_profiles"][tier] = {{"budget", capacity}};
+    source["tier_profiles"]["Lite"]["budget"]["active_primitives"] = 0;
+    juce::String error;
+    REQUIRE(p.loadJSON(source.dump(), error));
+    const auto retained = p.document();
+    CHECK_FALSE(p.setTier("Lite", error));
+    CHECK(p.document() == retained);
+    REQUIRE(p.setTier("Pro", error));
+    juce::AudioBuffer<float> audio(2, 32);
+    audio.clear();
+    juce::MidiBuffer midi;
+    p.processBlock(audio, midi);
+    CHECK(p.scalarBytes() == 8);
+    CHECK(JSON::parse(p.document().toStdString())["tier_conversion"]["candidate"] == 0);
+    auto reference = sine();
+    reference["parameter_locks"] = {1, 0};
+    auto limited = capacity;
+    limited["state_elements"] = 0;
+    auto candidate = reference;
+    candidate["tensors"]["parameters"]["values"][0] = .1;
+    reference["tier_profiles"] = {{"Lite", {{"budget", limited}}}};
+    reference["tier_candidates"] = {{"Lite", JSON::array({candidate})}};
+    std::string result, diagnostic;
+    CHECK_FALSE(alfa::tensorhost::convertTier(reference.dump(), "Lite", 48000, result, diagnostic));
+    CHECK(diagnostic.find("locked") != std::string::npos);
+    auto measured = sine();
+    const JSON validation{
+        {"evaluation_bytes", 1000000},
+        {"evaluation_ticks", 20000},
+        {"maximum_errors",
+         {{"relative_error", .0001}, {"pitch_error_cents", .1}, {"timing_error_samples", 0}}},
+        {"cases", JSON::array({{{"frames", 4096}, {"fundamental_hz", 100.}, {"timing_search_samples", 8}}})}};
+    measured["tier_profiles"] = {{"Standard", {{"budget", capacity}, {"validation", validation}}}};
+    auto bad = measured;
+    bad["tensors"]["parameters"]["values"][0] = 110.;
+    bad.erase("tier_profiles");
+    measured["tier_candidates"] = {{"Standard", JSON::array({bad})}};
+    REQUIRE(alfa::tensorhost::convertTier(measured.dump(), "Standard", 48000, result, diagnostic));
+    const auto accepted = JSON::parse(result);
+    CHECK(accepted["tier_conversion"]["candidate"] == 0);
+    REQUIRE(accepted["tier_conversion"]["rejected"].size() == 1);
+    CHECK(accepted["tier_conversion"]["metrics"][0]["relative_error"].get<double>() < 1e-6);
+}
+
+TEST_CASE("Tier optimizer merges equivalent recurrences under a smaller active capacity",
+          "[tensor-host][tier-conversion]")
+{
+    auto source = sine();
+    source["instances"].push_back(source["instances"][0]);
+    source["instances"][1]["activation"] = 1;
+    source["instances"][1]["parameters"]["offset"] = 2;
+    source["tensors"]["activation"]["shape"] = {2};
+    source["tensors"]["activation"]["values"] = {1., 1.};
+    source["tensors"]["parameters"]["shape"] = {4};
+    source["tensors"]["parameters"]["values"] = {100., .2, 100., .2};
+    source["parameter_locks"] = {0, 0, 0, 0};
+    source["outputMix"] = {{0, 0, 1.}, {0, 1, 1.}, {1, 0, 1.}, {1, 1, 1.}};
+    source["budget"]["active_primitives"] = 2;
+    source["budget"]["state_elements"] = 2;
+    source["budget"]["output_elements"] = 2;
+    source["budget"]["parameter_elements"] = 4;
+    source["budget"]["activation_elements"] = 2;
+    source["budget"]["stored_tensor_elements"] = 6;
+    auto budget = source["budget"];
+    budget["active_primitives"] = 1;
+    source["tier_profiles"]["Lite"] = {
+        {"budget", budget},
+        {"strategies", {"merge_equivalent_instances"}},
+        {"validation",
+         {{"evaluation_bytes", 200000},
+          {"evaluation_ticks", 10000},
+          {"maximum_errors",
+           {{"relative_error", .0001}, {"pitch_error_cents", .1}, {"timing_error_samples", 0}}},
+          {"cases",
+           JSON::array({{{"frames", 4096}, {"fundamental_hz", 100.}, {"timing_search_samples", 8}}})}}}};
+    std::string result, error;
+    REQUIRE(alfa::tensorhost::convertTier(source.dump(), "Lite", 48000, result, error));
+    const auto converted = JSON::parse(result);
+    CHECK(converted["tensors"]["activation"]["values"] == JSON::array({1., 0.}));
+    CHECK(converted["tier_conversion"]["candidate"] == 1);
+    CHECK(converted["tier_conversion"]["metrics"][0]["relative_error"].get<double>() < 1e-6);
+    source["parameter_locks"][0] = 1;
+    CHECK_FALSE(alfa::tensorhost::convertTier(source.dump(), "Lite", 48000, result, error));
+}
 
 TEST_CASE("Malformed and unsupported host sessions cannot partially replace a running sound",
           "[tensor-host][product-safety]")
@@ -218,6 +358,15 @@ TEST_CASE("Compatible parameter edits with a runtime compiler retain held notes 
     for (int sample = 16; sample < 32; ++sample)
         CHECK(actual.getSample(0, sample) == Catch::Approx(expected.getSample(0, sample)).margin(1e-6));
     CHECK(edited.failures.load() == 0);
+    REQUIRE(edited.setTier("Pro", error));
+    actual.clear();
+    edited.processBlock(actual, first);
+    CHECK(edited.scalarBytes() == 8);
+    CHECK(edited.activeNotes.load() == 1);
+    CHECK(edited.failures.load() == 0);
+    first.addEvent(juce::MidiMessage::noteOff(1, 69), 0);
+    edited.processBlock(actual, first);
+    CHECK(edited.activeNotes.load() == 0);
 }
 
 TEST_CASE("Authored host latency validates transactionally and absence clears the declaration",
@@ -228,7 +377,8 @@ TEST_CASE("Authored host latency validates transactionally and absence clears th
     processor.prepareToPlay(48000, 32);
     juce::String error;
     auto sound = sine();
-    for (const int latency : {0, 127, std::numeric_limits<int>::max()})
+    sound["budget"]["host_alignment_bytes"] = 127 * 8;
+    for (const int latency : {0, 127})
     {
         sound["host_latency_samples"] = latency;
         REQUIRE(processor.loadJSON(sound.dump(), error));
@@ -247,10 +397,13 @@ TEST_CASE("Authored host latency validates transactionally and absence clears th
         sound["tensors"]["parameters"]["values"][1] = .7;
         CHECK_FALSE(processor.loadJSON(sound.dump(), error));
         CHECK(error.isNotEmpty());
-        CHECK(processor.getLatencySamples() == std::numeric_limits<int>::max());
+        CHECK(processor.getLatencySamples() == 127);
         CHECK(processor.document() == retained);
         CHECK(processor.programRevision.load() == revision);
     }
+    sound["host_latency_samples"] = std::numeric_limits<int>::max();
+    CHECK_FALSE(processor.loadJSON(sound.dump(), error));
+    CHECK(processor.document() == retained);
     sound.erase("host_latency_samples");
     REQUIRE(processor.loadJSON(sound.dump(), error));
     CHECK(processor.getLatencySamples() == 0);

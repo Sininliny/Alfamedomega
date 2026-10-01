@@ -145,7 +145,8 @@ bool TensorModelT<Scalar>::prepare(std::string_view json, const ConfigurationT<S
             throw std::invalid_argument("Compiler model parameter count differs from its budget");
         const long double minimumBytes =
             static_cast<long double>(sizeof(Scalar)) *
-            (static_cast<long double>(parameters) + inputWidth + 8.0L * candidate.hidden_ + 6.0L * outputs);
+            (static_cast<long double>(parameters) + inputWidth + 9.0L * candidate.hidden_ + 6.0L * outputs +
+             candidate.lockedValues_.size());
         if (estimatedBytes > availableBytes || minimumBytes > availableBytes)
             throw std::invalid_argument("Compiler model exceeds its independent RAM allowance");
         candidate.bounds_ = document.at("output_bounds").get<std::vector<std::array<Scalar, 2>>>();
@@ -164,6 +165,8 @@ bool TensorModelT<Scalar>::prepare(std::string_view json, const ConfigurationT<S
         candidate.stateGates_.resize(gates);
         candidate.values_.resize(outputs);
         candidate.logits_.resize(outputs);
+        for (std::size_t i = 0; i < 4; ++i)
+            candidate.scopedBackup_[i].resize(candidate.controls_[i].values.size());
         *this = std::move(candidate);
         return true;
     }
@@ -252,6 +255,58 @@ bool TensorModelT<Scalar>::apply(const InputsT<Scalar>& inputs, RuntimeT<Scalar>
 }
 
 template <typename Scalar>
+bool TensorModelT<Scalar>::applyScoped(const InputsT<Scalar>& inputs, RuntimeT<Scalar>& runtime,
+                                       std::array<TensorT<Scalar>*, 4> controls,
+                                       const std::array<std::size_t, 4>& offsets) noexcept
+{
+    if (hidden_ == 0)
+        return false;
+    if (runtime.sample() % clock_.periodSamples != clock_.phaseSamples)
+        return true;
+    for (std::size_t category = 0; category < 4; ++category)
+    {
+        const auto count = controls_[category].values.size();
+        if (offsets[category] > controls[category]->values.size() ||
+            count > controls[category]->values.size() - offsets[category])
+            return false;
+        std::copy_n(controls[category]->values.begin() + static_cast<std::ptrdiff_t>(offsets[category]),
+                    count, scopedBackup_[category].begin());
+    }
+    if (!infer(inputs))
+        return false;
+    bool valid = true;
+    for (const auto& head : heads_)
+        for (std::size_t element = 0; element < head.second.count; ++element)
+        {
+            const auto index = head.second.offset + element;
+            const bool represented =
+                controls_[head.first].presence.empty() || controls_[head.first].presence[element] != 0;
+            if (represented != (sigmoid(logits_[index]) >= threshold_))
+            {
+                valid = false;
+                break;
+            }
+            auto& destination = controls[head.first]->values[offsets[head.first] + element];
+            destination =
+                represented ? std::clamp(values_[index], bounds_[index][0], bounds_[index][1]) : Scalar{0};
+            if (head.first == 1 && !locks_.empty() && locks_[element])
+                destination = lockedValues_[element];
+        }
+    const auto view = [](const TensorT<Scalar>* t) -> TensorViewT<Scalar>
+    {
+        return {t->axes, t->shape, t->values, t->presence};
+    };
+    if (valid &&
+        runtime.updateTensors(view(controls[0]), view(controls[1]), view(controls[2]), view(controls[3])))
+        return true;
+    for (std::size_t i = 0; i < 4; ++i)
+        std::copy(scopedBackup_[i].begin(), scopedBackup_[i].end(),
+                  controls[i]->values.begin() + static_cast<std::ptrdiff_t>(offsets[i]));
+    state_.swap(nextState_);
+    return false;
+}
+
+template <typename Scalar>
 bool TensorModelT<Scalar>::canAdoptStateFrom(const TensorModelT& previous) const noexcept
 {
     return hidden_ > 0 && hidden_ == previous.hidden_ && widths_ == previous.widths_ &&
@@ -271,6 +326,31 @@ bool TensorModelT<Scalar>::adoptStateFrom(const TensorModelT& previous) noexcept
     std::copy(previous.logits_.begin(), previous.logits_.end(), logits_.begin());
     return true;
 }
+template <typename Scalar>
+bool TensorModelT<Scalar>::takeStateFrom(TensorModelT& previous) noexcept
+{
+    if (!canAdoptStateFrom(previous))
+        return false;
+    state_.swap(previous.state_);
+    nextState_.swap(previous.nextState_);
+    values_.swap(previous.values_);
+    logits_.swap(previous.logits_);
+    return true;
+}
+
+template <typename Scalar>
+std::size_t TensorModelT<Scalar>::numericStorageBytes() const noexcept
+{
+    size_t count = inputWeights_.size() + stateWeights_.size() + inputBias_.size() + stateBias_.size() +
+                   valueWeights_.size() + valueBias_.size() + maskWeights_.size() + maskBias_.size() +
+                   input_.size() + state_.size() + nextState_.size() + inputGates_.size() +
+                   stateGates_.size() + values_.size() + logits_.size() + initialState_.size() +
+                   2 * bounds_.size() + lockedValues_.size();
+    for (size_t i = 0; i < 4; ++i)
+        count += controls_[i].values.size() + scopedBackup_[i].size();
+    return count * sizeof(Scalar);
+}
+
 template <typename Scalar>
 void TensorModelT<Scalar>::reset() noexcept
 {

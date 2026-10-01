@@ -463,7 +463,7 @@ Editor::Editor(Processor& p)
         if (processor_.setTier(tierIds[juce::jlimit(0, 3, tier_.getSelectedId() - 1)], error))
         {
             refreshSound();
-            showStatus("Precision tier changed; all tensor controls remain available");
+            showStatus("Tier prepared; tensor controls and parameter locks retained");
         }
         else
         {
@@ -475,12 +475,51 @@ Editor::Editor(Processor& p)
     resources_.setFont(alfa::ui::AlfaLookAndFeel::labelFont(12));
     hostPrecision_.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11));
     resources_.setText(
-        "Lite / Standard: 4-byte scalar storage.\nPro / Studio: 8-byte storage for long-decay fidelity.\nCPU "
-        "cost depends on the executable configuration.\nPrecision fixture: 16 resonators at 192 kHz.",
+        "Lite / Standard: float32. Pro / Studio: float64.\nImport four explicit resource profiles to enable "
+        "capacity conversion.\nChanged candidates require sound, pitch and timing checks.\nWithout profiles, "
+        "tier selection changes precision only.",
         juce::dontSendNotification);
     hostPrecision_.setText("Highest 8 host automation ports use float32.\nManual tensor and deeper-layer "
                            "editing preserve double values.",
                            juce::dontSendNotification);
+    addAndMakeVisible(importTiers_);
+    importTiers_.setComponentID("tier.import_profiles");
+    importTiers_.onClick = [this]
+    {
+        chooser_ =
+            std::make_unique<juce::FileChooser>("Import explicit tier profiles", juce::File{}, "*.json");
+        auto safe = juce::Component::SafePointer<Editor>(this);
+        chooser_->launchAsync(
+            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+            [safe](const juce::FileChooser& chooser)
+            {
+                if (!safe || !chooser.getResult().existsAsFile())
+                    return;
+                try
+                {
+                    const auto profiles =
+                        nlohmann::json::parse(chooser.getResult().loadFileAsString().toStdString());
+                    auto sound = nlohmann::json::parse(safe->processor_.document().toStdString());
+                    for (const auto* tier : {"Lite", "Standard", "Pro", "Studio"})
+                        if (!profiles.contains(tier) || !profiles.at(tier).at("budget").is_object())
+                            throw std::invalid_argument("Four named tier budgets are required");
+                    sound["tier_profiles"] = profiles;
+                    juce::String error;
+                    if (!safe->changeDocument(std::move(sound), error))
+                        safe->showStatus(error, true);
+                    else
+                    {
+                        safe->refreshSound();
+                        safe->showStatus(
+                            "Explicit tier budgets imported; conversion validates each candidate");
+                    }
+                }
+                catch (const std::exception& error)
+                {
+                    safe->showStatus(error.what(), true);
+                }
+            });
+    };
     gesture_.addItemList({"Vertical drag", "Horizontal drag", "Circular drag"}, 1);
     const juce::StringArray gestures{"vertical", "horizontal", "circular"};
     gesture_.setSelectedId(
@@ -775,6 +814,7 @@ void Editor::resized()
     accent_.setBounds(settingsArea_.getX() + 24, settingsArea_.getY() + 254, 220, 32);
     gesture_.setBounds(settingsArea_.getX() + 260, settingsArea_.getY() + 254, 220, 32);
     folder_.setBounds(settingsArea_.getX() + 24, settingsArea_.getY() + 144, 220, 32);
+    importTiers_.setBounds(settingsArea_.getX() + 440, settingsArea_.getY() + 144, 200, 32);
     refresh_.setBounds(settingsArea_.getX() + 260, settingsArea_.getY() + 144, 150, 32);
     mode_.setBounds(settingsArea_.getX() + 24, settingsArea_.getY() + 196, 330, 32);
     const auto bottomY = workspace_.getBottom() + 24;
@@ -791,6 +831,7 @@ void Editor::resized()
 void Editor::chooseView(int index)
 {
     view_ = juce::jlimit(0, 3, index);
+    importTiers_.setVisible(view_ == 3);
     for (size_t i = 0; i < tabs_.size(); ++i)
         tabs_[i].setToggleState(static_cast<int>(i) == view_, juce::dontSendNotification);
     for (auto* c :

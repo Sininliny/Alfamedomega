@@ -16,11 +16,16 @@ public:
     bool prepare(std::string_view json, const ConfigurationT<Scalar>& controls, std::string& error);
     bool infer(const InputsT<Scalar>& inputs) noexcept;
     bool apply(const InputsT<Scalar>& inputs, RuntimeT<Scalar>& runtime) noexcept;
+    bool applyScoped(const InputsT<Scalar>& inputs, RuntimeT<Scalar>& runtime,
+                     std::array<TensorT<Scalar>*, 4> controls,
+                     const std::array<std::size_t, 4>& offsets) noexcept;
     void reset() noexcept;
     // Caller verifies immutable model identity before transferring recurrence.
     // These checks only establish typed workspace/clock compatibility.
     bool canAdoptStateFrom(const TensorModelT& previous) const noexcept;
     bool adoptStateFrom(const TensorModelT& previous) noexcept;
+    bool takeStateFrom(TensorModelT& previous) noexcept;
+    std::size_t numericStorageBytes() const noexcept;
     [[nodiscard]] std::span<const Scalar> state() const noexcept { return state_; }
     [[nodiscard]] std::span<const Scalar> values() const noexcept { return values_; }
     [[nodiscard]] std::span<const Scalar> presenceLogits() const noexcept { return logits_; }
@@ -36,6 +41,7 @@ private:
     std::vector<Scalar> initialState_;
     std::vector<std::array<Scalar, 2>> bounds_;
     std::array<TensorT<Scalar>, 4> controls_;
+    std::array<std::vector<Scalar>, 4> scopedBackup_;
     std::vector<std::uint8_t> locks_;
     std::vector<Scalar> lockedValues_;
     std::vector<std::pair<std::size_t, Slice>> heads_;

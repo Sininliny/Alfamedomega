@@ -101,6 +101,14 @@ class Execution final : public TensorExecution
     std::unique_ptr<TensorModelT<Scalar>> model_;
     juce::String modelIdentity_;
     Clock modelClock_;
+    struct ScopedModel
+    {
+        TensorModelT<Scalar> model;
+        juce::String identity;
+        std::array<size_t, 4> offsets{};
+        TensorT<Scalar> latent;
+    };
+    std::vector<ScopedModel> scopedModels_;
     TensorT<Scalar> latent_;
     std::array<std::vector<Scalar>, 6> boundary_;
     std::string report_;
@@ -117,6 +125,9 @@ public:
                 if ((!latency.is_number_unsigned() && !latency.is_number_integer()) ||
                     latency.get<double>() < 0 || latency.get<double>() > std::numeric_limits<int>::max())
                     throw std::invalid_argument("Invalid explicit native host latency");
+                if (latency.get<uint64_t>() * 8 >
+                    data.at("budget").value("host_alignment_bytes", uint64_t(0)))
+                    throw std::invalid_argument("Dry/wet alignment exceeds host_alignment_bytes budget");
             }
             Budget budget;
             if (!parseJSON(text, controls_, error) || !readBudgetJSON(text, budget, error) ||
@@ -175,6 +186,70 @@ public:
                 modelClock_ = {clock.at("period_samples").get<uint64_t>(),
                                clock.at("phase_samples").get<uint64_t>()};
             }
+            if (data.contains("runtimeModels"))
+            {
+                if (model_)
+                    throw std::invalid_argument("Global and scoped compiler models cannot overlap");
+                std::array<std::vector<uint8_t>, 4> claimed;
+                const std::array<const TensorT<Scalar>*, 4> tensors{
+                    &controls_.activation, &controls_.parameters, &controls_.routing, &controls_.modulation};
+                for (size_t i = 0; i < 4; ++i)
+                    claimed[i].resize(tensors[i]->values.size());
+                for (const auto& entry : data.at("runtimeModels"))
+                {
+                    ScopedModel unit;
+                    unit.offsets = entry.at("offsets").get<std::array<size_t, 4>>();
+                    ConfigurationT<Scalar> local;
+                    auto localDocument = entry.at("controls");
+                    localDocument.erase("tier");
+                    localDocument["scalar_type"] = std::is_same_v<Scalar, double> ? "float64" : "float32";
+                    if (!parseJSON(localDocument.dump(), local, error))
+                        return false;
+                    const std::array<const TensorT<Scalar>*, 4> source{&local.activation, &local.parameters,
+                                                                       &local.routing, &local.modulation};
+                    for (size_t category = 0; category < 4; ++category)
+                    {
+                        if (unit.offsets[category] > claimed[category].size() ||
+                            source[category]->values.size() >
+                                claimed[category].size() - unit.offsets[category])
+                            throw std::invalid_argument("Scoped model lies outside composed tensors");
+                        for (size_t element = 0; element < source[category]->values.size(); ++element)
+                        {
+                            const auto index = unit.offsets[category] + element;
+                            if (claimed[category][index]++)
+                                throw std::invalid_argument("Scoped models overlap tensor authority");
+                            const auto& target = *tensors[category];
+                            if ((source[category]->presence.empty() ? 1
+                                                                    : source[category]->presence[element]) !=
+                                (target.presence.empty() ? 1 : target.presence[index]))
+                                throw std::invalid_argument("Scoped model presence differs from target");
+                        }
+                    }
+                    local.parameterLocks.resize(local.parameters.values.size());
+                    for (size_t i = 0; i < local.parameterLocks.size(); ++i)
+                        if (!controls_.parameterLocks.empty())
+                            local.parameterLocks[i] = controls_.parameterLocks[unit.offsets[1] + i];
+                    for (size_t i = 0; i < local.parameters.values.size(); ++i)
+                        local.parameters.values[i] = controls_.parameters.values[unit.offsets[1] + i];
+                    if (!unit.model.prepare(entry.at("model").dump(), local, error))
+                        return false;
+                    const auto serialized = entry.at("model").dump() + entry.at("offsets").dump();
+                    unit.identity = juce::SHA256(serialized.data(), serialized.size()).toHexString();
+                    if (entry.at("controls").contains("latentSound"))
+                        unit.latent = inputTensor<Scalar>(entry.at("controls").at("latentSound"));
+                    scopedModels_.push_back(std::move(unit));
+                }
+                size_t modelBytes = 0;
+                for (const auto& unit : scopedModels_)
+                {
+                    const auto bytes = unit.model.numericStorageBytes();
+                    const auto allowance = data.at("budget").value("compiler_model_bytes", size_t(0));
+                    if (modelBytes > allowance || bytes > allowance - modelBytes)
+                        throw std::invalid_argument(
+                            "Scoped compiler models exceed aggregate compiler_model_bytes budget");
+                    modelBytes += bytes;
+                }
+            }
             for (const auto& item : data.at("outputMix"))
             {
                 Mix mix{item.at(0).get<size_t>(), item.at(1).get<int>(), item.at(2).get<Scalar>()};
@@ -208,7 +283,8 @@ public:
             report
                 << "\nDeclared budgets, routing, activation, allocation and clocks are inspectable in JSON.";
             report << (model_ ? "\nRuntime GRU compiler model loaded; explicit model clock."
-                              : "\nNo trained model is loaded.");
+                              : "\nNo global compiler model is loaded.");
+            report << "\nScoped fragment compiler models: " << scopedModels_.size();
             for (size_t i = 0; i < controls_.instances.size(); ++i)
             {
                 const auto& instance = controls_.instances[i];
@@ -294,6 +370,19 @@ public:
             modelMilliseconds +=
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - began).count();
         }
+        for (auto& unit : scopedModels_)
+        {
+            auto localInputs = inputs;
+            localInputs.latentSound = view(unit.latent);
+            const auto began = std::chrono::steady_clock::now();
+            accepted = unit.model.applyScoped(localInputs, runtime_,
+                                              {&controls_.activation, &controls_.parameters,
+                                               &controls_.routing, &controls_.modulation},
+                                              unit.offsets) &&
+                       accepted;
+            modelMilliseconds +=
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - began).count();
+        }
         return {runtime_.tick(inputs), accepted};
     }
     float mixedOutput(int channel) const noexcept override
@@ -310,18 +399,28 @@ public:
         runtime_.reset();
         if (model_)
             model_->reset();
+        for (auto& unit : scopedModels_)
+            unit.model.reset();
     }
-    bool adopt(const TensorExecution& old) noexcept override
+    bool adopt(TensorExecution& old) noexcept override
     {
-        const auto* previous = dynamic_cast<const Execution*>(&old);
+        auto* previous = dynamic_cast<Execution*>(&old);
         if (!previous || static_cast<bool>(model_) != static_cast<bool>(previous->model_))
             return false;
+        if (scopedModels_.size() != previous->scopedModels_.size())
+            return false;
+        for (size_t i = 0; i < scopedModels_.size(); ++i)
+            if (scopedModels_[i].identity != previous->scopedModels_[i].identity ||
+                !scopedModels_[i].model.canAdoptStateFrom(previous->scopedModels_[i].model))
+                return false;
         if (model_ &&
             (modelIdentity_ != previous->modelIdentity_ || !model_->canAdoptStateFrom(*previous->model_)))
             return false;
-        if (!runtime_.adoptStateFrom(previous->runtime_))
+        if (!runtime_.takeStateFrom(previous->runtime_))
             return false;
-        return !model_ || model_->adoptStateFrom(*previous->model_);
+        for (size_t i = 0; i < scopedModels_.size(); ++i)
+            scopedModels_[i].model.takeStateFrom(previous->scopedModels_[i].model);
+        return !model_ || model_->takeStateFrom(*previous->model_);
     }
     void snapshot(std::span<std::atomic<float>> destination) const noexcept override
     {

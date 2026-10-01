@@ -33,6 +33,7 @@ private:
         unbind_{"Remove binding"}, prepare_{"Prepare recipe"}, apply_{"Apply to sound"},
         base_{"Use edited sound as base"};
     juce::TextButton create_{"Create primitive"};
+    juce::TextButton policy_{"Use current input policy"};
     juce::Component::SafePointer<juce::DialogWindow> primitiveDialog_;
     std::unique_ptr<juce::FileChooser> chooser_;
     void refresh();

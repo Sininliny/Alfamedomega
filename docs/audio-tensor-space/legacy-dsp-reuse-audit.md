@@ -54,4 +54,10 @@ Useful dedicated suites are `FiltersTests`, `DelayTests`, `NonlinearTests`, `Phy
 
 ## Current boundary
 
+The 2026-10-01 completion pass adds typed uniform partitioned convolution, rate-aware
+anti-alias asset playback, modal rotation, a tuned damped/dispersive waveguide and peak-locked
+phase-vocoder frames. See [the current completion contracts](product-completion.md) and
+[validation](validation.md). Earlier unported-component statements describe the preceding
+checkpoint. PFFFT/nonuniform convolution and complete old physical-family parity remain open.
+
 The shared `svfStep` extraction is complete. A subsequent implementation pass also shares legacy RBJ LP/HP/BP coefficient math (caller-owned four-state tensor recurrence, explicit local rate and unchanged legacy clamping policy) and adds explicit cubic/sinc8 asset interpolation using the legacy Catmull-Rom and immutable normalized Kaiser table. `src/tensor/tests/LegacyReuseTests.cpp` compares old/new impulses and interpolated reads plus an independent high-band tone. The integrated tensor suite and retained filter/plugin regressions now pass; current counts are recorded in validation.md. Uniform float32/float64 tensor execution and shared typed interpolation tables are implemented, with measured long-decay accuracy in docs/tiers/runtime-precision.md. Fractional sinc8 interpolation is not claimed as ratio-dependent anti-alias downsampling. A tensor catalog containing a similarly named reference operation does not establish parity with every optimized legacy algorithm. Preserve both implementations until extraction, precision, latency and spectral quality have been verified. No legacy cost weights, fixed slots, global250Hz rate, family restrictions, dry/wet chains or musical defaults are proposed for transfer.

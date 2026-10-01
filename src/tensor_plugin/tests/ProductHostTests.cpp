@@ -105,7 +105,7 @@ TEST_CASE("Product host exposes stable X parameter IDs with functional large ten
         CHECK(audio.getMagnitude(0, 256) > .1f);
         CHECK(processor.xControls[static_cast<std::size_t>(coordinate)].load() == 1);
         const auto snapshot = JSON::parse(processor.document().toStdString());
-        CHECK(snapshot["control_layers"][0]["values"][coordinate] == 1);
+        CHECK(snapshot["control_layers"][0]["values"][static_cast<size_t>(coordinate)] == 1);
         CHECK(snapshot["control_layers"][1]["values"].size() == 128);
     }
     CHECK(processor.failures.load() == 0);

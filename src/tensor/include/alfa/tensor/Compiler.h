@@ -11,7 +11,8 @@ namespace alfa::tensor
 // Prototype versioned serialization of tensor computation descriptions. Parsing and
 // factory resolution occur off the audio thread. This does not infer a synthesis method.
 template <typename Scalar>
-using PrimitiveResolverT = std::function<bool(std::string_view, std::size_t, PrimitiveT<Scalar>&, std::string&)>;
+using PrimitiveResolverT =
+    std::function<bool(std::string_view, std::size_t, PrimitiveT<Scalar>&, std::string&)>;
 using PrimitiveResolver = PrimitiveResolverT<float>;
 using PrimitiveResolver64 = PrimitiveResolverT<double>;
 // An explicit extension resolver may implement new mathematical operations without

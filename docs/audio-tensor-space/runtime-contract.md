@@ -148,9 +148,10 @@ prediction tensors, dynamically described primitive instances, assets, explicit
 projection terms, clocks, initial state, locks and independent capacity limits.
 The compiler validates them and derives state allocation and an execution
 schedule. Instance descriptors own their primitive callbacks for the program's
-lifetime. The current registry contains 64 Universe operations plus four original mathematical
-kernels, for 68 total: 48 reference operations, five production ring operations, two streaming
-STFT operations and nine versioned nonlinear operations. This catalog count is implementation
+lifetime. The current registry contains 69 Universe operations plus four original mathematical
+kernels, for 73 total: 48 reference operations, five production ring operations, two streaming
+STFT operations, nine versioned nonlinear operations and five advanced production operations.
+This catalog count is implementation
 coverage, not proof that universal production DSP is complete. Cubic and normalized
 Kaiser-windowed sinc8 asset interpolation reuse the legacy numerical kernels; neither is a
 ratio-dependent anti-alias downsampler. [Production composition](production-composition.md)
@@ -203,10 +204,20 @@ budget. This permits summed audio operands and recurrent interactions without
 graph sorting. Missing operands have explicit zero/reject policy.
 
 Validated control edits publish a prepared configuration at the block boundary.
-Compatible primitive state slices, sample clock and note layout can be retained;
-structural changes reset explicitly. Compilation, file I/O and undo snapshots stay
-outside the audio callback. A model with no state migration interface is reset
-rather than combining incompatible neural and DSP context.
+An off-thread structural fingerprint includes stable instance identity, callbacks, clocks,
+initial state, assets, allocation/masks and recurrent operand layout. Compatible edits swap live
+state/output buffers at publication in constant time with respect to history length. Compiler
+models retain recurrent buffers only when model identity and authority layout match. Incompatible
+DSP/precision changes start from the prepared initial state, while held MIDI remains when the
+performance policy matches. Explicit Load and Panic clear performance; Panic prepares its reset
+off thread. Compilation, file I/O and undo snapshots stay outside the audio callback.
+
+Composition supports independent scoped fragment models with disjoint tensor slices, explicit
+clocks, local latent inputs and aggregate `compiler_model_bytes`. Numeric tensor/X/matrix edits
+reconcile back to the recipe using stable fragment coordinates. Structural divergence requires
+an explicit new base. Native tier conversion applies authored `tier_profiles`, prepares every
+candidate under its capacity, preserves locks and measures changed candidates against explicit
+sound/pitch/timing cases. See [completion contracts](product-completion.md).
 
 The canonical product target is `Alfamedomega` in `src/plugin`. It assembles the
 tensor host and shared legacy DSP/UI components. `ALFA_BUILD_LEGACY_PLUGIN=ON`

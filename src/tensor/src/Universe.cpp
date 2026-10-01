@@ -3,6 +3,7 @@
 #include "alfa/dsp/detail/DelayInterpolation.h"
 #include "alfa/dsp/detail/FiltersBiquad.h"
 #include "alfa/dsp/detail/FiltersSvf.h"
+#include "alfa/tensor/AdvancedProduction.h"
 #include "alfa/tensor/NonlinearProduction.h"
 #include "alfa/tensor/Production.h"
 #include "alfa/tensor/SpectralProduction.h"
@@ -1317,6 +1318,8 @@ std::span<const kernels::Metadata> catalog() noexcept
         result.insert(result.end(), spectral.begin(), spectral.end());
         const auto nonlinear = nonlinear::catalog();
         result.insert(result.end(), nonlinear.begin(), nonlinear.end());
+        const auto advanced = advanced::catalog();
+        result.insert(result.end(), advanced.begin(), advanced.end());
         return result;
     }();
     return combined;
@@ -1324,6 +1327,9 @@ std::span<const kernels::Metadata> catalog() noexcept
 template <typename Scalar>
 bool createPrimitive(std::string_view id, std::size_t n, PrimitiveT<Scalar>& result, std::string& error)
 {
+    for (const auto& metadata : advanced::catalog())
+        if (metadata.id == id)
+            return advanced::createPrimitive(id, n, result, error);
     for (const auto& metadata : production::catalog())
         if (metadata.id == id)
             return production::createPrimitive(id, n, result, error);
@@ -1429,7 +1435,9 @@ FactoryT<Scalar>::FactoryT()
     {
         const auto id = metadata.id;
         entries_.push_back({metadata, [id](std::size_t n, PrimitiveT<Scalar>& p, std::string& error)
-                            { return createPrimitive(id, n, p, error); }});
+                            {
+                                return createPrimitive(id, n, p, error);
+                            }});
     }
 }
 template <typename Scalar>

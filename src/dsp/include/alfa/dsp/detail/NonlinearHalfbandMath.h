@@ -13,7 +13,8 @@ bool designNonlinearHalfbandDense(std::span<Scalar> output, int halfK, double be
     if (halfK < 0 || halfK > 11 || !std::isfinite(beta) || beta < 0 || beta > 30)
         return false;
     const int m = 2 * halfK + 2, center = 2 * halfK + 1;
-    if (output.size() < static_cast<std::size_t>(m)) return false;
+    if (output.size() < static_cast<std::size_t>(m))
+        return false;
     const auto i0 = [](double x)
     {
         double sum = 1.0, term = 1.0;
@@ -38,8 +39,10 @@ bool designNonlinearHalfbandDense(std::span<Scalar> output, int halfK, double be
         total += h[static_cast<std::size_t>(j)];
     }
     for (int j = 0; j < m; ++j)
-        output[static_cast<std::size_t>(j)] = static_cast<Scalar>(h[static_cast<std::size_t>(j)] * (0.5 / total));
-    for (std::size_t j = static_cast<std::size_t>(m); j < output.size(); ++j) output[j] = Scalar(0);
+        output[static_cast<std::size_t>(j)] =
+            static_cast<Scalar>(h[static_cast<std::size_t>(j)] * (0.5 / total));
+    for (std::size_t j = static_cast<std::size_t>(m); j < output.size(); ++j)
+        output[j] = Scalar(0);
     return true;
 }
-}
+} // namespace alfa::dsp::detail

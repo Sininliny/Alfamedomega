@@ -120,7 +120,8 @@ TEST_CASE("Double compiler model keeps typed precision recurrent reset and scala
     document["weights"]["values.bias"][0] = preciseBias;
     document["initial_state"] = std::vector<double>(hidden, 0.);
     const auto outputs = document["weights"]["values.bias"].size();
-    const auto numericElements = parameterCount + inputsCount + 8 * hidden + 6 * outputs;
+    const auto numericElements =
+        parameterCount + inputsCount + 9 * hidden + 6 * outputs + config.parameters.values.size();
     document["budget"]["estimated_peak_inference_bytes"] = 1;
     document["budget"]["available_ram_bytes"] = numericElements * sizeof(float);
     // The same producer allowance can fit f32 but must reject the f64 storage.

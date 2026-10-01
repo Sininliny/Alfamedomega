@@ -155,7 +155,7 @@ TEST_CASE("Composition panel rejects invalid editable recipes and insufficient c
     CHECK(JSON::parse(recipe.getText().toStdString())["fragments"].size() == 2);
 }
 
-TEST_CASE("Composition panel requires explicit adoption of edited sound before publishing a stale recipe",
+TEST_CASE("Composition panel reconciles numeric edits without losing fragment identity",
           "[tensor-host][composition-panel]")
 {
     juce::ScopedJuceInitialiser_GUI gui;
@@ -175,11 +175,7 @@ TEST_CASE("Composition panel requires explicit adoption of edited sound before p
                                return true;
                            });
     click(panel, "Apply to sound");
-    CHECK(publications == 0);
-    CHECK(control<juce::Label>(panel, "composition.status").getText().contains("base"));
-    click(panel, "Use edited sound as base");
-    click(panel, "Apply to sound");
     REQUIRE(publications == 1);
     CHECK(JSON::parse(published.toStdString())["tensors"]["parameters"]["values"][0] == .625);
-    CHECK(JSON::parse(published.toStdString())["composition"]["fragments"][0]["id"] == "F0");
+    CHECK(JSON::parse(published.toStdString())["composition"]["fragments"][0]["id"] == "original");
 }

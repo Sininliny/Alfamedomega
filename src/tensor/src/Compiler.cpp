@@ -1,9 +1,11 @@
 #include "alfa/tensor/Compiler.h"
 
+#include "alfa/tensor/AdvancedProduction.h"
 #include "alfa/tensor/Kernels.h"
 #include "alfa/tensor/Precision.h"
 #include "alfa/tensor/Universe.h"
 
+#include <cmath>
 #include <limits>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
@@ -167,6 +169,11 @@ bool parseJSON(std::string_view text, ConfigurationT<Scalar>& output, std::strin
         for (const auto& serialized : document.at("instances"))
         {
             InstanceT<Scalar> instance;
+            instance.instanceId = serialized.value("instance_id", std::string{});
+            if (!instance.instanceId.empty())
+                for (const auto& prior : candidate.instances)
+                    if (prior.instanceId == instance.instanceId)
+                        throw std::invalid_argument("Duplicate instance_id");
             const auto stateElements = size(serialized.at("state_size"));
             instance.descriptor = std::make_shared<PrimitiveT<Scalar>>(
                 primitive<Scalar>(serialized.at("primitive").get<std::string>(), stateElements, extension));
@@ -201,6 +208,43 @@ bool parseJSON(std::string_view text, ConfigurationT<Scalar>& output, std::strin
             if (serialized.contains("assets"))
                 for (const auto& asset : serialized.at("assets"))
                     instance.assets.push_back(tensor<Scalar>(asset));
+            if (instance.primitive->id == "time.partitioned_convolution.v1")
+            {
+                if (instance.parameters.count != 1 ||
+                    instance.parameters.offset >= candidate.parameters.values.size() ||
+                    instance.assets.size() != 1)
+                    throw std::invalid_argument(
+                        "Partitioned convolution requires block parameter and one IR asset");
+                const auto blockValue = candidate.parameters.values[instance.parameters.offset];
+                if (!std::isfinite(blockValue) || blockValue < 8 || blockValue > 4096 ||
+                    std::floor(blockValue) != blockValue)
+                    throw std::invalid_argument("Invalid partition size");
+                const auto block = static_cast<std::size_t>(blockValue);
+                if (instance.assets[0].axes != std::vector<std::string>{"partition", "bin", "complex"})
+                {
+                    const auto taps = instance.assets[0].values.size();
+                    if (taps == 0)
+                        throw std::invalid_argument("Empty convolution IR");
+                    const auto partitions = (taps - 1) / block + 1;
+                    if (document.contains("budget"))
+                    {
+                        const auto allowed = document.at("budget").at("stored_tensor_elements").get<size_t>();
+                        if (partitions > allowed / (4 * block))
+                            throw std::invalid_argument(
+                                "Prepared IR exceeds stored tensor budget before allocation");
+                    }
+                    instance.assets[0] = advanced::partitionIR(instance.assets[0], block);
+                }
+                const auto& shape = instance.assets[0].shape;
+                if (shape.size() != 3 || shape[1] != 2 * block || shape[2] != 2)
+                    throw std::invalid_argument("Invalid prepared IR partition shape");
+                auto descriptor = advanced::partitionedPrimitive<Scalar>(block, shape[0]);
+                if (descriptor.stateElements != stateElements)
+                    throw std::invalid_argument(
+                        "Partitioned convolution state does not match IR/block layout");
+                instance.descriptor = std::make_shared<PrimitiveT<Scalar>>(std::move(descriptor));
+                instance.primitive = instance.descriptor.get();
+            }
             candidate.initialState.push_back(serialized.at("initial_state").get<std::vector<Scalar>>());
             candidate.instances.push_back(std::move(instance));
         }
@@ -293,6 +337,8 @@ std::string serializeJSON(const ConfigurationT<Scalar>& configuration)
             {"state_size", instance.primitive->stateElements},
             {"initial_state", configuration.initialState[index]}};
         entry["assets"] = Json::array();
+        if (!instance.instanceId.empty())
+            entry["instance_id"] = instance.instanceId;
         entry["input_channels"] = instance.inputChannels;
         entry["audio_bindings"] = Json::array();
         for (const auto& binding : instance.audioBindings)

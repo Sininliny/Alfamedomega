@@ -16,10 +16,17 @@ using alfa::tensorhost::TensorComposition;
 juce::String budget()
 {
     // Explicit test capacity, not a named product tier policy.
-    return JSON{
-        {"active_primitives", 16},         {"state_elements", 4096},     {"parameter_elements", 256},
-        {"routing_elements", 256},         {"modulation_elements", 256}, {"output_elements", 64},
-        {"stored_tensor_elements", 16384}, {"projection_terms", 256},    {"boundary_conversion_bytes", 16384}}
+    return JSON{{"active_primitives", 16},
+                {"state_elements", 4096},
+                {"parameter_elements", 256},
+                {"routing_elements", 256},
+                {"modulation_elements", 256},
+                {"output_elements", 64},
+                {"stored_tensor_elements", 16384},
+                {"projection_terms", 256},
+                {"boundary_conversion_bytes", 16384},
+                {"host_alignment_bytes", 32768},
+                {"compiler_model_bytes", 1000000}}
         .dump();
 }
 JSON reference(const char* name)
@@ -48,6 +55,54 @@ TensorComposition::Binding link(const char* id, const char* from, const char* to
     return result;
 }
 } // namespace
+
+TEST_CASE("Composed fragment compiler models retain disjoint predictions recurrence and precision",
+          "[tensor-host][composition][model]")
+{
+    auto instrument = reference("programs/instrument.aom.json");
+    instrument["runtimeModel"] = reference("training/aom/testdata/runtime_gru.json");
+    TensorComposition composition(48000, budget(), "Standard");
+    juce::String error;
+    REQUIRE(composition.add("A", instrument.dump(), error));
+    REQUIRE(composition.clone("A", "B", error));
+    const auto document = JSON::parse(composition.document().toStdString());
+    REQUIRE(document["runtimeModels"].size() == 2);
+    CHECK(document["runtimeModels"][1]["offsets"][1] == 2);
+    std::string diagnostic;
+    auto combined = alfa::tensorhost::prepareExecution(document.dump(), 48000, diagnostic);
+    auto single = alfa::tensorhost::prepareExecution(instrument.dump(), 48000, diagnostic);
+    REQUIRE(combined != nullptr);
+    REQUIRE(single != nullptr);
+    const std::array<std::string, 1> axes{"feature"};
+    const std::array<size_t, 1> shape{2};
+    const std::array<float, 2> midi{440.f, .8f};
+    alfa::tensor::Inputs inputs;
+    inputs.midi = {axes, shape, midi, {}};
+    for (int i = 0; i < 1000; ++i)
+    {
+        double milliseconds = 0;
+        const auto a = combined->tick(inputs, milliseconds), b = single->tick(inputs, milliseconds);
+        REQUIRE(a.audioRendered);
+        REQUIRE(a.modelAccepted);
+        REQUIRE(b.modelAccepted);
+        CHECK(combined->mixedOutput(0) == Catch::Approx(2 * single->mixedOutput(0)).margin(1e-6));
+    }
+    auto changed = document;
+    changed["tensors"]["parameters"]["values"][1] = .2;
+    auto edited = alfa::tensorhost::prepareExecution(changed.dump(), 48000, diagnostic);
+    REQUIRE(edited != nullptr);
+    REQUIRE(edited->adopt(*combined));
+    auto rejected = document;
+    rejected["budget"]["compiler_model_bytes"] = 1;
+    CHECK(alfa::tensorhost::prepareExecution(rejected.dump(), 48000, diagnostic) == nullptr);
+    rejected = document;
+    rejected["runtimeModels"][1]["offsets"] = rejected["runtimeModels"][0]["offsets"];
+    CHECK(alfa::tensorhost::prepareExecution(rejected.dump(), 48000, diagnostic) == nullptr);
+    auto doubleDocument = document;
+    doubleDocument["tier"] = "Pro";
+    doubleDocument["scalar_type"] = "float64";
+    REQUIRE(alfa::tensorhost::prepareExecution(doubleDocument.dump(), 48000, diagnostic) != nullptr);
+}
 
 TEST_CASE("Composition clones remap tensor state and output identities without losing original metadata",
           "[tensor-host][composition]")
@@ -196,9 +251,19 @@ TEST_CASE(
     REQUIRE(execution->tick({}, modelMilliseconds).audioRendered);
     auto edited = combined;
     edited["tensors"]["parameters"]["values"][0] = .125;
+    REQUIRE(composition.restoreDocument(edited.dump(), error));
+    CHECK(JSON::parse(composition.document().toStdString())["tensors"]["parameters"]["values"][0] == .125);
+    CHECK(JSON::parse(composition.recipe().toStdString())["fragments"][0]["id"] == "deep");
+    auto cross = JSON::parse(composition.document().toStdString());
+    cross["control_layers"][1]["matrix"]["values"][1] = .4;
+    REQUIRE(composition.restoreDocument(cross.dump(), error));
+    CHECK(JSON::parse(composition.recipe().toStdString())["control_bindings"].size() == 1);
+    REQUIRE(composition.clone("shallow", "third", error));
+    const auto expanded = JSON::parse(composition.document().toStdString());
+    CHECK(expanded["control_layers"][1]["matrix"]["values"][1] == .4);
     const auto retained = composition.document();
+    edited["instances"][0]["clock"]["period_samples"] = 2;
     CHECK_FALSE(composition.restoreDocument(edited.dump(), error));
-    CHECK(error.contains("stale"));
     CHECK(composition.document() == retained);
 }
 
@@ -209,12 +274,14 @@ TEST_CASE("Composition carries authored latency without inferring paths and perm
     juce::String error;
     auto first = cell(0);
     first["host_latency_samples"] = 11;
+    first["budget"]["host_alignment_bytes"] = 11 * 8;
     REQUIRE(composition.add("first", first.dump(), error));
     CHECK(JSON::parse(composition.recipe().toStdString())["host_latency_samples"] == 11);
     CHECK(JSON::parse(composition.document().toStdString())["host_latency_samples"] == 11);
 
     auto second = cell(0);
     second["host_latency_samples"] = 97;
+    second["budget"]["host_alignment_bytes"] = 97 * 8;
     second["instances"][0]["clock"] = {{"period_samples", 8}, {"phase_samples", 3}};
     REQUIRE(composition.add("second", second.dump(), error));
     REQUIRE(composition.clone("second", "third", error));
@@ -259,6 +326,6 @@ TEST_CASE("Composition refuses invalid identities precision relations and budget
     auto modelFragment = cell(0);
     modelFragment["runtimeModel"] = JSON::object();
     CHECK_FALSE(composition.add("model", modelFragment.dump(), error));
-    CHECK(error.contains("runtimeModel"));
+    CHECK(error.isNotEmpty());
     CHECK(composition.document() == retained);
 }

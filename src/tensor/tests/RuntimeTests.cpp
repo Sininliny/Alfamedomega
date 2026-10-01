@@ -420,10 +420,13 @@ TEST_CASE("Learned tensor values publish atomically without rebuilding the alloc
 TEST_CASE("Affine tensor projection shares inputs and recurrent state across parameter destinations",
           "[tensor][projection]")
 {
-    const Primitive parameterOutput{
-        "test.parameter-output", 1, 1,
-        [](const Step& step, std::span<float> next) noexcept { next[0] = step.localState[0] + 1.0f; },
-        [](const Step& step, std::span<float> out) noexcept { out[0] = step.parameters[0]; }};
+    const Primitive parameterOutput{"test.parameter-output", 1, 1,
+                                    [](const Step& step, std::span<float> next) noexcept
+                                    { next[0] = step.localState[0] + 1.0f; },
+                                    [](const Step& step, std::span<float> out) noexcept
+                                    {
+                                        out[0] = step.parameters[0];
+                                    }};
     auto config = configuration();
     config.activation = vectorTensor("primitive", {1.0f, 1.0f});
     config.parameters = vectorTensor("parameter", {0.0f, 0.0f});

@@ -11,12 +11,17 @@ requirements. This is not a traditional synthesizer, a preset generator or a mod
 **Status: one Alfamedomega product entry with recurrent tensor execution and shared legacy DSP/UI components.**
 `src/tensor` supplies versioned tensor programs, recurrent deterministic execution, independent
 clocks, padding masks, capacity validation, immutable assets, parameter locks and a migration
-boundary. Fifty-two mathematical operations cover the required primitive families.
+boundary. Seventy-three registered operations include production ring/streaming kernels,
+partitioned convolution, ratio-aware resampling, tuned physical models and peak-locked spectral processing.
 The `Alfamedomega` Standalone/VST3 entry supports native audio, MIDI/MPE, instrument/FX/hybrid
 execution, expandable indexed X controls, editable control matrices, raw instance parameters,
 preset management and expert tensor editing. High controls have explicit authored default
 mappings; semantic names appear only on the bottom DSP instance parameters. A separately budgeted
 recurrent neural compiler predicts tensor controls; DSP generates audio.
+Free composition retains scoped fragment compiler models and numeric edits. Authored latency
+aligns the host dry/wet and bypass paths; compatible edits transfer live buffers without copying
+large histories. Four explicitly supplied tier resource profiles enable measured capacity
+conversion with protected locks, pitch and timing. See the [completion contracts](docs/audio-tensor-space/product-completion.md).
 
 `training/aom` supplies dual-supervised WAV learning, native DSP rendering, runtime model
 export, local preference learning and constrained tier candidate optimization. These are

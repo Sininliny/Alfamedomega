@@ -156,14 +156,22 @@ The opt-in `.production-benchmark` fixture measures primitive callbacks through 
 ## Authored native host latency
 
 An optional `host_latency_samples` integer declares native host compensation,
-from zero through the host-supported signed integer maximum. Absent means zero.
+from zero through the host-supported signed integer maximum, additionally bounded by the
+explicit `budget.host_alignment_bytes >= host_latency_samples * 2 * sizeof(float)`.
+Absent means zero.
 The runtime does not infer a longest graph path, add feedback delays, or count
 artistic delays as latency. The composer preserves the first fragment's declaration
 as an outer recipe property; subsequent additions and clones do not guess a new
 value. The author may explicitly edit or remove that outer declaration. Invalid
 declarations are rejected before any program or latency publication.
 
-Host compensation does not insert internal dry/wet alignment buffers. Where
-alignment is required, its state and routing remain part of the authored tensor
-computation. In particular, windowed spectral and linear-phase oversampling
-operations have contract-specific delays rather than one universal latency rule.
+The host allocates a stereo dry ring off thread and delays the global dry contribution by the
+declared latency. This applies at mix 0/50/100 percent, parameter bypass and the host's
+`processBlockBypassed` entry. Compatible edits retain the ring cursor/history by swapping
+ownership. Internal relationships between wet branches still require authored tensor alignment:
+windowed spectral and linear-phase oversampling operations have contract-specific delays.
+
+The five advanced production operations and their explicit layouts are documented in
+[product completion](product-completion.md). Uniform partitioned convolution replaces
+direct per-sample IR summation where authored; it does not claim the legacy nonuniform
+zero-latency head or complete old-family parity.

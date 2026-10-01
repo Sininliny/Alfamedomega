@@ -9,6 +9,7 @@ target_sources(alfa_tensor_plugin_shell INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/PresetStore.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/FactoryPrograms.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/TensorComposition.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/TierConversion.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/CompositionPanel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/PrimitiveFragmentPanel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/SoundLibraryPanel.cpp

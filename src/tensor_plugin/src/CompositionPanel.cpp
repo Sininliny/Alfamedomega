@@ -52,7 +52,7 @@ CompositionPanel::CompositionPanel(const juce::String& sound, double sampleRate,
              &fragment_,  &source_,        &destination_, &sourceKind_,    &targetKind_, &weights_, &newId_,
              &bindingId_, &sourceElement_, &instance_,    &targetElement_, &weight_,     &budget_,  &recipe_,
              &help_,      &status_,        &import_,      &clone_,         &remove_,     &bind_,    &unbind_,
-             &prepare_,   &apply_,         &base_,        &create_})
+             &prepare_,   &apply_,         &base_,        &create_,        &policy_})
         addAndMakeVisible(component);
     help_.setText(
         "Compose executable fragments with explicit recurrent bindings. No automatic chain is created.\n"
@@ -60,6 +60,30 @@ CompositionPanel::CompositionPanel(const juce::String& sound, double sampleRate,
         "Undo.",
         juce::dontSendNotification);
     help_.setFont(alfa::ui::AlfaLookAndFeel::labelFont(13));
+    policy_.setTooltip("Explicitly use the current sound's performance and latent input policy for fragments "
+                       "with different host policies. Fragment models retain their own latent inputs.");
+    policy_.onClick = [this]
+    {
+        try
+        {
+            auto recipe = JSON::parse(recipe_.getText().toStdString());
+            const auto current = JSON::parse(currentSound_.toStdString());
+            recipe["performance"] = current.value("performance", JSON{{"midi_layout", "compact"}});
+            recipe["latentSound"] = current.value(
+                "latentSound",
+                JSON{{"axes", JSON::array()}, {"shape", JSON::array()}, {"values", JSON::array()}});
+            recipe_.setText(recipe.dump(2), false);
+            if (prepareRecipe())
+            {
+                refresh();
+                report("Current host input policy selected explicitly");
+            }
+        }
+        catch (const std::exception& error)
+        {
+            report(error.what(), true);
+        }
+    };
     newId_.setText("F1");
     newId_.setTooltip("Unique ID for the imported or cloned fragment");
     bindingId_.setText("B0");
@@ -372,6 +396,7 @@ void CompositionPanel::resized()
     import_.setBounds(420, 100, 180, 32);
     clone_.setBounds(615, 100, 120, 32);
     remove_.setBounds(750, 100, 180, 32);
+    policy_.setBounds(725, 137, 225, 28);
     const std::array<juce::Component*, 8> controls{&bindingId_,     &source_,       &sourceKind_,
                                                    &sourceElement_, &destination_,  &targetKind_,
                                                    &instance_,      &targetElement_};

@@ -26,7 +26,7 @@ public:
     virtual TickResult tick(const alfa::tensor::Inputs&, double& modelMilliseconds) noexcept = 0;
     virtual float mixedOutput(int channel) const noexcept = 0;
     virtual void reset() noexcept = 0;
-    virtual bool adopt(const TensorExecution&) noexcept = 0;
+    virtual bool adopt(TensorExecution&) noexcept = 0;
     virtual void snapshot(std::span<std::atomic<float>>) const noexcept = 0;
     virtual std::vector<float> highestDefaults() const = 0;
     virtual std::string inspection() const = 0;

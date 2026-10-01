@@ -576,9 +576,9 @@ TEST_CASE("Tensor universe metadata describes individual scalars and repeated la
             REQUIRE_FALSE(p.name.empty());
             REQUIRE_FALSE(p.units.empty());
             REQUIRE_FALSE(p.validRange.empty());
-            REQUIRE(p.trainable);
+            REQUIRE(p.trainable == (m.id != "time.partitioned_convolution.v1"));
             REQUIRE(p.controllable);
-            REQUIRE(p.modulationTarget);
+            REQUIRE(p.modulationTarget == (m.id != "time.partitioned_convolution.v1"));
         }
 }
 
