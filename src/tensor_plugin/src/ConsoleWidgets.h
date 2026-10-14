@@ -6,6 +6,7 @@
 #include <juce_dsp/juce_dsp.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <functional>
@@ -865,7 +866,7 @@ public:
                            juce::String(static_cast<int>(layer.values.size())) + " controls",
                        row.removeFromTop(16), juce::Justification::centredLeft, false);
             auto bars = row.reduced(0, 4).toFloat();
-            const auto count = juce::jmax<size_t>(1, layer.values.size());
+            const auto count = std::max<size_t>(1, layer.values.size());
             const auto w = bars.getWidth() / static_cast<float>(count);
             for (size_t i = 0; i < layer.values.size(); ++i)
             {
