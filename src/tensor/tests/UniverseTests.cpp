@@ -592,3 +592,35 @@ TEST_CASE("Tensor kernels reject an unrepresentable clock interval without state
     REQUIRE(oscillator.scalar(parameters) == 0);
     REQUIRE(oscillator.state[0] == 0.25f);
 }
+
+TEST_CASE("Tensor additive partials at or above Nyquist are muted instead of aliasing", "[tensor][universe]")
+{
+    // 30 kHz at 48 kHz would fold back to an inharmonic 18 kHz; it must not sound at all.
+    Harness above("osc.additive", 1);
+    const std::array<float, 2> ultrasonic{30000, 1};
+    double energy = 0;
+    for (int i = 0; i < 480; ++i)
+        energy += std::abs(above.scalar(ultrasonic));
+    REQUIRE(energy == 0);
+    // Exactly at Nyquist is muted too; a negative frequency is judged by its magnitude.
+    Harness edge("osc.additive", 2);
+    const std::array<float, 4> limits{24000, 1, -30000, 1};
+    for (int i = 0; i < 16; ++i)
+        REQUIRE(edge.scalar(limits) == 0);
+    // Inside the top tenth of the band a partial fades: halfway through it is at half gain.
+    Harness fade("osc.additive", 1);
+    const std::array<float, 2> nearLimit{22800, 1};
+    fade.state[0] = 0.25f;
+    REQUIRE(fade.scalar(nearLimit) == Catch::Approx(0.5).margin(0.0001));
+    // Partials below 0.45 of the update rate are untouched.
+    Harness audible("osc.additive", 1);
+    const std::array<float, 2> tone{21000, 1};
+    audible.state[0] = 0.25f;
+    REQUIRE(audible.scalar(tone) == Catch::Approx(1).margin(0.00001));
+    // The limit follows the primitive's own clock, not the host rate: 2 kHz is above the
+    // Nyquist of a 1 kHz update rate.
+    Harness slow("osc.additive", 1, 1000);
+    const std::array<float, 2> fast{2000, 1};
+    slow.state[0] = 0.25f;
+    REQUIRE(slow.scalar(fast) == 0);
+}

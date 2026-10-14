@@ -195,8 +195,9 @@ constexpr kernels::Metadata records[]{
      "one phase cycle", "O(1)", rates, reuse},
     {"osc.wavetable", "asset[0] periodic scalar table, >=2 values; frequency,amplitude", "scalar",
      oscillatorParams, "one phase cycle [0,1)", "O(1) linear interpolation", rates, reuse},
-    {"osc.additive", "frequency/amplitude pair per state phase", "scalar partial sum", additiveParams,
-     "one phase cycle per partial", "O(partials)", rates, reuse},
+    {"osc.additive", "frequency/amplitude pair per state phase",
+     "scalar partial sum; partials fade out from 0.45 to 0.5 of the update rate (no aliasing)",
+     additiveParams, "one phase cycle per partial", "O(partials)", rates, reuse},
     {"excitation.white_noise", "none; initial state two nonzero uint16 seed words", "scalar [-1,1]", none,
      "two exact uint16 words for xorshift32", "O(1)", rates, reuse},
     {"excitation.impulse", "gate,amplitude parameters", "rising gate impulse", impulseParams, "previous gate",
@@ -1191,8 +1192,18 @@ void readout(const StepT<Scalar>& s, std::span<Scalar> out) noexcept
         }
         if constexpr (op == Op::Additive)
         {
+            // Band-limited: a partial at or above the update-rate Nyquist would fold back as an
+            // inharmonic alias, so it is muted. Partials fade out over the top tenth of the band
+            // so a pitch bend across the limit does not click.
+            const double interval = dt<Scalar>(s);
             for (std::size_t i = 0; i < n; ++i)
-                y += p[2 * i + 1] * std::sin(tau * s.localState[i]);
+            {
+                const double cycles = std::abs(static_cast<double>(p[2 * i])) * interval;
+                if (cycles >= 0.5)
+                    continue;
+                const double gain = std::min(1.0, (0.5 - cycles) * 20.0);
+                y += gain * p[2 * i + 1] * std::sin(tau * s.localState[i]);
+            }
         }
         if constexpr (op == Op::Noise)
         {
