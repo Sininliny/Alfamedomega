@@ -120,8 +120,7 @@ class ParameterKnob final : public juce::Component
 {
 public:
     ParameterKnob(Processor& p, const juce::String& id, const juce::String& label, bool percent = false)
-        : processor(p)
-        , parameterId(id)
+        : parameterId(id)
     {
         name.setText(label, juce::dontSendNotification);
         name.setJustificationType(juce::Justification::centred);
@@ -185,7 +184,6 @@ public:
     }
 
 private:
-    Processor& processor;
     juce::String parameterId;
     juce::Label name;
     juce::Slider slider;
@@ -479,8 +477,8 @@ public:
         g.setColour(t.line);
         for (int i = 1; i < 4; ++i)
         {
-            auto x = r.getX() + r.getWidth() * i / 4;
-            auto y = r.getY() + r.getHeight() * i / 4;
+            auto x = r.getX() + r.getWidth() * static_cast<float>(i) / 4;
+            auto y = r.getY() + r.getHeight() * static_cast<float>(i) / 4;
             g.drawLine(x, r.getY(), x, r.getBottom());
             g.drawLine(r.getX(), y, r.getRight(), y);
         }
@@ -672,7 +670,8 @@ public:
                     1.5f);
             }
         }
-        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(juce::jlimit(11.0f, 13.0f, rows * 0.55f)));
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(
+            juce::jlimit(11.0f, 13.0f, static_cast<float>(rows) * 0.55f)));
         for (int r = 0; r < rowLabels.size(); ++r)
         {
             const auto y = headerHeight + r * rows;
@@ -702,8 +701,8 @@ public:
                         g.setColour(amount > 0.6f ? t.bg : t.text);
                         g.setFont(alfa::ui::AlfaLookAndFeel::monoFont(10));
                         g.drawText(compactText(v), box, juce::Justification::centred, false);
-                        g.setFont(
-                            alfa::ui::AlfaLookAndFeel::labelFont(juce::jlimit(11.0f, 13.0f, rows * 0.55f)));
+                        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(
+                            juce::jlimit(11.0f, 13.0f, static_cast<float>(rows) * 0.55f)));
                     }
                 }
                 if (r == selectedRow && c == selectedColumn)
