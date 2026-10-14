@@ -40,6 +40,18 @@ public:
     virtual void reset() noexcept = 0;
     virtual bool adopt(TensorExecution&) noexcept = 0;
     virtual void snapshot(std::span<std::atomic<float>>) const noexcept = 0;
+    // Where each instance's outputs and state live in the compiled program. Message thread, after prepare.
+    struct Layout
+    {
+        std::vector<alfa::tensor::Slice> outputs, states;
+    };
+    virtual Layout layout() const = 0;
+    // Live values for the editor, published once per block on the audio thread: the peak |output| of
+    // each instance since the last call (then reset), the parameters the runtime used (after projections)
+    // and every control layer's values after its matrix and clamps, concatenated layer by layer.
+    virtual void telemetry(std::span<std::atomic<float>> instanceLevels,
+                           std::span<std::atomic<float>> parameters,
+                           std::span<std::atomic<float>> layerValues) noexcept = 0;
     virtual std::vector<float> highestDefaults() const = 0;
     virtual std::string inspection() const = 0;
     virtual alfa::tensor::ScalarType scalarType() const noexcept = 0;

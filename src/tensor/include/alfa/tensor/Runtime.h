@@ -269,6 +269,11 @@ public:
     [[nodiscard]] std::span<const Scalar> state() const noexcept { return state_; }
     [[nodiscard]] std::span<const Scalar> output() const noexcept { return output_; }
     [[nodiscard]] std::span<const Slice> stateAllocation() const noexcept { return states_; }
+    // Parameters as the last tick used them: base values plus projection terms. Read-only telemetry.
+    [[nodiscard]] std::span<const Scalar> effectiveParameters() const noexcept
+    {
+        return effectiveParameters_;
+    }
     [[nodiscard]] std::span<const Slice> outputAllocation() const noexcept { return outputs_; }
     [[nodiscard]] std::span<const ScheduledUpdate> schedule() const noexcept { return schedule_; }
     [[nodiscard]] std::uint64_t sample() const noexcept { return sample_; }

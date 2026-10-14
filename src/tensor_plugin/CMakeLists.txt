@@ -13,6 +13,7 @@ target_sources(alfa_tensor_plugin_shell INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/CompositionPanel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/PrimitiveFragmentPanel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/SoundLibraryPanel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ElementViews.cpp
     ${PROJECT_SOURCE_DIR}/src/ui/src/Theme.cpp
     ${PROJECT_SOURCE_DIR}/src/ui/src/AlfaLookAndFeel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/TensorEditor.cpp)
