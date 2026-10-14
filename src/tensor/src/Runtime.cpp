@@ -1,6 +1,7 @@
 #include "alfa/tensor/Runtime.h"
 
 #include "alfa/tensor/Compiler.h"
+#include "detail/Finite.h"
 
 #include <algorithm>
 #include <bit>
@@ -53,7 +54,7 @@ bool insertSparseIndex(std::span<Node> nodes, std::size_t& used, std::size_t& ro
 template <typename Scalar>
 bool finite(std::span<const Scalar> values) noexcept
 {
-    return std::all_of(values.begin(), values.end(), [](Scalar value) { return std::isfinite(value); });
+    return detail::allFinite<Scalar>(values);
 }
 
 template <typename Scalar>
@@ -427,6 +428,16 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
         std::fill(output_.begin(), output_.end(), 0.0f);
         return false;
     }
+    // One step record reused for every due primitive: only the per-instance fields change, so
+    // the input views and weight tensors are not copied once per primitive per sample.
+    StepT<Scalar> step{};
+    step.sample = sample_;
+    step.sampleRate = sampleRate_;
+    step.inputs = inputs;
+    step.sharedState = state_;
+    step.stateAllocation = states_;
+    step.routing = view<Scalar>(configuration_.routing);
+    step.modulation = view<Scalar>(configuration_.modulation);
     for (const auto& update : schedule_)
     {
         const auto index = update.instance;
@@ -445,7 +456,7 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
             continue;
         }
         const auto local = states_[index];
-        auto operandInputs = inputs;
+        step.inputs.audio = inputs.audio;
         if (instance.inputChannels > 0)
         {
             auto& operands = audioOperands_[index];
@@ -472,22 +483,15 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
                 std::fill(output_.begin(), output_.end(), 0.0f);
                 return false;
             }
-            operandInputs.audio = {audioAxes_, audioShapes_[index], operands, {}};
+            step.inputs.audio = {audioAxes_, audioShapes_[index], operands, {}};
         }
-        const StepT<Scalar> step{sample_,
-                                 sampleRate_,
-                                 update.clock,
-                                 configuration_.activation.values[instance.activationIndex],
-                                 operandInputs,
-                                 state_,
-                                 std::span<const Scalar>(state_).subspan(local.offset, local.count),
-                                 states_,
-                                 std::span<const Scalar>(effectiveParameters_)
-                                     .subspan(instance.parameters.offset, instance.parameters.count),
-                                 view<Scalar>(configuration_.routing),
-                                 view<Scalar>(configuration_.modulation),
-                                 assets_[index],
-                                 std::span<Scalar>(scratch_).first(instance.primitive->scratchElements)};
+        step.clock = update.clock;
+        step.activation = configuration_.activation.values[instance.activationIndex];
+        step.localState = std::span<const Scalar>(state_).subspan(local.offset, local.count);
+        step.parameters = std::span<const Scalar>(effectiveParameters_)
+                              .subspan(instance.parameters.offset, instance.parameters.count);
+        step.assets = assets_[index];
+        step.scratch = std::span<Scalar>(scratch_).first(instance.primitive->scratchElements);
         std::fill(output.begin(), output.end(), 0.0f);
         instance.primitive->readout(step, output);
         if (instance.primitive->sparseTransition)

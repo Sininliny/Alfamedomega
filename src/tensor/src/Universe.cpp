@@ -7,6 +7,7 @@
 #include "alfa/tensor/NonlinearProduction.h"
 #include "alfa/tensor/Production.h"
 #include "alfa/tensor/SpectralProduction.h"
+#include "detail/Finite.h"
 
 #include <algorithm>
 #include <array>
@@ -345,7 +346,7 @@ void hold(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
 template <typename Scalar>
 bool allFinite(std::span<const Scalar> a) noexcept
 {
-    return std::all_of(a.begin(), a.end(), [](Scalar v) { return std::isfinite(v); });
+    return detail::allFinite<Scalar>(a);
 }
 template <typename Scalar>
 bool base(const StepT<Scalar>& s) noexcept
