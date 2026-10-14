@@ -335,8 +335,8 @@ public:
             return;
         const auto low = slider.getMinimum(), high = slider.getMaximum();
         const auto clamped = juce::jlimit(low, high, *live);
-        const auto from = static_cast<float>(slider.getX() + slider.getPositionOfValue(value_));
-        const auto to = static_cast<float>(slider.getX() + slider.getPositionOfValue(clamped));
+        const auto from = static_cast<float>(slider.getX()) + slider.getPositionOfValue(value_);
+        const auto to = static_cast<float>(slider.getX()) + slider.getPositionOfValue(clamped);
         if (std::abs(to - from) < 1.0f &&
             std::abs(*live - value_) <= 1e-9 * juce::jmax(1.0, std::abs(value_)))
             return;

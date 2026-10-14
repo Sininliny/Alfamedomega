@@ -125,6 +125,6 @@ private:
     bool dragging_ = false;
     juce::Rectangle<float> pad() const;
     juce::Point<float> toScreen(juce::Point<double>) const;
-    std::vector<double> moved(juce::Point<float> to) const;
+    std::vector<double> valuesAt(juce::Point<float> to) const;
 };
 } // namespace alfa::tensorhost

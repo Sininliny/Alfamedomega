@@ -771,8 +771,8 @@ TEST_CASE("Sound space projects a control layer onto its strongest directions an
         (toParameters ? mapped : x) = std::move(next);
     }
     std::vector<bool> projected(mapped.size(), false);
-    for (const auto& projection : sound["projections"])
-        projected[projection["parameter_element"].get<size_t>()] = true;
+    for (const auto& entry : sound["projections"])
+        projected[entry["parameter_element"].get<size_t>()] = true;
     size_t checked = 0;
     for (size_t i = 0; i < mapped.size() && i < processor.liveParameters.size(); ++i)
         if (!projected[i])

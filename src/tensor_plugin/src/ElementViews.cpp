@@ -985,7 +985,7 @@ void SoundSpace::paint(juce::Graphics& g)
          describe(projection_.secondMoves));
 }
 
-std::vector<double> SoundSpace::moved(juce::Point<float> to) const
+std::vector<double> SoundSpace::valuesAt(juce::Point<float> to) const
 {
     const auto r = pad().reduced(14);
     const auto dx = static_cast<double>(to.x - dragOrigin_.x) / (r.getWidth() * 0.5) * extentX_;
@@ -1011,19 +1011,19 @@ void SoundSpace::mouseDown(const juce::MouseEvent& e)
     // Pressing away from the dot jumps toward the press, as on a pad.
     dragOrigin_ = positionOf(values_);
     if (onMove)
-        onMove(moved(e.position), false);
+        onMove(valuesAt(e.position), false);
 }
 
 void SoundSpace::mouseDrag(const juce::MouseEvent& e)
 {
     if (dragging_ && onMove)
-        onMove(moved(e.position), false);
+        onMove(valuesAt(e.position), false);
 }
 
 void SoundSpace::mouseUp(const juce::MouseEvent& e)
 {
     if (dragging_ && onMove)
-        onMove(moved(e.position), true);
+        onMove(valuesAt(e.position), true);
     dragging_ = false;
 }
 } // namespace alfa::tensorhost
