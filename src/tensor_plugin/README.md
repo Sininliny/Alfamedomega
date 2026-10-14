@@ -40,6 +40,9 @@ Input audio is mono/stereo. Each MIDI row has ten fields: Hz, velocity, gate,
 elapsed seconds, pressure, normalized bend, CC74, onset seconds, channel and key.
 A producer may request stable voice-indexed rows and an explicit voice capacity,
 release retention and bend range; old compact-row reference documents still load.
+A runtime compiler model that reads MIDI requires voice-indexed rows: compact rows
+change slot when a note is released and vanish while nothing is held, so such a
+model is rejected at load time, as is a MIDI width above voice capacity × 10.
 Pedal holds gates; note-off preserves the row for its declared release interval.
 Global panic clears DSP/performance state. Shared state has no inferred voice
 ownership: channel all-sound-off releases that channel without resetting others.

@@ -217,11 +217,17 @@ public:
                     throw std::invalid_argument("Latent inputs exceed stored tensor capacity");
                 stored += count;
             };
-            const auto validateModelInputs = [](const JSON& model, size_t latentCount)
+            const auto voiceCapacity = readNativePolicy(data).voiceCapacity;
+            const auto validateModelInputs = [voiceCapacity](const JSON& model, size_t latentCount)
             {
                 const std::array<const char*, 6> names{"audio",           "midi",   "gesture",
                                                        "user_preference", "latent", "context"};
-                const std::array<size_t, 6> capacities{2, 1280, 48, 5, latentCount, 8};
+                // A model reads fixed MIDI coordinates, so it needs rows that keep their slot:
+                // compact rows shift when a note is released and are absent while no note is held.
+                if (model.at("input_widths").at("midi").get<uint64_t>() > 0 && voiceCapacity == 0)
+                    throw std::invalid_argument(
+                        "A compiler model that reads MIDI requires performance.midi_layout = voice_indexed");
+                const std::array<size_t, 6> capacities{2, voiceCapacity * 10, 48, 5, latentCount, 8};
                 for (size_t i = 0; i < names.size(); ++i)
                     if (model.at("input_widths").at(names[i]).get<uint64_t>() > capacities[i])
                         throw std::invalid_argument(
