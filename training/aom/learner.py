@@ -3,11 +3,12 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 import math
 
+import numpy as np
 import torch
 from torch import nn
 
 from .contracts import TensorSchema, WavExample, ModelBudget, dual_targets
-from .session import TrainingSession, atomic_write, device_for_training, inference_metadata
+from .session import TrainingSession, atomic_write, device_for_training, inference_metadata, fingerprint
 from .dataset import canonical_digest
 
 
@@ -60,13 +61,45 @@ def masked_loss(prediction, target, mask):
     return ((prediction - target).square() * mask).sum() / mask.sum().clamp_min(1)
 
 
+def _parameter_slice(schemas):
+    offset = 0
+    for name, schema in schemas.items():
+        width = math.prod(schema["padded_shape"] if isinstance(schema, dict) else schema.padded_shape)
+        if name == "parameters":
+            return slice(offset, offset + width)
+        offset += width
+    return None
+
+
+def metric_tensors(metrics, width, rank):
+    """Stack per-example (U [K, r], S [r]) factors into [N, K, r] and [N, r] tensors."""
+    if not metrics:
+        return torch.zeros(0, width, rank), torch.zeros(0, rank)
+    U = torch.as_tensor(np.stack([np.asarray(m["U"], dtype=np.float32) for m in metrics])).reshape(len(metrics), width, rank)
+    S = torch.as_tensor(np.stack([np.asarray(m["S"], dtype=np.float32) for m in metrics])).reshape(len(metrics), rank)
+    if not torch.isfinite(U).all() or not torch.isfinite(S).all():
+        raise ValueError("Perceptual metric factors overflow float32")
+    return U, S
+
+
+def metric_loss(delta, U, S):
+    """Mean over the batch of delta^T U diag(S^2) U^T delta, i.e. the Gauss-Newton
+    approximation of ||phi(render(u + delta)) - phi(render(u))||^2."""
+    return (torch.einsum("bk,bkr->br", delta, U) * S).square().sum(-1).mean()
+
+
 def train(examples: tuple[WavExample, ...], features: list[list[float]], ontology: str,
           schemas: dict[str, TensorSchema], spec: LearnSpec, *, session=None,
-          validation=None, reconstruction=None):
+          validation=None, reconstruction=None, coordinates=None, metric=None):
     """Train against ORIGINAL canonical and perturbed rendered labels independently.
 
     Features must come from an explicitly selected analysis policy. No waveform
     generator is learned. Returns a CPU model and measurable loss history.
+
+    `coordinates` (perceptual.Coordinates) moves parameter targets to training
+    coordinates before normalisation; predictions map back. `metric` adds the
+    perceptual parameter loss: {"weight": w, "rank": r, "train": {head: [factor, ...]},
+    "validation": {head: [factor, ...]}} with one offline factor per example and head.
     """
     spec.validate()
     if not examples or len(examples) != len(features) or not features[0]:
@@ -85,6 +118,18 @@ def train(examples: tuple[WavExample, ...], features: list[list[float]], ontolog
         estimate += 64 * len(validation[0]) * (width + target_width) + 4 * len(validation[0]) * (width + 4 * target_width + 8 * spec.hidden_width)
     batch = min(spec.batch_size or len(examples), len(examples))
     vram_estimate = 20 * count + 4 * batch * (width + 16 * target_width + 16 * spec.hidden_width)
+    parameters = _parameter_slice(schemas)
+    if (coordinates is not None or metric is not None) and parameters is None:
+        raise ValueError("Parameter coordinates and the perceptual metric need a parameters tensor")
+    if metric is not None:
+        parameter_width = parameters.stop - parameters.start
+        rank = metric["rank"]
+        if not math.isfinite(metric["weight"]) or metric["weight"] <= 0 or type(rank) is not int or rank <= 0:
+            raise ValueError("Perceptual metric requires a positive weight and rank")
+        held_count = len(validation[0]) if validation else 0
+        metric_bytes = 8 * (len(examples) + held_count) * (parameter_width + 1) * rank
+        estimate += 4 * metric_bytes
+        vram_estimate += 8 * batch * (parameter_width + 1) * rank
     device = device_for_training(spec.device, estimate, spec.available_ram_bytes, spec.available_vram_bytes, estimated_vram_bytes=vram_estimate)
     # Validate every label and canonical grouping BEFORE allocating the model.
     known = {}
@@ -104,6 +149,16 @@ def train(examples: tuple[WavExample, ...], features: list[list[float]], ontolog
     optimizer = torch.optim.Adam(model.parameters(), lr=spec.learning_rate)
     x = torch.tensor(features, dtype=torch.float32)
     canonical, canonical_mask, rendered, rendered_mask = arrays
+    def to_training_coordinates(values, mask):
+        if coordinates is None or coordinates.identity:
+            return values
+        values = values.clone()
+        block = values[:, parameters].double().numpy()
+        moved = torch.tensor(coordinates.to_u(block), dtype=torch.float32)
+        values[:, parameters] = torch.where(mask[:, parameters] > 0, moved, values[:, parameters])
+        return values
+    canonical = to_training_coordinates(canonical, canonical_mask)
+    rendered = to_training_coordinates(rendered, rendered_mask)
     scales = {}
     normalized = []
     for name, values, mask in (("primary_canonical", canonical, canonical_mask), ("secondary_rendered_instance", rendered, rendered_mask)):
@@ -138,23 +193,46 @@ def train(examples: tuple[WavExample, ...], features: list[list[float]], ontolog
         for head in ("primary_canonical", "secondary_rendered_instance"):
             v = torch.tensor([[v for name in schemas for v in t[head][name].tensor.values] for t in held_targets])
             m = torch.tensor([[float(v) for name in schemas for v in t[head][name].mask] for t in held_targets])
+            v = to_training_coordinates(v, m)
             norm = scales[head]
             held_arrays.extend(((v - torch.tensor(norm["mean"])) / torch.tensor(norm["scale"]), m))
         validation_data = (torch.tensor(held_features), *held_arrays)
         if not all(torch.isfinite(array).all() for array in validation_data):
             raise ValueError("Validation values overflow float32")
+    factors = held_factors = None
+    if metric is not None:
+        heads = ("primary_canonical", "secondary_rendered_instance")
+        factors = [t for head in heads for t in metric_tensors(metric["train"][head], parameter_width, rank)]
+        if any(len(t) != len(examples) for t in factors):
+            raise ValueError("One perceptual metric factor per training example and head required")
+        if validation_data:
+            held_factors = [t for head in heads for t in metric_tensors(metric.get("validation", {}).get(head, []), parameter_width, rank)]
+            if any(len(t) != len(held_examples) for t in held_factors):
+                raise ValueError("One perceptual metric factor per validation example and head required")
+        # Normalised errors times the target scale are errors in training coordinates.
+        metric_scales = [torch.tensor(scales[head]["scale"], dtype=torch.float32)[parameters] for head in heads]
     model.to(device)
-    def objective(features, primary, primary_mask, secondary, secondary_mask):
+    def objective(features, primary, primary_mask, secondary, secondary_mask, metric_factors=None):
         p, r, pm, rm = model(features.to(device))
         pl = masked_loss(p, primary.to(device), primary_mask.to(device))
         rl = masked_loss(r, secondary.to(device), secondary_mask.to(device))
         ml = nn.functional.binary_cross_entropy_with_logits(pm, primary_mask.to(device)) + nn.functional.binary_cross_entropy_with_logits(rm, secondary_mask.to(device))
-        return pl, rl, ml, p, r
+        gl = None
+        if metric_factors is not None:
+            pu, ps, ru, rs = (t.to(device) for t in metric_factors)
+            gl = sum(weight * metric_loss((prediction - target.to(device))[:, parameters] * scale.to(device) * mask.to(device)[:, parameters], U, S)
+                     for weight, prediction, target, mask, scale, U, S in (
+                         (spec.primary_weight, p, primary, primary_mask, metric_scales[0], pu, ps),
+                         (spec.secondary_weight, r, secondary, secondary_mask, metric_scales[1], ru, rs)))
+        return pl, rl, ml, p, r, gl
     contract = {"category": "wav_preset_learning", "ontology": ontology,
                 "schema_order": list(schemas),
                 "schemas": {k: asdict(v) for k, v in schemas.items()},
                 "spec": {k: v for k, v in asdict(spec).items() if k not in ("steps", "available_ram_bytes", "available_vram_bytes")},
                 "features": features, "reconstruction": reconstruction.identity if reconstruction else None,
+                "parameter_coordinates": list(coordinates.kinds) if coordinates is not None else None,
+                "perceptual_metric": None if metric is None else {"weight": metric["weight"], "rank": rank,
+                    "factors": fingerprint([[t.tolist() for t in group] for group in (factors, held_factors) if group])},
                 "labels": [{"id": e.example_id, "group": e.canonical_id,
                             "canonical": asdict(e.canonical), "instance": asdict(e.rendered_instance)} for e in examples],
                 "validation": None if not validation else {"features": held_features,
@@ -171,8 +249,11 @@ def train(examples: tuple[WavExample, ...], features: list[list[float]], ontolog
         session.check_cancel(model, optimizer)
         indices = torch.randperm(len(examples))[:batch] if batch < len(examples) else torch.arange(len(examples))
         optimizer.zero_grad(set_to_none=True)
-        pl, rl, ml, p, r = objective(x[indices], canonical[indices], canonical_mask[indices], rendered[indices], rendered_mask[indices])
+        pl, rl, ml, p, r, gl = objective(x[indices], canonical[indices], canonical_mask[indices], rendered[indices], rendered_mask[indices],
+                                         [t[indices] for t in factors] if factors else None)
         loss = spec.primary_weight * pl + spec.secondary_weight * rl + spec.mask_weight * ml
+        if gl is not None:
+            loss = loss + metric["weight"] * gl
         reconstruction_loss = None
         if reconstruction:
             from .session import TrainingCancelled
@@ -197,13 +278,18 @@ def train(examples: tuple[WavExample, ...], features: list[list[float]], ontolog
         metrics = {"primary_canonical": float(pl.detach()), "secondary_rendered_instance": float(rl.detach()), "mask": float(ml.detach()), "total": float(loss.detach())}
         if reconstruction_loss is not None:
             metrics["reconstruction"] = float(reconstruction_loss.detach())
+        if gl is not None:
+            metrics["metric"] = float(gl.detach())
         if validation_data:
-            totals = {"primary": 0., "secondary": 0., "mask": 0., "reconstruction": 0.}
+            totals = {"primary": 0., "secondary": 0., "mask": 0., "reconstruction": 0., "metric": 0.}
             held_x, held_p, held_pm, held_r, held_rm = validation_data
             with torch.no_grad():
                 for offset in range(0, len(held_examples), batch):
                     end = min(offset + batch, len(held_examples))
-                    vp, vr, vm, vprimary, vsecondary = objective(*(t[offset:end] for t in validation_data))
+                    vp, vr, vm, vprimary, vsecondary, vg = objective(*(t[offset:end] for t in validation_data),
+                        [t[offset:end] for t in held_factors] if held_factors else None)
+                    if vg is not None:
+                        totals["metric"] += float(vg) * (end - offset) / len(held_examples)
                     totals["primary"] += float(vp) * float(held_pm[offset:end].sum())
                     totals["secondary"] += float(vr) * float(held_rm[offset:end].sum())
                     fraction = (end - offset) / len(held_examples)
@@ -221,6 +307,9 @@ def train(examples: tuple[WavExample, ...], features: list[list[float]], ontolog
             if reconstruction:
                 metrics["validation_reconstruction"] = totals["reconstruction"]
                 metrics["validation_total"] += reconstruction.config["weight"] * totals["reconstruction"]
+            if held_factors:
+                metrics["validation_metric"] = totals["metric"]
+                metrics["validation_total"] += metric["weight"] * totals["metric"]
         session.complete(metrics, model, optimizer, spec.steps)
     session.check_cancel(model, optimizer)
     history = session.history
@@ -230,6 +319,8 @@ def train(examples: tuple[WavExample, ...], features: list[list[float]], ontolog
                    "input_width": width, "hidden_width": spec.hidden_width, "target_width": target_width,
                    "estimated_peak_training_bytes": estimate, "estimated_peak_vram_bytes": vram_estimate if device.type == "cuda" else 0, "spec": asdict(spec), "losses": history,
                    "target_normalization": scales,
+                   "parameter_coordinates": list(coordinates.kinds) if coordinates is not None else None,
+                   "perceptual_metric": None if metric is None else {"weight": metric["weight"], "rank": rank},
                    "reconstruction_objective": reconstruction.config if reconstruction else None}
 
 
@@ -272,9 +363,14 @@ def predict(model, metadata, features, *, mask_threshold: float):
         if not all(torch.isfinite(t).all() for t in (p, r, pm, rm)):
             raise ValueError("Learner inference produced nonfinite values")
     result = {"ontology": metadata["ontology"]}
+    kinds = metadata.get("parameter_coordinates")
+    parameters = _parameter_slice(metadata["schemas"]) if kinds else None
     for name, values, mask_logits in (("primary_canonical", p, pm), ("secondary_rendered_instance", r, rm)):
         normalization = metadata["target_normalization"][name]
         values = values * torch.tensor(normalization["scale"]) + torch.tensor(normalization["mean"])
+        if kinds:
+            logs = torch.tensor([kind == "log" for kind in kinds])
+            values[:, parameters] = torch.where(logs, values[:, parameters].clamp(max=700).exp(), values[:, parameters])
         if not torch.isfinite(values).all():
             raise ValueError("Learner normalization produced nonfinite values")
         tensors = {}

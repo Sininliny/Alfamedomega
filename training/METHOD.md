@@ -75,6 +75,45 @@ implemented in `training/aom`. The pitch-relative reference feature policy is va
 on small controlled fixtures; general perceptual normalization remains producer-owned
 and is not certified for arbitrary recordings.
 
+## Gradients: spectral distance, training coordinates and perceptual metric
+
+Chosen by Sinin on 2026-10-15 from the gradient proposal (steps 1 and 2). Notation:
+p are declared parameter values, u = c(p) training coordinates (`linear` keeps p, `log`
+uses log p), y = R(p) the native render under the example's declared performance.
+
+Feature map phi(y), in `training/aom/perceptual.py`, per channel: log band energies on
+48 log-spaced bands at STFT sizes 256, 1024 and 4096 (weight 0.03), log RMS envelope,
+and the smoothed cumulative power distribution F over log frequency in octaves
+(Cramer term). Reconstruction distance:
+
+```text
+d(y, y*) = ||phi(y) - phi(y*)||^2 + 10 * integral |F_y(l) - F_y*(l)| dl     (W1 in octaves)
+```
+
+None of the terms depends on phase. F is mass-conserving and moves continuously with
+pitch, so the slope with respect to a pitch-like coordinate keeps its sign when spectral
+peaks no longer overlap. Measured: sign descent on log frequency from up to 0.85 octave
+away converges within 1% from 30 of 30 starts (110 Hz with 8 partials, a 440 Hz sine,
+1 kHz with 3 partials), against 4 of 32 starts for sample MSE in the proposal test.
+Heavier band weights reintroduce local minima.
+
+Coordinate objective per head, with Delta u the prediction error in training coordinates:
+
+```text
+L = lambda * masked_mse(normalised u)  +  w * Delta u^T U diag(S^2) U^T Delta u
+U diag(S^2) U^T ~ J^T J,  J = d phi(R(c^-1(u))) / d u   at the example's own target
+```
+
+The second term is the Gauss-Newton approximation of ||phi(R(u + Delta u)) - phi(R(u))||^2.
+J is measured once per example and head by the dataset producer (central differences,
+2 renders per free coordinate) and stored as a rank-r factor; training costs one small
+matrix product. Directions the render does not hear get zero weight, so equivalent
+constructions are not averaged into a sound that matches neither; the masked MSE stays
+as the identity term required above. The factor is local: far from the target the
+optional native reconstruction loss (now spectral, in u, with a bound barrier) supplies
+the long-range gradient. Discrete topology, presence and slot assignment are unchanged
+by this step; SPSA, slot matching and primitive JVPs remain later proposal steps.
+
 ## Shared tiers, padding and distillation
 
 Lite, Standard, Pro and Studio use one ontology and common training representation. Pad unused

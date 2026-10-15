@@ -83,21 +83,57 @@ An optional WAV manifest section adds a **real native DSP reconstruction loss**:
   "primary_weight": 2.0,
   "secondary_weight": 1.0,
   "finite_difference_step": 0.0001,
-  "parameter_indices": [3]
+  "parameter_indices": [3],
+  "metric": "spectral",
+  "bound_weight": 1.0
 }
 ```
 
 The numbers above belong to the included sine fixture. Supply appropriate values
 for the authored program. Each example additionally needs its producer `render`
 performance and the manifest's explicit `reconstruction_bounds`. Native finite
-differences backpropagate waveform MSE relative to reference power into the selected
-continuous, present, unlocked parameter coordinates. Original and rendered-instance
+differences backpropagate the reconstruction distance into the selected continuous,
+present, unlocked parameter coordinates. `metric` defaults to `spectral`, the
+phase-free `training/aom/perceptual.py` distance (multi-resolution log band energies,
+log RMS envelope and the cumulative power distribution over log frequency, plus its
+Wasserstein-1 term); `waveform` keeps sample MSE relative to reference power, which
+has almost no usable slope for pitch-like parameters. Renders clamp to the bounds;
+`bound_weight` (default 1) adds a quadratic barrier, in bound widths, so a value
+outside its bound still receives a gradient pointing back in. Original and rendered-instance
 references remain separate. Masks, activations, routing and other coordinates retain
 their coordinate/presence supervision; this objective does not differentiate discrete
 compiler/topology decisions. Each selected coordinate costs two extra native renders
 per head and example, so choose the set explicitly. Reference audio has its own
 memory estimate. Cancelled differentiation checkpoints the last complete optimizer
 step, without publishing a partial update.
+
+Two further optional manifest fields shape the coordinate objective itself:
+
+```json
+"parameter_coordinates": ["linear", "log", "linear", "log"],
+"perceptual_metric": {"rank": 8, "finite_difference_step": 0.001, "weight": 1.0,
+                      "descriptors": "aom.wave-features/1"}
+```
+
+`parameter_coordinates` names one kind per padded parameter coordinate. `log`
+coordinates (frequencies, times, ratios; they need positive bounds) are learned as
+log p, normalised in that space and mapped back by `predict`, so equal steps mean
+equal ratios. The reconstruction loss and its difference step use the same space.
+
+`perceptual_metric` replaces "every coordinate counts the same" with a measured
+metric. While building a dataset the producer measures J = d phi / d u, phi being the
+spectral feature map above, by central differences around both the original and the
+instance program of every example (two renders per free coordinate, once, offline;
+steps become one-sided at a bound). It stores the rank-`rank` factor
+G = J^T J ~ U diag(S^2) U^T as `<example>-canonical.metric.npz` and
+`<example>-instance.metric.npz` (`U` [K, r], `S` [r], `free_mask`, `u_ref`, `step`
+and, with `descriptors`, the eight wave feature rows `Jd`, `Jd_valid`), listed in the
+row's `metric` field and included in the dataset identity. Training adds
+`weight` × Delta u^T G Delta u per head to the existing coordinate loss, an exact
+quadratic with no renders per step. Coordinates that do not change the sound cost
+nothing; the existing masked coordinate loss stays as the identity term. Losses report
+`metric` and `validation_metric`. Locked, absent and fixed-bound coordinates are not
+free and get no metric weight.
 
 `evaluate-wav` independently compiles **both complete predicted heads** and measures
 native reconstruction against the original and instance programs under the same

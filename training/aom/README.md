@@ -78,6 +78,12 @@ descriptor measurements, percentile calibration, the main-direction teacher in t
 training-gradient metric, knob automation for runtime training, the linear fallback
 block and the PyTorch knob losses. See `training/METHOD.md`, "Wave feature knobs".
 
+`perceptual.py` holds the phase-free spectral reconstruction distance used by the
+native reconstruction loss, linear/log training coordinates for parameters, and the
+offline perceptual metric (U, S factors of J^T J per example and head) that the
+producer measures and the learner uses as its parameter loss. See `training/METHOD.md`,
+"Gradients".
+
 `tiers.py` learns local sensitivity from measured candidate experiments and
 searches explicit proposed configurations under compiler-validated capacities.
 Pitch and timing constraints, quality tolerances and objective weights are

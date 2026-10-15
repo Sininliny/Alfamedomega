@@ -65,6 +65,14 @@ def build_dataset(plan_path, destination, *, dll_path=None, cancelled=None, prog
     destination.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=destination.name + ".staging-", dir=destination.parent))
     examples = []
+    metric_plan = plan.get("perceptual_metric")
+    coordinates = None
+    if metric_plan is not None or "parameter_coordinates" in plan:
+        from .perceptual import Coordinates
+        width = len(plan["bounds"]["parameters"])
+        coordinates = Coordinates(plan.get("parameter_coordinates") or ["linear"] * width, plan["bounds"]["parameters"])
+    if metric_plan is not None:
+        validate_metric_plan(metric_plan)
     variants = sum(len(g["variants"]) for g in plan["groups"])
     if not variants:
         raise ValueError("At least one explicitly authored group/variant required")
@@ -114,6 +122,15 @@ def build_dataset(plan_path, destination, *, dll_path=None, cancelled=None, prog
             if not audio.size or not np.isfinite(audio).all() or np.max(np.abs(audio)) >= 1:
                 raise ValueError("Controlled render is empty, nonfinite or clips PCM; adjust authored controls")
             prefix = f"example-{group_index}-{variant_index}"
+            metric_files = {}
+            if metric_plan is not None:
+                for head, document in (("canonical", canonical), ("instance", instance)):
+                    metric = measure_metric(document, plan["bounds"]["parameters"], coordinates, metric_plan,
+                                            render, arrays, dll_path=dll_path, cancelled=cancelled)
+                    name = f"{prefix}-{head}.metric.npz"
+                    from .perceptual import save_metric
+                    save_metric(staging / name, metric)
+                    metric_files[head] = name
             instance_path, wav_path = staging / (prefix + ".json"), staging / (prefix + ".wav")
             atomic_json(instance_path, instance)
             with wave.open(str(wav_path), "wb") as wav:
@@ -125,14 +142,15 @@ def build_dataset(plan_path, destination, *, dll_path=None, cancelled=None, prog
                              "perturbation_id": variant["perturbation_id"], "canonical_json": original_path.name,
                              "instance_json": instance_path.name, "normalized_wav": wav_path.name,
                              "normalization": plan["normalization"], "render": render,
-                             "canonical_source_sha256": file_digest(source)})
+                             "canonical_source_sha256": file_digest(source),
+                             **({"metric": metric_files} if metric_files else {})})
             if progress:
                 progress(len(examples), variants, {})
     manifest = {"schema": "aom.training-manifest/1", "category": "wav_preset_learning",
                 "ontology": plan["ontology"], "analysis": plan["analysis"], "schemas": plan["schemas"],
                 "learn": plan["learn"], "examples": examples, "require_validation": plan.get("require_validation", True),
                 "acceptance": plan.get("acceptance", {}), "producer_plan_sha256": file_digest(plan_path)}
-    for key in ("reconstruction_mask_threshold", "reconstruction_acceptance"):
+    for key in ("reconstruction_mask_threshold", "reconstruction_acceptance", "parameter_coordinates", "perceptual_metric"):
         if key in plan:
             manifest[key] = plan[key]
     manifest["reconstruction_bounds"] = plan["bounds"]
@@ -142,6 +160,36 @@ def build_dataset(plan_path, destination, *, dll_path=None, cancelled=None, prog
         raise TrainingCancelled(f"Dataset publication cancelled; staging directory: {staging}")
     os.rename(staging, destination)
     return {"manifest": str(destination / "manifest.json"), "examples": len(examples)}
+
+
+def validate_metric_plan(config):
+    rank, step, weight = config.get("rank"), config.get("finite_difference_step"), config.get("weight")
+    if type(rank) is not int or rank <= 0 or any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in (step, weight)):
+        raise ValueError("perceptual_metric requires a positive integer rank, finite_difference_step and weight")
+    if config.get("descriptors") not in (None, "aom.wave-features/1"):
+        raise ValueError("perceptual_metric descriptors must be aom.wave-features/1 when given")
+
+
+def measure_metric(document, bounds, coordinates, config, render, arrays, *, dll_path=None, cancelled=None):
+    """Offline J = d phi / d u of one tensor program under one declared performance."""
+    from .perceptual import free_coordinates, parameter_metric
+    parameters = document["tensors"]["parameters"]
+    p_ref = np.asarray(parameters["values"], dtype=np.float64)
+    def render_parameters(p):
+        candidate = copy.deepcopy(document)
+        candidate["tensors"]["parameters"]["values"] = [float(v) for v in p]
+        with NativeRuntime(candidate, render["sample_rate"], dll_path) as runtime:
+            audio = runtime.render(frames=render["frames"], **arrays)
+        if not np.isfinite(audio).all():
+            raise ValueError("Perceptual metric candidate render is nonfinite")
+        return audio
+    descriptors = None
+    if config.get("descriptors"):
+        from .wave_features import measure
+        descriptors = lambda audio: measure(np.asarray(audio, dtype=np.float64).T, render["sample_rate"])
+    return parameter_metric(render_parameters, coordinates.to_u(p_ref), free_coordinates(document, bounds),
+                            coordinates, step=config["finite_difference_step"], rank=config["rank"],
+                            sample_rate=render["sample_rate"], descriptors=descriptors, cancelled=cancelled)
 
 
 def evaluate_wav(model_path, manifest_path, *, dll_path=None):
