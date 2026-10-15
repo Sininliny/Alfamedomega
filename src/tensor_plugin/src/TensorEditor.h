@@ -139,5 +139,6 @@ private:
     std::optional<std::array<double, 3>> parameterRange(size_t) const;
     juce::String sourceLabel(const nlohmann::json&) const;
     void applyTheme();
+    uint64_t warningRevision_ = 0; // last host warning shown in the status line
 };
 } // namespace alfa::tensorhost

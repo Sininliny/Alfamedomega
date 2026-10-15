@@ -89,6 +89,20 @@ public:
         return layout_;
     }
     juce::MidiKeyboardState keyboard;
+    // Host problems the user should see (a session that could not be restored, a sound that cannot
+    // run at the host sample rate). The revision changes whenever a new warning is recorded.
+    juce::String hostWarning() const
+    {
+        std::lock_guard lock(configurationMutex_);
+        return hostWarning_;
+    }
+    std::atomic<uint64_t> hostWarningRevision{0};
+    // True while a saved session that could not be restored is kept for the next save.
+    bool keepsUnrestoredSession() const
+    {
+        std::lock_guard lock(configurationMutex_);
+        return unrestoredState_.getSize() > 0;
+    }
 
 private:
     struct Program
@@ -144,6 +158,13 @@ private:
     juce::String json_, inspection_;
     TensorExecution::Layout layout_;
     mutable std::mutex configurationMutex_;
+    juce::String hostWarning_;
+    // Verbatim session bytes this build could not restore (newer schema, unknown primitive). Saved
+    // back unchanged until the user loads or edits a sound, so opening a project here never destroys it.
+    juce::MemoryBlock unrestoredState_;
+    void warn(const juce::String&);
+    void forgetUnrestoredSession();
+    bool restoreState(const void*, int, juce::String& error);
     std::atomic<double> rate_{48000};
     uint64_t clock_ = 0;
     std::array<float, 128 * 10> notes_{};
