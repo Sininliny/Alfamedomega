@@ -226,7 +226,8 @@ OSC spectrum weighted by 1/k, log NOISE and EQ bands, log FM ratios and levels, 
 and amplitudes, log grain and sampler rates and gains, and log attack_tau. Fields whose meaning
 depends on a learned table (grain source indices and positions) are left to MRSTFT. Because the
 distance is on the frame, it works the same for ground truth and for distillation, even when
-student and teacher have different K_h or table sizes.
+student and teacher have different K_h or table sizes. Where the student has fewer partials, FM
+operators, grain layers or unison reads than Studio, it is compared with the teacher's first ones.
 
 **Read positions carry no gradient.** Gradients through the read position of a buffer (grain
 position and rate, sampler start and rate) come from the local slope of the audio in that buffer,
@@ -243,6 +244,12 @@ Optimiser: AdamW (β 0.9/0.99, weight decay 0.01 except for tables, norms and bi
 warmup, cosine decay, gradient clip 1.0, and bf16 autocast on GPUs that support it (A100, L4; not
 T4). The DSP render and the losses stay in fp32. Starting learning rates are 3e-4 for Lite and
 Standard, 2e-4 for Pro and 1.5e-4 for Studio.
+
+Every checkpoint also writes `<tier>_<stage>.resume.pt` (weights, AdamW state, step and all random
+streams). `--resume` continues an interrupted run from it, with the same LR schedule and data
+stream, so a Colab disconnect costs at most one checkpoint interval. `--init` only loads weights to
+start a new stage. Checkpoints are written through a temporary file, so a disconnect during a save
+keeps the previous one.
 
 ## 6. Clip setup
 

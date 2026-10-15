@@ -739,6 +739,16 @@ def _l1log(a, b, eps=1e-4):
     return (torch.log(a.abs() + eps) - torch.log(b.abs() + eps)).abs().mean()
 
 
+def _common(a, b, dims=1):
+    """Cut the last `dims` axes of a and b to their common prefix. A distilled student has fewer
+    partials, FM operators, grain layers and unison reads than its Studio teacher; it matches the
+    teacher's first ones (partials and reads in order, operator 0 the carrier)."""
+    for d in range(1, dims + 1):
+        n = min(a.shape[-d], b.shape[-d])
+        a, b = a.narrow(-d, 0, n), b.narrow(-d, 0, n)
+    return a, b
+
+
 def ctrl_distance(p, t):
     d = (p["mix"] - t["mix"]).abs().mean()
     if "osc.re" in p and "osc.re" in t:
@@ -748,16 +758,20 @@ def ctrl_distance(p, t):
         d = d + ((torch.log(mp + 1e-4) - torch.log(mt + 1e-4)).abs() * w).sum(-1).mean() / w.sum()
     for key in ("noise.band", "sampler.eq", "fm.level", "partials.amp", "grain.gain", "sampler.gain"):
         if key in p and key in t:
-            d = d + _l1log(p[key], t[key])
+            d = d + _l1log(*_common(p[key], t[key]))
     for key in ("fm.ratio", "partials.ratio", "grain.rate", "sampler.rate", "attack_tau"):
         if key in p and key in t:
-            d = d + (torch.log(p[key].clamp(min=1e-5)) - torch.log(t[key].clamp(min=1e-5))).abs().mean()
+            a, b = _common(p[key], t[key])
+            d = d + (torch.log(a.clamp(min=1e-5)) - torch.log(b.clamp(min=1e-5))).abs().mean()
     if "fm.index" in p and "fm.index" in t:
-        d = d + (p["fm.index"] - t["fm.index"]).abs().mean() / 4
+        a, b = _common(p["fm.index"], t["fm.index"], 2)
+        d = d + (a - b).abs().mean() / 4
     if "osc.detune_level" in p and "osc.detune_level" in t:
-        d = d + _l1log(p["osc.detune_level"], t["osc.detune_level"])
-        cents = 1200 * (torch.log2(p["osc.detune_ratio"]) - torch.log2(t["osc.detune_ratio"])).abs()
-        d = d + (cents * t["osc.detune_level"]).mean() / 10          # only where the teacher read sounds
+        pl, tl = _common(p["osc.detune_level"], t["osc.detune_level"])
+        pr, tr = _common(p["osc.detune_ratio"], t["osc.detune_ratio"])
+        d = d + _l1log(pl, tl)
+        cents = 1200 * (torch.log2(pr) - torch.log2(tr)).abs()
+        d = d + (cents * tl).mean() / 10          # only where the teacher read sounds
     return d
 
 
@@ -930,10 +944,14 @@ class Teachers:
         self.gen = torch.Generator(device=dev).manual_seed(seed + 1)
 
     def _factory_samples(self):
-        """8 factory samples at C4, 1.5 s, rendered from other teachers with fixed knobs."""
+        """8 factory samples at C4, 1.5 s, rendered from other teachers with fixed knobs. The
+        teachers draw from self.gen (additive detune), so it is swapped for the fixed generator:
+        the samples are the same whenever they are first needed, and building them does not shift
+        the training data stream (a resumed run sees the same batches)."""
         g = torch.Generator(device=self.dev).manual_seed(99)
         T = int(1.5 * FRAME_HZ)
         outs = []
+        saved, self.gen = self.gen, g
         for m in ["physical", "fm", "subtractive", "additive"] * 2:
             k = torch.rand(1, N_KNOBS, device=self.dev, generator=g)
             perf = make_perf(1, T, self.dev, g, pitch=torch.tensor([60.0], device=self.dev),
@@ -942,6 +960,7 @@ class Teachers:
             ctrl = BUILD[m](getattr(self, m)(k, perf), perf["f0"])
             y = render(ctrl, perf["f0"], ON_FRAME, {"gen": g})[:, ON_FRAME * HOP:]
             outs.append(y / (y.abs().max() + 1e-6) * 0.8)
+        self.gen = saved
         L = min(o.shape[1] for o in outs)
         self.samples = torch.cat([o[:, :L] for o in outs]).detach()
 
@@ -1653,6 +1672,25 @@ def _floatify(ctrl):
     return tree_map(lambda x: x.float() if x.is_floating_point() else x, ctrl)
 
 
+def _save_atomic(obj, path):
+    """torch.save through a temporary file, so a runtime that disconnects mid-save (Colab) keeps the
+    previous checkpoint instead of a truncated one."""
+    tmp = path + ".tmp"
+    torch.save(obj, tmp)
+    os.replace(tmp, path)
+
+
+def _bf16_ok(dev):
+    """bf16 autocast only on GPUs with native bf16 (A100, L4, ...). Recent PyTorch reports T4 as
+    bf16-capable through emulation, which is slower than fp32 there."""
+    if dev.type != "cuda":
+        return False
+    try:
+        return torch.cuda.is_bf16_supported(including_emulation=False)
+    except TypeError:                                         # PyTorch < 2.4: no emulation path
+        return torch.cuda.is_bf16_supported()
+
+
 def train(args):
     dev = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     torch.manual_seed(args.seed)
@@ -1662,6 +1700,9 @@ def train(args):
         args.log_every, args.ckpt_every, args.audio_every = 1, 3, 3
     T = max(ON_FRAME + 8, int(round(args.clip * FRAME_HZ)))
     os.makedirs(args.out, exist_ok=True)
+    bad = [m for m in args.ft_methods.split(",") if m not in METHODS or m == "hybrid"]
+    if bad:
+        raise ValueError(f"--ft_methods: {bad} not usable on real notes; choose from {METHODS[:-1]}")
     if args.init:
         model, _ = load_ckpt(args.init, dev)
         assert model.tier.name == args.tier, "--init checkpoint tier differs from --tier"
@@ -1677,12 +1718,32 @@ def train(args):
     lr = args.lr or model.tier.lr * (0.3 if args.stage in ("polish", "finetune") else 1.0)
     opt = make_optimizer(model, lr)
     probs = method_probs(args.stage)
-    amp = dev.type == "cuda" and torch.cuda.is_bf16_supported() and not args.no_amp
+    amp = _bf16_ok(dev) and not args.no_amp
     ft_methods = args.ft_methods.split(",")
+    ckpt_path = os.path.join(args.out, f"{args.tier}_{args.stage}.pt")
+    resume_path = os.path.join(args.out, f"{args.tier}_{args.stage}.resume.pt")
+    start = 0
+    if getattr(args, "resume", False):
+        # Continue an interrupted run where it stopped: weights, AdamW moments, step (so the LR
+        # schedule continues) and every random stream, so no data is repeated.
+        if not os.path.exists(resume_path):
+            raise FileNotFoundError(f"--resume: no {resume_path}; it is written with every checkpoint")
+        st = torch.load(resume_path, map_location="cpu", weights_only=False)   # RNG states must stay on CPU
+        if st["tier"] != args.tier or st["stage"] != args.stage:
+            raise ValueError(f"--resume: {resume_path} is {st['tier']}/{st['stage']}, not {args.tier}/{args.stage}")
+        model.load_state_dict(st["model"])
+        opt.load_state_dict(st["opt"])
+        start = st["step"]
+        random.setstate(st["py_rng"])
+        torch.set_rng_state(st["torch_rng"])
+        if st.get("cuda_rng") is not None and dev.type == "cuda":
+            torch.cuda.set_rng_state_all(st["cuda_rng"])
+        teachers.gen.set_state(st["teacher_rng"])
+        print(f"resumed {resume_path} at step {start}/{args.steps}")
     print(f"tier {args.tier}, stage {args.stage}, device {dev}, bf16 {amp}, {count(model)/1e6:.2f}M params, "
           f"clip {T} frames, batch {args.batch}x{args.accum}")
     t0, log = time.time(), {}
-    for step in range(args.steps):
+    for step in range(start, args.steps):
         for group in opt.param_groups:
             group["lr"] = lr_at(step, args.steps, lr)
         lam = 1.0 - 0.9 * min(1.0, step / max(1, 0.5 * args.steps)) if args.stage == "pretrain" else 0.1
@@ -1735,10 +1796,13 @@ def train(args):
             write_wav(os.path.join(args.out, f"s{step+1}_{method}_pred.wav"), y[0])
             write_wav(os.path.join(args.out, f"s{step+1}_{method}_target.wav"), batch["audio"][0])
         if (step + 1) % args.ckpt_every == 0 or step + 1 == args.steps:
-            path = os.path.join(args.out, f"{args.tier}_{args.stage}.pt")
-            torch.save({"tier": args.tier, "model": model.state_dict(), "step": step + 1,
-                        "layout_version": LAYOUT_VERSION, "args": vars(args)}, path)
-            print(f"saved {path}")
+            _save_atomic({"tier": args.tier, "model": model.state_dict(), "step": step + 1,
+                          "layout_version": LAYOUT_VERSION, "args": vars(args)}, ckpt_path)
+            _save_atomic({"tier": args.tier, "stage": args.stage, "step": step + 1, "model": model.state_dict(),
+                          "opt": opt.state_dict(), "py_rng": random.getstate(), "torch_rng": torch.get_rng_state(),
+                          "cuda_rng": torch.cuda.get_rng_state_all() if dev.type == "cuda" else None,
+                          "teacher_rng": teachers.gen.get_state()}, resume_path)
+            print(f"saved {ckpt_path}")
     return model
 
 
@@ -2015,7 +2079,10 @@ def main(argv=None):
     tr.add_argument("--accum", type=int, default=4)
     tr.add_argument("--clip", type=float, default=1.0, help="seconds")
     tr.add_argument("--lr", type=float, default=None)
-    tr.add_argument("--init", default=None, help="checkpoint to continue from")
+    tr.add_argument("--init", default=None, help="checkpoint to start this stage from (weights only)")
+    tr.add_argument("--resume", action="store_true",
+                    help="continue an interrupted run of this tier and stage in --out (weights, optimizer, "
+                         "step and random state from <tier>_<stage>.resume.pt)")
     tr.add_argument("--teacher", default=None, help="Studio checkpoint for --stage distill")
     tr.add_argument("--data", default=None, help="NSynth-layout folder for finetune/distill")
     tr.add_argument("--ft_methods", default="sampling,physical,additive,subtractive,wavetable")
