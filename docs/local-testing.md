@@ -79,6 +79,12 @@ Without models installed, the plugin plays a simple stand-in synth. To hear the 
 
 `src/plugin/README.md` has the details.
 
+**One folder with everything (Windows).** `scripts\build-release.ps1` builds Release from the current checkout and replaces the `release` folder at the repo root with the VST3, the standalone app and launchers for the AMO Centre. It needs the same prerequisites as above. Run it from the repo root:
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1
+```
+
 ## 4. Validate the plugin with pluginval (optional, recommended for plugin changes)
 
 Download pluginval for your OS from https://github.com/Tracktion/pluginval/releases/latest, unzip it, and run:

@@ -3,6 +3,7 @@
 /build-*/
 /out/
 /cmake-build-*/
+/release/
 .cache/
 compile_commands.json
 
