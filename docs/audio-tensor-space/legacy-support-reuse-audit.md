@@ -47,7 +47,7 @@
 | `preference/alfapref/generate.py`、`renderers.py`、`simulate.py` | 不带入旧 prior；适配渲染接口 | method prevalence/difficulty、32-knob 高斯扰动、hybrid 排除表是旧方向。可保留 renderer 插件化/可重复实验形式；改用有声明约束与预算的张量配置候选，而不是换名继续生成旧 synth preset。 |
 | `src/plugin/include/alfa/plugin/PreferenceLog.h`、`src/plugin/src/PreferenceLog.cpp` | 适配 | 默认关闭、类别授权、音频线程仅计数/message-thread 写日志的分工可复用。`patchToVar/capturePatch` 的旧方法/旋钮表示需要替换；不把旧统计自动解释为新的“音乐意图”标签。 |
 | `src/plugin/include/alfa/plugin/PresetLibrary.h`、`src/plugin/src/PresetLibrary.cpp` | 参考重写 | 名称/分类、锁定参数不被覆盖、声音与界面布局分开是可保留产品行为。旧工厂声音明确是按 method 制作的 placeholder，APVTS 参数值不包含完整张量状态结构；不能直接宣称已迁移声音。 |
-| `programs/*.aom.json`、`programs/factory/*.aom.json`、`src/tensor_plugin/src/PresetStore.h/.cpp` | 新体系已有实现 | 完整版本化 tensor JSON、实际 native 编译验证、独立 UI 状态、atomic 保存与显式覆盖应作为新存储边界。工厂配置是可执行示例，不是数字音频历史已被学习的证据。旧参数预设迁移需明确映射、验证声音并报告不可映射部分。 |
+| `programs/*.amo.json`、`programs/factory/*.amo.json`、`src/tensor_plugin/src/PresetStore.h/.cpp` | 新体系已有实现 | 完整版本化 tensor JSON、实际 native 编译验证、独立 UI 状态、atomic 保存与显式覆盖应作为新存储边界。工厂配置是可执行示例，不是数字音频历史已被学习的证据。旧参数预设迁移需明确映射、验证声音并报告不可映射部分。 |
 
 ## 工具与训练留档
 
@@ -61,8 +61,8 @@
 | `src/dsp/tools/gen_tier_limits.py`、`docs/tiers/tier_budget.py` | 不带入旧分配；参考生成流程 | 单一配置生成 C++ 常量/检查 stale 的流程可参考。旧 fixed ceilings、family share 与“优先降低某 family”属于旧策略，不能替代 learned importance + 受约束跨 tier 评估。 |
 | `apps/control-center/render-host/src/Main.cpp`、`render-host/test-synth/TestSynth.cpp` | 适配/复用测试夹具 | 实际插件加载、MIDI 渲染、状态/预设采集和隔离运行是有效基础；以新 VST3 二进制和完整声音文档加入验证，不要求旧方法选择器。 |
 | `training/alfamedomega_train.py`、`training/alfamedomega_colab.ipynb`、`training/LEGACY_METHOD.md` | 留档，参考重写 | 随机 performance、native parity、多尺度音频损失、checkpoint、导出/蒸馏工程流程可参考。method teachers/experts、knob32、frame250、固定位宽、手写 prevalence/difficulty、hybrid 合并和旧 tier 配额不带入。旧 teacher 的监督不满足原始 canonical 主目标 + 扰动 instance 次目标。 |
-| `training/aom/contracts.py`、`learner.py`、`pipeline.py`、`runtime_model.py`、`local_learning.py`、`tiers.py` | 新体系，保持独立 | 已有共享 schema/padding mask、双监督、runtime/offline/preference 分类、可编译 JSON 与受约束候选接口；目前是可执行参考实现与受控验证，不是任意 WAV 或历史设备的大规模已训练模型。本轮不继续训练。 |
-| `training/aom/hardware.py` | 新体系已有容量探测 | Windows 可用物理 RAM、Linux MemAvailable、显式 CUDA device 的可用 VRAM 和显式 reserve 是正确边界；其他平台目前明确失败并要求实测 allowance，不伪造容量。CPU 核数不能直接推断可达延迟；内存快照也不能保证共享宿主之后不发生压力。 |
+| `training/amo/contracts.py`、`learner.py`、`pipeline.py`、`runtime_model.py`、`local_learning.py`、`tiers.py` | 新体系，保持独立 | 已有共享 schema/padding mask、双监督、runtime/offline/preference 分类、可编译 JSON 与受约束候选接口；目前是可执行参考实现与受控验证，不是任意 WAV 或历史设备的大规模已训练模型。本轮不继续训练。 |
+| `training/amo/hardware.py` | 新体系已有容量探测 | Windows 可用物理 RAM、Linux MemAvailable、显式 CUDA device 的可用 VRAM 和显式 reserve 是正确边界；其他平台目前明确失败并要求实测 allowance，不伪造容量。CPU 核数不能直接推断可达延迟；内存快照也不能保证共享宿主之后不发生压力。 |
 
 ## 接入次序与结论
 

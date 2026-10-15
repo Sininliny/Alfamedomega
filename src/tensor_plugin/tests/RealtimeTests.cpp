@@ -187,7 +187,7 @@ TEST_CASE("Independent large-state model hosts preserve bounded callbacks during
           {"matrix", {{"axes", {"destination", "source"}}, {"shape", {2, 1}}, {"values", {0., .1}}}}}});
     document["budget"]["stored_tensor_elements"] = 8;
     auto model = nlohmann::json::parse(juce::File(juce::String(ALFA_SOURCE_DIR))
-                                           .getChildFile("training/aom/testdata/runtime_gru.json")
+                                           .getChildFile("training/amo/testdata/runtime_gru.json")
                                            .loadFileAsString()
                                            .toStdString());
     for (auto& weights : model["weights"])

@@ -10,10 +10,10 @@ the user starts a job. Opening the Centre or inspecting a manifest starts no opt
 
 | Role | Centre action | Published artifact |
 |---|---|---|
-| WAV recognition | Train WAV model / `train` | `aom-dual-tensor-v1` weights-only PyTorch package |
-| Runtime tensor compiler | Train runtime compiler / `train-runtime` | `aom.runtime.gru/1` native weights, clocks, bounds and golden vectors |
-| Local preference | Train preference / `train-preference` | `aom.local-learning/1`, category `user_preference` |
-| Measured importance | Train importance / `train-importance` | `aom.local-learning/1`, category `context_importance` |
+| WAV recognition | Train WAV model / `train` | `amo-dual-tensor-v1` weights-only PyTorch package |
+| Runtime tensor compiler | Train runtime compiler / `train-runtime` | `amo.runtime.gru/1` native weights, clocks, bounds and golden vectors |
+| Local preference | Train preference / `train-preference` | `amo.local-learning/1`, category `user_preference` |
+| Measured importance | Train importance / `train-importance` | `amo.local-learning/1`, category `context_importance` |
 
 These models have separate data, architecture and memory allowances. Published
 inference artifacts retain compact training summaries and data digests; complete
@@ -25,7 +25,7 @@ serializes queued jobs; independent Centre/CLI processes do not share a process 
 
 ## Prepare and inspect data
 
-`training/aom/examples/controlled-dataset-plan.json` is an executable, small
+`training/amo/examples/controlled-dataset-plan.json` is an executable, small
 controlled-render example. Its two sine primitives, widths, losses, capacities and
 synthetic observations are test choices, not product tiers or pretrained knowledge.
 
@@ -96,7 +96,7 @@ for the authored program. Each example additionally needs its producer `render`
 performance and the manifest's explicit `reconstruction_bounds`. Native finite
 differences backpropagate the reconstruction distance into the selected continuous,
 present, unlocked parameter coordinates. `metric` defaults to `spectral`, the
-phase-free `training/aom/perceptual.py` distance (multi-resolution log band energies,
+phase-free `training/amo/perceptual.py` distance (multi-resolution log band energies,
 log RMS envelope and the cumulative power distribution over log frequency, plus its
 Wasserstein-1 term); `waveform` keeps sample MSE relative to reference power, which
 has almost no usable slope for pitch-like parameters. Renders clamp to the bounds;
@@ -114,7 +114,7 @@ Two further optional manifest fields shape the coordinate objective itself:
 ```json
 "parameter_coordinates": ["linear", "log", "linear", "log"],
 "perceptual_metric": {"rank": 8, "finite_difference_step": 0.001, "weight": 1.0,
-                      "descriptors": "aom.wave-features/1"}
+                      "descriptors": "amo.wave-features/1"}
 ```
 
 `parameter_coordinates` names one kind per padded parameter coordinate. `log`
@@ -161,7 +161,7 @@ completion means optimization finished, not that musical product quality was pro
 
 ## Manifest contracts
 
-All new training manifests use `schema: "aom.training-manifest/1"` and an explicit
+All new training manifests use `schema: "amo.training-manifest/1"` and an explicit
 `category`. Historical WAV/runtime manifests remain readable when those two tags are
 absent. Shared `schemas` declare ordered named `axes` and `padded_shape` for each
 output tensor; order is part of the checkpoint identity. Ontology and every real
@@ -181,14 +181,14 @@ Runtime manifests contain `ontology`, `schemas`, `input_widths`, `hidden_width`,
 {"canonical_id": "original-group", "split": "train", "events": [
   {"inputs": {"audio": [], "midi": [200.0, 0.4], "gesture": [],
               "user_preference": [], "latent": [], "context": [], "wave_feature": []},
-   "target_json": "label.aom.json"}
+   "target_json": "label.amo.json"}
 ]}
 ```
 
 Declare widths for **all seven** input categories, including explicit zero widths.
 `wave_feature` carries the eight wave feature knobs (at most 8 wide, `user_preference` at most 8);
 knob values, descriptor measurement, calibration, teacher directions and losses are in
-`training/aom/wave_features.py` and `training/METHOD.md`, "Wave feature knobs".
+`training/amo/wave_features.py` and `training/METHOD.md`, "Wave feature knobs".
 A model with a `midi` width above zero reads fixed MIDI coordinates, so the plugin
 loads it only into a sound whose `performance.midi_layout` is `voice_indexed`, and
 the width must be at most `voice_capacity` × 10 (ten fields per voice slot, in the
@@ -244,25 +244,25 @@ does not terminate the active process.
 From the repository root, the training interpreter can run the same work directly:
 
 ```powershell
-python -m training.aom build-dataset training/aom/examples/controlled-dataset-plan.json build/aom-training-dataset
-python -m training.aom preflight build/aom-training-dataset/manifest.json --category wav_preset_learning
-python -m training.aom train build/aom-training-dataset/manifest.json build/aom-training.pt --checkpoint build/aom-training.checkpoint.pt
-python -m training.aom train build/aom-training-dataset/manifest.json build/aom-training.pt --checkpoint build/aom-training.checkpoint.pt --resume
-python -m training.aom evaluate-wav build/aom-training.pt build/aom-training-dataset/manifest.json build/aom-reconstruction.json
-python -m training.aom train-preference training/aom/examples/preference-manifest.json build/aom-preference.json
-python -m training.aom train-importance training/aom/examples/importance-manifest.json build/aom-importance.json
-python -m training.aom rank-controls SOUND.json build/aom-importance.json CONTEXT.json RANKED.json --layer 0
+python -m training.amo build-dataset training/amo/examples/controlled-dataset-plan.json build/amo-training-dataset
+python -m training.amo preflight build/amo-training-dataset/manifest.json --category wav_preset_learning
+python -m training.amo train build/amo-training-dataset/manifest.json build/amo-training.pt --checkpoint build/amo-training.checkpoint.pt
+python -m training.amo train build/amo-training-dataset/manifest.json build/amo-training.pt --checkpoint build/amo-training.checkpoint.pt --resume
+python -m training.amo evaluate-wav build/amo-training.pt build/amo-training-dataset/manifest.json build/amo-reconstruction.json
+python -m training.amo train-preference training/amo/examples/preference-manifest.json build/amo-preference.json
+python -m training.amo train-importance training/amo/examples/importance-manifest.json build/amo-importance.json
+python -m training.amo rank-controls SOUND.json build/amo-importance.json CONTEXT.json RANKED.json --layer 0
 ```
 
 The Centre CLI records the same durable jobs:
 
 ```powershell
-alfa-cc --home C:/AMO/Data aom --repository C:/source/code/Alfamedomega train MANIFEST MODEL --job --python C:/Python-Torch/python.exe
-alfa-cc --home C:/AMO/Data aom --repository C:/source/code/Alfamedomega train MANIFEST MODEL --job --resume --python C:/Python-Torch/python.exe
-alfa-cc aom --repository C:/source/code/Alfamedomega preflight MANIFEST --category runtime
-alfa-cc aom --repository C:/source/code/Alfamedomega train-runtime EVENTS_MANIFEST MODEL_JSON --job
-alfa-cc aom --repository C:/source/code/Alfamedomega train-preference FEEDBACK_MANIFEST MODEL_JSON
-alfa-cc aom --repository C:/source/code/Alfamedomega train-importance IMPACT_MANIFEST MODEL_JSON
+alfa-cc --home C:/AMO/Data amo --repository C:/source/code/Alfamedomega train MANIFEST MODEL --job --python C:/Python-Torch/python.exe
+alfa-cc --home C:/AMO/Data amo --repository C:/source/code/Alfamedomega train MANIFEST MODEL --job --resume --python C:/Python-Torch/python.exe
+alfa-cc amo --repository C:/source/code/Alfamedomega preflight MANIFEST --category runtime
+alfa-cc amo --repository C:/source/code/Alfamedomega train-runtime EVENTS_MANIFEST MODEL_JSON --job
+alfa-cc amo --repository C:/source/code/Alfamedomega train-preference FEEDBACK_MANIFEST MODEL_JSON
+alfa-cc amo --repository C:/source/code/Alfamedomega train-importance IMPACT_MANIFEST MODEL_JSON
 ```
 
 CPU is the explicit default. Set `device: "cuda:N"` and a positive

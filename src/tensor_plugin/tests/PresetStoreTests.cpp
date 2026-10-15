@@ -36,7 +36,7 @@ struct TestDirectory
 juce::String document()
 {
     return juce::File(juce::String(ALFA_SOURCE_DIR))
-        .getChildFile("programs/instrument.aom.json")
+        .getChildFile("programs/instrument.amo.json")
         .loadFileAsString();
 }
 } // namespace
@@ -87,7 +87,7 @@ TEST_CASE("Preset browsing is read-only and saving preserves complete sound meta
     const auto loaded = JSON::parse(store.load(0, error).toStdString());
     for (const auto& [key, value] : original.items())
         CHECK(loaded.at(key) == value);
-    CHECK(loaded.at("preset").at("schema") == "aom.preset/1");
+    CHECK(loaded.at("preset").at("schema") == "amo.preset/1");
     CHECK_FALSE(loaded.contains("mode"));
     CHECK_FALSE(loaded.contains("intentions"));
     CHECK_FALSE(loaded.contains("window"));
@@ -154,14 +154,14 @@ TEST_CASE("Malformed and unsupported presets never enter a usable library", "[te
     alfa::tensorhost::PresetStore store(temporary.file);
     juce::String error;
     REQUIRE(store.save("Valid", "", document(), error));
-    const auto badFile = temporary.file.getChildFile("broken.aom.json");
+    const auto badFile = temporary.file.getChildFile("broken.amo.json");
     REQUIRE(badFile.replaceWithText("{broken"));
     CHECK_FALSE(store.refresh(error));
-    CHECK(error.contains("broken.aom.json"));
+    CHECK(error.contains("broken.amo.json"));
     REQUIRE(store.entries().size() == 1);
     CHECK(store.load(0, error).isNotEmpty());
     auto future = JSON::parse(document().toStdString());
-    future["preset"] = {{"schema", "aom.preset/999"}, {"id", "future"}, {"name", "Future"}};
+    future["preset"] = {{"schema", "amo.preset/999"}, {"id", "future"}, {"name", "Future"}};
     CHECK_FALSE(store.save("Future", "", juce::String(future.dump()), error));
     CHECK_FALSE(store.save("Wrapper", "", "{\"document\":\"sound\",\"mode\":1}", error));
     const auto retained = store.entries()[0].file;
@@ -181,7 +181,7 @@ TEST_CASE("Preset validation respects compiler and optional host capacity refusa
     CHECK_FALSE(temporary.file.exists());
     auto incompatible = JSON::parse(document().toStdString());
     incompatible["runtimeModel"] = JSON::parse(juce::File(juce::String(ALFA_SOURCE_DIR))
-                                                   .getChildFile("training/aom/testdata/runtime_gru.json")
+                                                   .getChildFile("training/amo/testdata/runtime_gru.json")
                                                    .loadFileAsString()
                                                    .toStdString());
     incompatible["runtimeModel"]["budget"]["available_ram_bytes"] = 1;

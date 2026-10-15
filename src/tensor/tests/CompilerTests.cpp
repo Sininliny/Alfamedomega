@@ -1,5 +1,6 @@
 #include "alfa/tensor/Compiler.h"
 #include "alfa/tensor/Kernels.h"
+#include "alfa/tensor/Schema.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -11,7 +12,7 @@ namespace
 {
 std::string reference(const char* name)
 {
-    std::ifstream file(std::string(ALFA_SOURCE_DIR) + "/programs/" + name + ".aom.json");
+    std::ifstream file(std::string(ALFA_SOURCE_DIR) + "/programs/" + name + ".amo.json");
     std::ostringstream content;
     content << file.rdbuf();
     return content.str();
@@ -77,7 +78,7 @@ TEST_CASE("Tensor compilation refuses incompatible versions and budgets atomical
     auto document = nlohmann::json::parse(reference("fx"));
     SECTION("future ontology")
     {
-        document["ontology"] = "aom.math/2";
+        document["ontology"] = "amo.math/2";
     }
     SECTION("unknown primitive")
     {
@@ -99,4 +100,21 @@ TEST_CASE("Tensor compilation refuses incompatible versions and budgets atomical
     CHECK_FALSE(error.empty());
     CHECK(runtime.state().size() == 1);
     CHECK(runtime.schedule().size() == 1);
+}
+
+TEST_CASE("Documents saved with the pre-rename aom ids still load", "[tensor][compiler]") // rename-compat
+{
+    using namespace alfa::tensor;
+    CHECK(schemaIs(std::string_view("amo.tensor/1"), "amo.tensor/1"));
+    CHECK(schemaIs(std::string_view("aom.tensor/1"), "amo.tensor/1"));       // rename-compat
+    CHECK_FALSE(schemaIs(std::string_view("aom.tensor/2"), "amo.tensor/1")); // rename-compat
+    CHECK_FALSE(schemaIs(std::string_view("xyz.tensor/1"), "amo.tensor/1"));
+    CHECK_FALSE(schemaIs(nlohmann::json(1), "amo.tensor/1"));
+    auto document = nlohmann::json::parse(reference("instrument"));
+    document["schema"] = "aom.tensor/1"; // rename-compat
+    document["ontology"] = "aom.math/1"; // rename-compat
+    Configuration configuration;
+    std::string error;
+    CHECK(parseJSON(document.dump(), configuration, error));
+    CHECK(error.empty());
 }

@@ -85,17 +85,17 @@ authored fragments and explicit recurrent bindings. Model training is paused
 during the current native plugin migration. The optional legacy build retains
 its original state semantics; reused DSP/UI components are shared by the product.
 
-`Compiler.h` defines the `aom.tensor/1` / `aom.math/1` JSON boundary; state allocation
+`Compiler.h` defines the `amo.tensor/1` / `amo.math/1` JSON boundary; state allocation
 and independent schedules are derived from validated programs. `Universe.h`
 registers 64 operations: 48 reference, five production ring-state, two streaming
 STFT and nine versioned nonlinear operations. Together with the four initial mathematical
 kernels this is 68 operations. This count does not establish production parity with every
 legacy algorithm or the complete history of audio computation. Explicit
 immutable assets hold tables, IRs, frames, HRTFs and envelope segment definitions.
-`Model.h` implements deterministic CPU inference for `aom.runtime.gru/1`, with
+`Model.h` implements deterministic CPU inference for `amo.runtime.gru/1`, with
 independent model budget, explicit clock, bounded predictions and user locks.
 
-`training/aom` now provides actual dual-head training, native DSP rendering,
+`training/amo` now provides actual dual-head training, native DSP rendering,
 WAV-to-editable-template inference, runtime model training/export, local pairwise
 preference learning, context-dependent importance and measured constrained tier
 candidate search. AMO Centre exposes tensor workflows separately from legacy

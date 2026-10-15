@@ -1,0 +1,363 @@
+{
+  "schema": "amo.tensor/1",
+  "ontology": "amo.math/1",
+  "tier": "Pro",
+  "scalar_type": "float64",
+  "description": "Standalone mathematical primitive example: time.fdn_hadamard8.v1. Capacities are example requirements, not tier limits.",
+  "preferred_mode": 1,
+  "tensors": {
+    "activation": {
+      "values": [
+        1
+      ],
+      "axes": [
+        "primitive"
+      ],
+      "shape": [
+        1
+      ]
+    },
+    "parameters": {
+      "values": [
+        3,
+        0.65,
+        0.2,
+        5,
+        0.65,
+        0.2,
+        7,
+        0.65,
+        0.2,
+        9,
+        0.65,
+        0.2,
+        11,
+        0.65,
+        0.2,
+        13,
+        0.65,
+        0.2,
+        15,
+        0.65,
+        0.2,
+        16,
+        0.65,
+        0.2
+      ],
+      "axes": [
+        "parameter"
+      ],
+      "shape": [
+        24
+      ]
+    },
+    "routing": {
+      "values": [
+        1
+      ],
+      "axes": [
+        "coefficient"
+      ],
+      "shape": [
+        1
+      ]
+    },
+    "modulation": {
+      "values": [],
+      "axes": [
+        "relationship"
+      ],
+      "shape": [
+        0
+      ]
+    }
+  },
+  "instances": [
+    {
+      "primitive": "time.fdn_hadamard8.v1",
+      "activation": 0,
+      "parameters": {
+        "count": 24,
+        "offset": 0
+      },
+      "clock": {
+        "period_samples": 1,
+        "phase_samples": 0
+      },
+      "output_between_updates": "zero",
+      "state_size": 152,
+      "initial_state": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "assets": [],
+      "input_channels": 8,
+      "audio_bindings": [
+        {
+          "destination_element": 0,
+          "weight_element": 0,
+          "weights": "routing",
+          "source": "audio",
+          "source_element": 0,
+          "missing_source": "zero"
+        }
+      ]
+    }
+  ],
+  "projections": [],
+  "parameter_locks": [],
+  "shared_initial_state": [],
+  "control_layers": [],
+  "outputMix": [
+    [
+      0,
+      0,
+      0.125
+    ],
+    [
+      0,
+      1,
+      0.125
+    ],
+    [
+      1,
+      0,
+      0.125
+    ],
+    [
+      1,
+      1,
+      0.125
+    ],
+    [
+      2,
+      0,
+      0.125
+    ],
+    [
+      2,
+      1,
+      0.125
+    ],
+    [
+      3,
+      0,
+      0.125
+    ],
+    [
+      3,
+      1,
+      0.125
+    ],
+    [
+      4,
+      0,
+      0.125
+    ],
+    [
+      4,
+      1,
+      0.125
+    ],
+    [
+      5,
+      0,
+      0.125
+    ],
+    [
+      5,
+      1,
+      0.125
+    ],
+    [
+      6,
+      0,
+      0.125
+    ],
+    [
+      6,
+      1,
+      0.125
+    ],
+    [
+      7,
+      0,
+      0.125
+    ],
+    [
+      7,
+      1,
+      0.125
+    ]
+  ],
+  "budget": {
+    "active_primitives": 1,
+    "state_elements": 152,
+    "parameter_elements": 24,
+    "routing_elements": 1,
+    "modulation_elements": 0,
+    "output_elements": 8,
+    "stored_tensor_elements": 34,
+    "projection_terms": 1,
+    "sparse_state_writes": 32,
+    "boundary_conversion_bytes": 10744
+  },
+  "input_capacity": [
+    2,
+    1280,
+    48,
+    5,
+    0,
+    8
+  ]
+}

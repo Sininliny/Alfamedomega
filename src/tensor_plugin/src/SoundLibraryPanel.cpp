@@ -1,5 +1,7 @@
 #include "SoundLibraryPanel.h"
 
+#include "alfa/tensor/Schema.h"
+
 #include <algorithm>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
@@ -140,7 +142,8 @@ bool SoundLibraryPanel::inspect(const Entry& entry, juce::String& document, juce
         else
             document = entry.factoryDocument;
         const auto data = JSON::parse(document.toStdString());
-        if (!data.is_object() || data.at("schema") != "aom.tensor/1" || !data.at("instances").is_array())
+        if (!data.is_object() || !alfa::tensor::schemaIs(data.at("schema"), "amo.tensor/1") ||
+            !data.at("instances").is_array())
             throw std::invalid_argument("Selected item is not a complete tensor configuration");
         juce::String summary =
             "Name: " + entry.name + "\nCategory: " + entry.category + "\nID: " + entry.id + "\n";

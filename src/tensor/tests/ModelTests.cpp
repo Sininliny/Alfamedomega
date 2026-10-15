@@ -25,11 +25,11 @@ std::string fileContents(const char* path)
 TEST_CASE("Native compiler GRU matches PyTorch golden predictions and recurrent context", "[tensor][model]")
 {
     using namespace alfa::tensor;
-    const auto document = fileContents("training/aom/testdata/runtime_gru.json");
+    const auto document = fileContents("training/amo/testdata/runtime_gru.json");
     const auto fixture = nlohmann::json::parse(document);
     Configuration config;
     std::string error;
-    REQUIRE(parseJSON(fileContents("programs/instrument.aom.json"), config, error));
+    REQUIRE(parseJSON(fileContents("programs/instrument.amo.json"), config, error));
     TensorModel model;
     REQUIRE(model.prepare(document, config, error));
     std::array<std::string, 1> axes{"feature"};
@@ -58,11 +58,11 @@ TEST_CASE("Compiler model execution uses its own event clock and independent mem
           "[tensor][model]")
 {
     using namespace alfa::tensor;
-    const auto text = fileContents("training/aom/testdata/runtime_gru.json");
+    const auto text = fileContents("training/amo/testdata/runtime_gru.json");
     Configuration config;
     Budget budget;
     std::string error;
-    const auto program = fileContents("programs/instrument.aom.json");
+    const auto program = fileContents("programs/instrument.amo.json");
     REQUIRE(parseJSON(program, config, error));
     REQUIRE(readBudgetJSON(program, budget, error));
     Runtime runtime;
@@ -96,8 +96,8 @@ TEST_CASE("Double compiler model keeps typed precision recurrent reset and scala
           "[tensor][model][precision]")
 {
     using namespace alfa::tensor;
-    auto document = nlohmann::json::parse(fileContents("training/aom/testdata/runtime_gru.json"));
-    auto program = nlohmann::json::parse(fileContents("programs/instrument.aom.json"));
+    auto document = nlohmann::json::parse(fileContents("training/amo/testdata/runtime_gru.json"));
+    auto program = nlohmann::json::parse(fileContents("programs/instrument.amo.json"));
     program["tier"] = "Pro";
     program["scalar_type"] = "float64";
     Configuration64 config;
@@ -166,10 +166,10 @@ TEST_CASE("Double compiler model keeps typed precision recurrent reset and scala
 TEST_CASE("Compiler model reads the wave feature knobs as its seventh input category", "[tensor][model]")
 {
     using namespace alfa::tensor;
-    auto fixture = nlohmann::json::parse(fileContents("training/aom/testdata/runtime_gru.json"));
+    auto fixture = nlohmann::json::parse(fileContents("training/amo/testdata/runtime_gru.json"));
     Configuration config;
     std::string error;
-    REQUIRE(parseJSON(fileContents("programs/instrument.aom.json"), config, error));
+    REQUIRE(parseJSON(fileContents("programs/instrument.amo.json"), config, error));
     // Every other width is zero, so moving the two MIDI features to the last category keeps
     // the concatenated input, and the golden predictions, identical.
     fixture["input_widths"]["wave_feature"] = fixture["input_widths"]["midi"];

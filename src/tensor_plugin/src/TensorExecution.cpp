@@ -2,6 +2,7 @@
 
 #include "alfa/tensor/Compiler.h"
 #include "alfa/tensor/Model.h"
+#include "alfa/tensor/Schema.h"
 
 #include <juce_cryptography/juce_cryptography.h>
 
@@ -99,7 +100,7 @@ class Execution final : public TensorExecution
     std::vector<Scalar> mapped_, highest_;
     std::array<std::vector<Scalar>, 4> initialControls_;
     std::vector<Layer> layers_;
-    // Linear wave feature fallback (aom.wave-features/1): parameter x knob matrix applied when no
+    // Linear wave feature fallback (amo.wave-features/1): parameter x knob matrix applied when no
     // compiler model reads the wave_feature input. Empty when the sound carries none.
     std::vector<Scalar> waveMatrix_;
     std::array<Scalar, 8> wave_{};
@@ -248,7 +249,7 @@ public:
             if (data.contains("wave_features"))
             {
                 const auto& wave = data.at("wave_features");
-                if (wave.at("schema") != "aom.wave-features/1")
+                if (!alfa::tensor::schemaIs(wave.at("schema"), "amo.wave-features/1"))
                     throw std::invalid_argument("Unsupported wave feature schema");
                 const auto& names = wave.at("descriptors");
                 if (!names.is_array() || names.size() != wave_.size())

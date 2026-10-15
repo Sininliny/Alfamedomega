@@ -24,7 +24,7 @@ jobs:
       - name: Install learner dependencies
         run: python -m pip install numpy torch pytest
       - name: Test independent tensor learners and contracts
-        run: python -m unittest discover -s training/tests -p 'test_aom*.py' -v
+        run: python -m unittest discover -s training/tests -p 'test_amo*.py' -v
 
   format:
     name: clang-format

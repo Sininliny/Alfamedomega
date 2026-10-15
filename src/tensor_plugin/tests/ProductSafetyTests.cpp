@@ -220,7 +220,7 @@ TEST_CASE("Malformed and unsupported host sessions cannot partially replace a ru
         auto corrupt = good;
         corrupt["configuration"] = alternative.dump();
         if (failure == 0)
-            corrupt["state_schema"] = "aom.host/999";
+            corrupt["state_schema"] = "amo.host/999";
         if (failure == 1)
             corrupt["mode"] = "invalid";
         if (failure == 2)
@@ -330,7 +330,7 @@ TEST_CASE("Compatible parameter edits with a runtime compiler retain held notes 
     juce::ScopedJuceInitialiser_GUI gui;
     auto sound = JSON::parse(Processor::referenceDocument(0).toStdString());
     sound["runtimeModel"] = JSON::parse(juce::File(juce::String(ALFA_SOURCE_DIR))
-                                            .getChildFile("training/aom/testdata/runtime_gru.json")
+                                            .getChildFile("training/amo/testdata/runtime_gru.json")
                                             .loadFileAsString()
                                             .toStdString());
     sound["performance"] =

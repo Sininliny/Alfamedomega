@@ -48,17 +48,17 @@
 
 | 项目 | 当前实际行为 | 未满足的部分与边界 |
 | --- | --- | --- |
-| 四档 tier 的复杂度预算与转换 | `Precision.cpp` 选择 Lite/Standard=f32、Pro/Studio=f64；`Processor::setTier` 改类型及输入转换预算。其他预算来自声音 JSON。 | 尚不是完整的不同容量/分辨率档位转换。`training/aom/tiers.py` 只对调用者给出的候选和评估器做受约束选择，没有接入插件 tier 切换。具体档位数字未获指定，不能擅自补成旧版配额。 |
+| 四档 tier 的复杂度预算与转换 | `Precision.cpp` 选择 Lite/Standard=f32、Pro/Studio=f64；`Processor::setTier` 改类型及输入转换预算。其他预算来自声音 JSON。 | 尚不是完整的不同容量/分辨率档位转换。`training/amo/tiers.py` 只对调用者给出的候选和评估器做受约束选择，没有接入插件 tier 切换。具体档位数字未获指定，不能擅自补成旧版配额。 |
 | 任意片段自由组合 | 已支持插入、克隆、移除、音频/参数递归绑定、offset 重映射与显式 Apply。 | `TensorComposition::lower` 拒绝含 `runtimeModel` 的片段；不同 `performance` 或 `latentSound` 策略要求预先显式协调，面板没有完整的协调流程。编辑 flattened 参数后 recipe 会过期，必须将当前声音重新作为 base，原有分片编辑工作流不能直接连续保留。明确拒绝比静默丢数据正确，但自由组合仍有边界。 |
 | 成品 DSP 质量和成本 | 注册表共 68 个操作；有 production ring、streaming STFT、版本化 1x/2x/4x nonlinear。 | 分区卷积/优化 FFT 接入、随播放比率变化的抗混叠重采样、较完整的物理模型/phase-vocoder 等尚未完成。直接 FIR 的成本随 IR 长度增长；参考操作的存在不等于旧版完整品质、延迟或性能 parity。 |
 | 功能解释与局部可视化 UX | 有输出波形/FFT、仪表、实例列表、参数行、矩阵系数编辑和 JSON inspection；选择实例只改变查看对象。 | 组合和关系编辑仍主要依赖扁平数字坐标及 JSON。未形成完整的局部输入/输出/状态关系、控制矩阵影响、时钟更新行为的可视化解释。不能把“需要局部可视化”解释为恢复旧 method pipeline；也没有要求强制采用某种节点图 UI。 |
-| 偏好学习进入运行产品 | `training/aom/local_learning.py` 有离线参考流程；host 有独立 preference 输入类别。 | 新 Processor 的 `preferences_` 初始化为零，源码未见加载/更新偏好向量的接入。现有类别入口不是端到端本地偏好适配。按训练暂停决定，此项记录为后续集成，不立即开启训练。 |
+| 偏好学习进入运行产品 | `training/amo/local_learning.py` 有离线参考流程；host 有独立 preference 输入类别。 | 新 Processor 的 `preferences_` 初始化为零，源码未见加载/更新偏好向量的接入。现有类别入口不是端到端本地偏好适配。按训练暂停决定，此项记录为后续集成，不立即开启训练。 |
 | 成品运行验收 | 有核心、直接 Processor、独立 JUCE VST3 host 与先前真实设备 Standalone 测试。 | 仍缺新 Processor 完整回调 heap-allocation 捕捉、多实例/长时/大资产/重复编译的 deadline 压力和主要 DAW 工程保存关闭重开验收；Linux/macOS 也没有本轮结果。 |
 | 大工程资产和预设规模 | 完整 JSON 和原 fragment 存在 recipe；校验、原子保存和过期保护已有。 | 原始 fragment 与 flattened 数据会增加序列化体积，没有资产去重/压缩及巨大工程的资源验收。 |
 
 ## 训练暂停期间保留的长期目标
 
-没有覆盖通用数字音频历史的预训练构造模型，也没有任意 WAV 的重建质量证明。`training/aom/pipeline.py::export_prediction` 依赖结构模板，预测不能添加模板之外的 primitive 实现；`analysis.py` 是受控声音的参考分析，不支持未经约定的任意录音归一化策略。
+没有覆盖通用数字音频历史的预训练构造模型，也没有任意 WAV 的重建质量证明。`training/amo/pipeline.py::export_prediction` 依赖结构模板，预测不能添加模板之外的 primitive 实现；`analysis.py` 是受控声音的参考分析，不支持未经约定的任意录音归一化策略。
 
 这意味着运行时、离线学习和偏好学习的类别已分开，但“从任意声音学习其可编辑构造与关系”的最终能力仍未达成。双监督 canonical/perturbed-instance 契约已实现，不应误判为尚未采用双监督。训练仍暂停，不能把训练完成作为当前审计的隐含行动。
 

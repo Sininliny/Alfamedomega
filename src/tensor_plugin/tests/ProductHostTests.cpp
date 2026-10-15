@@ -491,7 +491,7 @@ TEST_CASE("Wave feature knobs drive the linear fallback matrix of a sound withou
     std::vector<double> matrix(2 * 8, 0.);
     matrix[1 * 8 + 0] = .1; // wave knob 0 (tilt) raises the amplitude parameter by .1 at full turn
     fixture["wave_features"] = {
-        {"schema", "aom.wave-features/1"},
+        {"schema", "amo.wave-features/1"},
         {"descriptors", {"tilt", "attack", "sustain", "tail", "noisiness", "roughness", "motion", "width"}},
         {"matrix", {{"axes", {"destination", "source"}}, {"shape", {2, 8}}, {"values", matrix}}}};
     fixture["budget"]["stored_tensor_elements"] = 3 + 16;
@@ -520,7 +520,7 @@ TEST_CASE("Wave feature knobs drive the linear fallback matrix of a sound withou
     wrong["wave_features"]["matrix"]["shape"] = {2, 7};
     CHECK_FALSE(turned.loadJSON(juce::String(wrong.dump()), error));
     wrong = fixture;
-    wrong["wave_features"]["schema"] = "aom.wave-features/2";
+    wrong["wave_features"]["schema"] = "amo.wave-features/2";
     CHECK_FALSE(turned.loadJSON(juce::String(wrong.dump()), error));
 }
 

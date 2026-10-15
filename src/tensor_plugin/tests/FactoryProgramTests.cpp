@@ -69,8 +69,8 @@ TEST_CASE("Every authored factory program compiles at supported host sample rate
         INFO(p.name);
         REQUIRE_FALSE(p.name.empty());
         REQUIRE_FALSE(p.description.empty());
-        REQUIRE(j["schema"] == "aom.tensor/1");
-        REQUIRE(j["ontology"] == "aom.math/1");
+        REQUIRE(j["schema"] == "amo.tensor/1");
+        REQUIRE(j["ontology"] == "amo.math/1");
         REQUIRE_FALSE(j["authoring"]["semantic_mappings"].get<bool>());
         REQUIRE(j["parameter_metadata"].size() == j["tensors"]["parameters"]["values"].size());
         for (const auto& m : j["parameter_metadata"])
@@ -249,7 +249,7 @@ TEST_CASE("Export the authored factory documents when explicitly requested", "[.
     std::filesystem::create_directories(target);
     for (const auto& p : factoryPrograms())
     {
-        std::ofstream output(target / (p.id + ".aom.json"), std::ios::binary);
+        std::ofstream output(target / (p.id + ".amo.json"), std::ios::binary);
         output << p.document << '\n';
         REQUIRE(output.good());
     }
@@ -264,7 +264,7 @@ TEST_CASE("Production fragments import render and round trip through the native 
         INFO(file);
         const auto document = juce::File(juce::String(ALFA_SOURCE_DIR))
                                   .getChildFile("programs/primitives")
-                                  .getChildFile(juce::String(file) + ".aom.json")
+                                  .getChildFile(juce::String(file) + ".amo.json")
                                   .loadFileAsString();
         REQUIRE(document.isNotEmpty());
         alfa::tensorhost::Processor processor;

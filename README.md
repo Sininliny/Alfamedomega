@@ -23,7 +23,7 @@ aligns the host dry/wet and bypass paths; compatible edits transfer live buffers
 large histories. Precision and capacity follow the loaded sound; programmatic conversion against four explicit
 tier resource profiles protects locks, pitch and timing. See the [completion contracts](docs/audio-tensor-space/product-completion.md).
 
-`training/aom` supplies dual-supervised WAV learning, native DSP rendering, runtime model
+`training/amo` supplies dual-supervised WAV learning, native DSP rendering, runtime model
 export, local preference learning and constrained tier candidate optimization. These are
 executable reference implementations. The repository does **not** contain a universal pretrained
 audio-construction model; the verified learning fixture is deliberately small. Structural

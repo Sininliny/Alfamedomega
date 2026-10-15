@@ -7,7 +7,7 @@ from dataclasses import asdict, fields
 from pathlib import Path
 
 from . import __version__
-from .aom import (train_tensor_model, train_runtime_tensor_model, infer_tensor_preset, import_tensor_wav,
+from .amo import (train_tensor_model, train_runtime_tensor_model, infer_tensor_preset, import_tensor_wav,
                   create_tensor_job, TRAINING_CATEGORIES)
 from .assimilate.harvest import create_assimilation_job, create_scan_job, host_formats
 from .assimilate.plans import DENSITIES, custom_density, estimate
@@ -251,7 +251,7 @@ def cmd_jobs(ctx: Context, a) -> int:
 # ---------------------------------------------------------------------- parser
 
 
-def cmd_aom(ctx, a) -> int:
+def cmd_amo(ctx, a) -> int:
     if a.action in (*TRAINING_CATEGORIES, "preflight", "build-dataset", "evaluate-wav") and (
             a.action in ("train-preference", "train-importance", "preflight", "build-dataset", "evaluate-wav") or a.job or a.python or a.checkpoint or a.resume):
         from .jobs import JobManager
@@ -301,9 +301,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--models-dir", help="Models folder (default: the shared system folder)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    aom = sub.add_parser("aom", help="tensor compiler training, native runtime models and editable WAV import")
-    aom.add_argument("--repository", type=Path, required=True, help="repository containing the tensor learner and native runtime")
-    actions = aom.add_subparsers(dest="action", required=True)
+    amo = sub.add_parser("amo", aliases=["aom"], help="tensor compiler training, native runtime models and editable WAV import")  # "aom": pre-rename spelling, rename-compat
+    amo.add_argument("--repository", type=Path, required=True, help="repository containing the tensor learner and native runtime")
+    actions = amo.add_subparsers(dest="action", required=True)
     for action, help_text in (("train", "dual-supervised offline WAV tensor learning"),
                               ("train-runtime", "train recurrent runtime tensor compiler and export native GRU weights"),
                               ("train-preference", "learn independent local pairwise preference"),
@@ -347,7 +347,7 @@ def build_parser() -> argparse.ArgumentParser:
     importing.add_argument("--sample-rate", type=float, required=True)
     importing.add_argument("--dll", type=Path)
     importing.add_argument("--python")
-    aom.set_defaults(fn=cmd_aom)
+    amo.set_defaults(fn=cmd_amo)
 
     sub.add_parser("info", help="paths and whether training can run here").set_defaults(fn=cmd_info)
     s = sub.add_parser("settings", help="show or change settings")
@@ -481,7 +481,7 @@ def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
     a = build_parser().parse_args(argv)
     a.density_given = "--density" in argv
-    ctx = None if a.cmd == "aom" else Context(a.home, a.models_dir)
+    ctx = None if a.cmd in ("amo", "aom") else Context(a.home, a.models_dir)  # rename-compat
     try:
         return a.fn(ctx, a)
     except (ModelStoreError, ValueError, FileNotFoundError, KeyError, RuntimeError) as e:

@@ -1,7 +1,7 @@
 juce_add_binary_data(alfa_tensor_reference HEADER_NAME TensorReference.h NAMESPACE TensorReference SOURCES
-    ${PROJECT_SOURCE_DIR}/programs/instrument.aom.json
-    ${PROJECT_SOURCE_DIR}/programs/fx.aom.json
-    ${PROJECT_SOURCE_DIR}/programs/hybrid.aom.json)
+    ${PROJECT_SOURCE_DIR}/programs/instrument.amo.json
+    ${PROJECT_SOURCE_DIR}/programs/fx.amo.json
+    ${PROJECT_SOURCE_DIR}/programs/hybrid.amo.json)
 add_library(alfa_tensor_plugin_shell INTERFACE)
 target_sources(alfa_tensor_plugin_shell INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/TensorProcessor.cpp

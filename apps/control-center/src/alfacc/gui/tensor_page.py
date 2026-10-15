@@ -1,7 +1,7 @@
 """AMO Centre pages for the Audio Tensor Space: one page per task, each asking only for its own inputs.
 
-All work runs as durable jobs in a separate process (see ..aom). Results chain forward through
-`win.aom_recent`: a built dataset fills the manifest fields, a trained WAV model fills Evaluate and
+All work runs as durable jobs in a separate process (see ..amo). Results chain forward through
+`win.amo_recent`: a built dataset fills the manifest fields, a trained WAV model fills Evaluate and
 Import sound. Fields the user already filled are never overwritten.
 """
 from pathlib import Path
@@ -10,7 +10,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QHBoxLayout,
                                QPlainTextEdit, QProgressBar, QSpinBox)
 
-from ..aom import create_tensor_job
+from ..amo import create_tensor_job
 from ..jobs import FINISHED
 from .widgets import Page, PathField, button, card, label
 
@@ -46,7 +46,7 @@ def default_repository(win) -> str:
 class JobPanel:
     """Status, progress and log tail of the latest job a page started."""
 
-    def __init__(self, page: "AomPage"):
+    def __init__(self, page: "AmoPage"):
         self.page = page
         self.frame, lay = card()
         top = QHBoxLayout()
@@ -111,8 +111,8 @@ class JobPanel:
         else:
             self.progress.setRange(0, 100)
             self.progress.setValue(100 if state == "succeeded" else 0)
-        if state == "succeeded" and job["id"] not in self.page.win.aom_finished:
-            self.page.win.aom_finished.add(job["id"])
+        if state == "succeeded" and job["id"] not in self.page.win.amo_finished:
+            self.page.win.amo_finished.add(job["id"])
             self.page.finished(job)
 
     def cancel(self):
@@ -124,7 +124,7 @@ class JobPanel:
         self.page.win.jobs_changed(self.job_id)
 
 
-class AomPage(Page):
+class AmoPage(Page):
     """A task page: a form card, one primary action, and the job panel underneath."""
 
     def __init__(self, win, title: str, subtitle: str):
@@ -180,7 +180,7 @@ class AomPage(Page):
 
     def recent(self, key: str, field):
         """Fill an empty field from the latest result of an earlier step."""
-        value = self.win.aom_recent.get(key)
+        value = self.win.amo_recent.get(key)
         if value and not field.text():
             field.setText(value)
 
@@ -208,7 +208,7 @@ class AomPage(Page):
         pass
 
 
-class ImportSoundPage(AomPage):
+class ImportSoundPage(AmoPage):
     def __init__(self, win):
         super().__init__(win, "Import sound",
                          "Turn a recording into an editable tensor sound the plugin can open. The WAV model "
@@ -255,7 +255,7 @@ class ImportSoundPage(AomPage):
                                          "--sample-rate", str(self.rate.value())])
 
 
-class DatasetsPage(AomPage):
+class DatasetsPage(AmoPage):
     def __init__(self, win):
         super().__init__(win, "Datasets",
                          "Render a controlled dataset through the native DSP, then check a manifest before training. "
@@ -263,7 +263,7 @@ class DatasetsPage(AomPage):
         form, lay = self.form_card("Build a controlled dataset",
                                    "The plan names original sounds, bounded perturbations and performances. "
                                    "Pick a new folder: existing datasets are never overwritten.")
-        self.plan = PathField(filter="JSON (*.json)", placeholder="dataset plan, e.g. training/aom/examples/controlled-dataset-plan.json")
+        self.plan = PathField(filter="JSON (*.json)", placeholder="dataset plan, e.g. training/amo/examples/controlled-dataset-plan.json")
         self.folder = PathField(folder=True, placeholder="new dataset folder")
         form.addRow("Dataset plan", self.plan)
         form.addRow("Output folder", self.folder)
@@ -285,12 +285,12 @@ class DatasetsPage(AomPage):
     def build(self):
         paths = self.require(dataset_plan=self.plan, output_folder=self.folder)
         if paths and self.run_task("build-dataset", [paths["dataset_plan"], paths["output_folder"]]):
-            self.win.aom_recent["pending_manifest"] = str(Path(paths["output_folder"]) / "manifest.json")
+            self.win.amo_recent["pending_manifest"] = str(Path(paths["output_folder"]) / "manifest.json")
 
     def finished(self, job: dict):
-        pending = self.win.aom_recent.pop("pending_manifest", None)
+        pending = self.win.amo_recent.pop("pending_manifest", None)
         if pending and Path(pending).is_file():
-            self.win.aom_recent["manifest"] = pending
+            self.win.amo_recent["manifest"] = pending
             self.manifest.setText(pending)
 
     def check(self):
@@ -299,7 +299,7 @@ class DatasetsPage(AomPage):
             self.run_task("preflight", [paths["manifest"], "--category", self.category.currentData()])
 
 
-class TrainPage(AomPage):
+class TrainPage(AmoPage):
     def __init__(self, win):
         super().__init__(win, "Train",
                          "Four separate models with separate data and budgets. Training runs in its own process "
@@ -351,12 +351,12 @@ class TrainPage(AomPage):
     def finished(self, job: dict):
         action, output = getattr(self, "pending", (None, None))
         if action == "train" and output:
-            self.win.aom_recent["wav_model"] = output
+            self.win.amo_recent["wav_model"] = output
         elif action == "train-importance" and output:
-            self.win.aom_recent["importance_model"] = output
+            self.win.amo_recent["importance_model"] = output
 
 
-class EvaluatePage(AomPage):
+class EvaluatePage(AmoPage):
     def __init__(self, win):
         super().__init__(win, "Evaluate",
                          "Measure how well a WAV model reconstructs held-out sounds through the native DSP. "
@@ -381,7 +381,7 @@ class EvaluatePage(AomPage):
             self.run_task("evaluate-wav", list(paths.values()))
 
 
-class RankControlsPage(AomPage):
+class RankControlsPage(AmoPage):
     def __init__(self, win):
         super().__init__(win, "Rank controls",
                          "Order a sound's X controls by learned importance. A context importance model scores "

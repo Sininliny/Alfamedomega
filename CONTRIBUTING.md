@@ -34,10 +34,10 @@ only through the DSP owner, since both components and the training export depend
 The glue between the model's control frames and the engines lives in `src/plugin`.
 
 The preceding control-frame dependencies describe legacy integration. `Alfa::tensor` has no
-dependency on legacy `Alfa::dsp`, synthesis methods or ONNX experts. `training/aom` provides the
+dependency on legacy `Alfa::dsp`, synthesis methods or ONNX experts. `training/amo` provides the
 new shared representation and dual-supervision data contract; `training/LEGACY_METHOD.md`
 preserves the old trainer's description. New CTest coverage includes `alfa_tensor_tests` and,
-when Python is available, the dependency-free `alfa_aom_training_contracts`.
+when Python is available, the dependency-free `alfa_amo_training_contracts`.
 
 ## Building
 

@@ -5,6 +5,7 @@
 #include "TensorReference.h"
 #include "TierConversion.h"
 #include "alfa/tensor/Compiler.h"
+#include "alfa/tensor/Schema.h"
 
 #include <chrono>
 #include <cmath>
@@ -57,7 +58,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout hostParameters()
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"mode", 1}, "Input mode", juce::StringArray{"Instrument", "FX", "Hybrid"}, 0));
     // Wave feature knobs: 0 is the loaded sound; each turns the sound along one measured descriptor
-    // (aom.wave-features/1). Preference faders move it through the user preference tensor space.
+    // (amo.wave-features/1). Preference faders move it through the user preference tensor space.
     for (size_t i = 0; i < waveFeatureNames.size(); ++i)
         layout.add(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"wf" + juce::String(static_cast<int>(i)), 1},
@@ -104,7 +105,7 @@ Processor::Processor()
 }
 juce::String Processor::referenceDocument(int index)
 {
-    const std::array<juce::String, 3> names{"instrument.aom.json", "fx.aom.json", "hybrid.aom.json"};
+    const std::array<juce::String, 3> names{"instrument.amo.json", "fx.amo.json", "hybrid.amo.json"};
     const auto selected = names[static_cast<size_t>(juce::jlimit(0, 2, index))];
     for (int i = 0; i < TensorReference::namedResourceListSize; ++i)
     {
@@ -931,7 +932,7 @@ void Processor::getStateInformation(juce::MemoryBlock& dest)
         wrapper["parameters"] = xml->toString().toStdString();
     if (auto xml = uiSettings_.createXml())
         wrapper["ui_settings"] = xml->toString().toStdString();
-    wrapper["state_schema"] = "aom.host/2";
+    wrapper["state_schema"] = "amo.host/2";
     const auto text = wrapper.dump();
     dest.replaceAll(text.data(), text.size());
 }
@@ -978,7 +979,8 @@ bool Processor::restoreState(const void* bytes, int length, juce::String& error)
         if (!data.is_object())
             throw std::invalid_argument("not a session object");
         const auto schema = data.value("state_schema", std::string{});
-        if (!schema.empty() && schema != "aom.host/1" && schema != "aom.host/2")
+        if (!schema.empty() && !alfa::tensor::schemaIs(schema, "amo.host/1") &&
+            !alfa::tensor::schemaIs(schema, "amo.host/2"))
             throw std::invalid_argument("session format " + schema + " is newer than this build");
         const auto configuration = data.at("configuration").get<std::string>();
         // Out-of-range host values are clamped rather than refused: a range may change between

@@ -179,7 +179,7 @@ TEST_CASE("Host imports a genuine runtime GRU compiler and refuses incompatible 
     alfa::tensorhost::Processor p;
     p.prepareToPlay(48000, 64);
     auto data = nlohmann::json::parse(alfa::tensorhost::Processor::referenceDocument(0).toStdString());
-    const auto model = juce::File(juce::String(ALFA_SOURCE_DIR) + "/training/aom/testdata/runtime_gru.json")
+    const auto model = juce::File(juce::String(ALFA_SOURCE_DIR) + "/training/amo/testdata/runtime_gru.json")
                            .loadFileAsString();
     data["runtimeModel"] = nlohmann::json::parse(model.toStdString());
     data["performance"] =

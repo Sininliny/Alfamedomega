@@ -19,7 +19,7 @@ namespace
 using Json = nlohmann::json;
 struct Builder
 {
-    Json document{{"schema", "aom.tensor/1"},         {"ontology", "aom.math/1"},
+    Json document{{"schema", "amo.tensor/1"},         {"ontology", "amo.math/1"},
                   {"instances", Json::array()},       {"projections", Json::array()},
                   {"parameter_locks", Json::array()}, {"shared_initial_state", Json::array()},
                   {"outputMix", Json::array()},       {"parameter_metadata", Json::array()}};
@@ -290,7 +290,7 @@ FactoryProgram instrument(std::string id, std::string name, std::string descript
         {"velocity_behavior", "attack and decay only; amplitude follows explicitly allocated envelope state"},
         {"partial_frequencies",
          "explicit ratios; this additive reference does not suppress harmonics above Nyquist"}};
-    j["preset"] = {{"schema", "aom.preset/1"},
+    j["preset"] = {{"schema", "amo.preset/1"},
                    {"id", id},
                    {"name", name},
                    {"category", hybrid ? "Hybrid" : "Instrument"}};
@@ -307,7 +307,7 @@ FactoryProgram fx(std::string id, std::string name, std::string description, Bui
     j["description"] = description;
     fxLayers(j, controlCoefficients);
     j["authoring"] = {{"kind", "explicit mathematical configuration"}, {"semantic_mappings", false}};
-    j["preset"] = {{"schema", "aom.preset/1"}, {"id", id}, {"name", name}, {"category", "FX"}};
+    j["preset"] = {{"schema", "amo.preset/1"}, {"id", id}, {"name", name}, {"category", "FX"}};
     return {std::move(id), std::move(name), "FX", std::move(description), j.dump(2)};
 }
 std::vector<FactoryProgram> makePrograms()
