@@ -114,6 +114,7 @@ class Execution final : public TensorExecution
     std::vector<ScopedModel> scopedModels_;
     TensorT<Scalar> latent_;
     std::array<std::vector<Scalar>, 6> boundary_;
+    std::vector<Scalar> levels_;
     std::string report_;
 
 public:
@@ -413,6 +414,7 @@ public:
             }
             report << "\nProjection terms: " << controls_.projections.size()
                    << "\nParameter locks: " << data.value("parameter_locks", JSON::array()).dump();
+            levels_.assign(runtime_.outputAllocation().size(), Scalar(0));
             report_ = report.str();
             error.clear();
             return true;
@@ -520,7 +522,14 @@ public:
         // afterwards, including between model events, without accumulating offsets.
         if (modelEvent && !mapControls())
             return {false, false};
-        return {runtime_.tick(inputs), accepted};
+        const auto rendered = runtime_.tick(inputs);
+        const auto output = runtime_.output();
+        const auto slices = runtime_.outputAllocation();
+        for (size_t i = 0; i < slices.size() && i < levels_.size(); ++i)
+            for (size_t e = slices[i].offset; e < slices[i].offset + slices[i].count && e < output.size();
+                 ++e)
+                levels_[i] = std::max(levels_[i], std::abs(output[e]));
+        return {rendered, accepted};
     }
     float mixedOutput(int channel) const noexcept override
     {
@@ -575,6 +584,31 @@ public:
         for (size_t i = 0; i < destination.size(); ++i)
             destination[i].store(i < state.size() ? static_cast<float>(state[i]) : 0.0f,
                                  std::memory_order_relaxed);
+    }
+    Layout layout() const override
+    {
+        const auto outputs = runtime_.outputAllocation();
+        const auto states = runtime_.stateAllocation();
+        return {{outputs.begin(), outputs.end()}, {states.begin(), states.end()}};
+    }
+    void telemetry(std::span<std::atomic<float>> instanceLevels, std::span<std::atomic<float>> parameters,
+                   std::span<std::atomic<float>> layerValues) noexcept override
+    {
+        for (size_t i = 0; i < instanceLevels.size(); ++i)
+            instanceLevels[i].store(i < levels_.size() ? static_cast<float>(levels_[i]) : 0.0f,
+                                    std::memory_order_relaxed);
+        std::fill(levels_.begin(), levels_.end(), Scalar(0));
+        const auto effective = runtime_.effectiveParameters();
+        for (size_t i = 0; i < parameters.size(); ++i)
+            parameters[i].store(i < effective.size() ? static_cast<float>(effective[i]) : 0.0f,
+                                std::memory_order_relaxed);
+        size_t cursor = 0;
+        for (const auto& layer : layers_)
+            for (const auto value : layer.values)
+                if (cursor < layerValues.size())
+                    layerValues[cursor++].store(static_cast<float>(value), std::memory_order_relaxed);
+        for (; cursor < layerValues.size(); ++cursor)
+            layerValues[cursor].store(0.0f, std::memory_order_relaxed);
     }
     std::vector<float> highestDefaults() const override
     {

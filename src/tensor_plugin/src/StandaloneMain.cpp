@@ -32,6 +32,9 @@ public:
                     if (!processor.loadJSON(juce::File(sound).loadFileAsString(), error))
                         throw std::runtime_error(error.toStdString());
                 }
+                if (const auto theme = juce::SystemStats::getEnvironmentVariable("ALFA_UI_THEME", {});
+                    theme.isNotEmpty())
+                    processor.uiSettings().setProperty("theme", theme, nullptr);
                 std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
                 juce::AudioBuffer<float> audio(2, 64);
                 audio.clear();
@@ -51,6 +54,10 @@ public:
                             juce::SystemStats::getEnvironmentVariable("ALFA_UI_VIEW", "0").getIntValue());
                     if (juce::SystemStats::getEnvironmentVariable("ALFA_UI_SMALL", "0") == "1")
                         editor->setSize(1040, 700);
+                    else if (const auto size = juce::SystemStats::getEnvironmentVariable("ALFA_UI_SIZE", {});
+                             size.containsChar('x'))
+                        editor->setSize(size.upToFirstOccurrenceOf("x", false, false).getIntValue(),
+                                        size.fromFirstOccurrenceOf("x", false, false).getIntValue());
                     const auto image = editor->createComponentSnapshot(editor->getLocalBounds());
                     juce::FileOutputStream output{juce::File(screenshot)};
                     juce::PNGImageFormat png;

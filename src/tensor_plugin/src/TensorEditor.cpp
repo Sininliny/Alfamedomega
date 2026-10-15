@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <numeric>
 
 namespace alfa::tensorhost
@@ -39,7 +40,7 @@ public:
         addAndMakeVisible(label);
         alfa::ui::visuals::rotaryGesture(slider,
                                          p.uiSettings().getProperty("knob_gesture", "vertical").toString());
-        slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 82, 22);
+        slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 82, 16);
         slider.textFromValueFunction = [](double v)
         {
             return compactText(v);
@@ -70,10 +71,13 @@ public:
     }
     void resized() override
     {
+        // Name under the knob, value as quiet text between them.
         auto r = getLocalBounds();
-        label.setBounds(r.removeFromTop(22));
+        label.setBounds(r.removeFromBottom(18));
         slider.setBounds(r);
     }
+    // Built before it joins the editor, so it takes the editor's look (value text, fonts) only now.
+    void parentHierarchyChanged() override { sendLookAndFeelChange(); }
     void mouseDown(const juce::MouseEvent&) override
     {
         if (onTouched)
@@ -99,12 +103,14 @@ Editor::Editor(Processor& p)
     , influence_(look_)
     , matrix_(look_)
     , capacity_(look_)
+    , space_(look_)
+    , layerState_(look_)
 {
     setLookAndFeel(&look_);
     setResizable(true, true);
     setResizeLimits(1040, 700, 1920, 1200);
     const auto saved = p.uiSettings();
-    view_ = juce::jlimit(0, 3, static_cast<int>(saved.getProperty("view", 0)));
+    view_ = juce::jlimit(0, 4, static_cast<int>(saved.getProperty("view", 0)));
     expertOpen_ = static_cast<bool>(saved.getProperty("expert_tools", false));
     setSize(static_cast<int>(saved.getProperty("width", 1280)),
             static_cast<int>(saved.getProperty("height", 800)));
@@ -116,14 +122,17 @@ Editor::Editor(Processor& p)
              &brand_, &version_, &status_, &telemetry_, &library_, &previousSound_, &nextSound_, &savePreset_,
              &openPreset_, &panic_, &bypass_, &a_, &b_, &capture_, &undo_, &redo_, &keyboard_, &meters_})
         addAndMakeVisible(c);
-    // Play, Structure and Tensor are depths of one sound; Settings sits apart at the right.
-    const std::array<juce::String, 4> views{"Play", "Structure", "Tensor", "Settings"};
-    const std::array<juce::String, 4> viewIds{"view.play", "view.structure", "view.tensor", "view.settings"};
-    const std::array<juce::String, 4> viewTips{
-        "Play the sound: X controls, what each one reaches, XY and output",
-        "Instances, their parameters, locks and the relationships that drive them",
-        "Control matrices as heat maps, raw tensors and the compiled report",
-        "Interface, library and the loaded sound's resources; never changes the sound"};
+    // Play is the calm surface; Controls, Instances and Tensor open the same sound deeper, level by level.
+    // Settings sits apart at the right. Indices stay stable for saved state and snapshots.
+    const std::array<juce::String, 5> views{"Play", "Instances", "Tensor", "Settings", "Controls"};
+    const std::array<juce::String, 5> viewIds{"view.play", "view.structure", "view.tensor", "view.settings",
+                                              "view.controls"};
+    const std::array<juce::String, 5> viewTips{
+        "Play the sound: every level drawn live, the first controls, XY and output",
+        "Instances by primitive family, their parameters with live modulation, and their relationships",
+        "Control matrices as heat maps, capacity, raw tensors and the compiled report",
+        "Interface, library and the loaded sound's resources; never changes the sound",
+        "Every X control layer: knobs, what the focused control reaches, and every layer's live values"};
     for (size_t i = 0; i < tabs_.size(); ++i)
     {
         addAndMakeVisible(tabs_[i]);
@@ -252,7 +261,7 @@ Editor::Editor(Processor& p)
     parameterViewport_.setViewedComponent(&parameterContent_, false);
     routingViewport_.setViewedComponent(&routingContent_, false);
     matrixViewport_.setViewedComponent(&matrix_, false);
-    primitives_.setRowHeight(42);
+    primitives_.setRowHeight(58);
     matrixViewport_.setScrollBarsShown(true, false);
     matrix_.onSelect = [this](int source, int destination)
     {
@@ -278,7 +287,25 @@ Editor::Editor(Processor& p)
         chooseView(view_);
     };
     matrixSelection_.setFont(alfa::ui::AlfaLookAndFeel::labelFont(13.5f));
+    space_.onMove = [this](const std::vector<double>& values, bool final)
+    {
+        applySpace(values, final);
+    };
+    layerState_.onSelect = [this](int layer, int index)
+    {
+        highLayer_ = layer;
+        layerSelect_.setSelectedId(layer + 1, juce::dontSendNotification);
+        const auto order = controlOrder();
+        const auto position =
+            std::find(order.begin(), order.end(), static_cast<size_t>(index)) - order.begin();
+        highPage_ = static_cast<int>(position) / 8;
+        rebuildHighControls();
+        refreshSpace();
+        focusControl(index);
+    };
     for (auto* c : std::initializer_list<juce::Component*>{&scope_,
+                                                           &space_,
+                                                           &layerState_,
                                                            &exploration_,
                                                            &xAxis_,
                                                            &yAxis_,
@@ -343,6 +370,7 @@ Editor::Editor(Processor& p)
         highLayer_ = juce::jmax(0, layerSelect_.getSelectedId() - 1);
         highPage_ = 0;
         rebuildHighControls();
+        refreshSpace();
     };
     compose_.onClick = [this]
     {
@@ -655,8 +683,14 @@ void Editor::paint(juce::Graphics& g)
     g.drawHorizontalLine(115, 18.0f, static_cast<float>(getWidth() - 18));
     if (view_ == 0)
     {
+        surface(g, t, spaceArea_, "Sound space", "the two directions that change this sound most");
+        surface(g, t, highArea_, "Controls");
+    }
+    if (view_ == 4)
+    {
         surface(g, t, highArea_, "Controls", "X / many-to-many");
         surface(g, t, influenceArea_, "Influence", "what the focused control reaches");
+        surface(g, t, layerStateArea_, "Layer state", "every layer, live; click a bar");
         surface(g, t, xyArea_, "XY", "two explicit axes");
     }
     if (view_ == 1)
@@ -694,6 +728,23 @@ void Editor::paint(juce::Graphics& g)
     surface(g, t, footer_, "");
     paintFlow(g, footer_.withTrimmedLeft(320).withTrimmedRight(260).reduced(0, 14));
 }
+void Editor::paintOverChildren(juce::Graphics& g)
+{
+    // Each level keeps one colour, as a dot on its tab: Play the accent, Controls violet, Instances teal,
+    // Tensor indigo. The same hues are used by the identity palette, so the tabs read as a legend.
+    const auto& t = look_.theme();
+    const std::array<juce::Colour, 5> colours{t.accent, identityColour(t, 0.47f), identityColour(t, 0.66f),
+                                              t.text2, identityColour(t, 0.80f)};
+    for (size_t i = 0; i < tabs_.size(); ++i)
+    {
+        if (i == 3)
+            continue;
+        const auto bounds = tabs_[i].getBounds().toFloat();
+        const auto on = tabs_[i].getToggleState();
+        g.setColour(on ? t.bg : colours[i]);
+        g.fillEllipse(juce::Rectangle<float>(7, 7).withCentre({bounds.getX() + 11, bounds.getCentreY()}));
+    }
+}
 void Editor::paintFlow(juce::Graphics& g, juce::Rectangle<int> area)
 {
     // Live summary of the current sound: what comes in, through how much structure, and what goes out.
@@ -715,34 +766,17 @@ void Editor::paintFlow(juce::Graphics& g, juce::Rectangle<int> area)
     catch (const std::exception&)
     {
     }
-    const std::array<juce::String, 4> steps{
-        mode == 0   ? "MIDI"
-        : mode == 1 ? "Audio"
-                    : "Audio + MIDI",
-        juce::String(static_cast<int>(controls)) + " X, " + juce::String(static_cast<int>(layers)) +
-            (layers == 1 ? " layer" : " layers"),
-        juce::String(static_cast<int>(instances)) + " instances",
-        juce::String(getAudioProcessor()->getTotalNumOutputChannels()) + " ch out"};
-    auto row = area.removeFromTop(area.getHeight() / 2 + 4);
-    const auto chip = (row.getWidth() - 3 * 22) / 4;
-    g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11.5f, true));
-    for (size_t i = 0; i < steps.size(); ++i)
-    {
-        auto box = row.removeFromLeft(chip).toFloat().reduced(0, 3);
-        g.setColour(t.bg);
-        g.fillRoundedRectangle(box, 5);
-        g.setColour(i == 0 && processor_.activeNotes.load() > 0 ? t.accent : t.line);
-        g.drawRoundedRectangle(box, 5, 1);
-        g.setColour(t.text);
-        g.drawText(steps[i], box, juce::Justification::centred, true);
-        if (i + 1 < steps.size())
-        {
-            auto arrow = row.removeFromLeft(22).toFloat();
-            g.setColour(t.text2);
-            const auto y = arrow.getCentreY(), x = arrow.getX() + 5;
-            g.drawArrow({x, y, x + 12, y}, 1.2f, 6, 6);
-        }
-    }
+    const juce::String input = mode == 0 ? "MIDI" : mode == 1 ? "Audio" : "Audio + MIDI";
+    const juce::String structure =
+        juce::String(static_cast<int>(controls)) + " X in " + juce::String(static_cast<int>(layers)) +
+        (layers == 1 ? " layer, " : " layers, ") + juce::String(static_cast<int>(instances)) + " instances";
+    auto row = area.removeFromTop(area.getHeight() / 2);
+    g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(12.5f, true));
+    g.setColour(processor_.activeNotes.load() > 0 ? t.accent : t.text);
+    g.drawText(input, row.removeFromLeft(row.getWidth() / 3), juce::Justification::centred, true);
+    g.setColour(t.text2);
+    g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(12.5f));
+    g.drawText(structure, row, juce::Justification::centredLeft, true);
     // Live readouts as label / value pairs, readable at a glance in a host window.
     const std::array<std::pair<juce::String, juce::String>, 4> stats{
         {{"State", juce::String(static_cast<int>(state))},
@@ -771,12 +805,12 @@ void Editor::resized()
     auto brand = top.removeFromLeft(150);
     brand_.setBounds(brand.removeFromTop(25));
     version_.setBounds(brand);
-    for (size_t i = 0; i < 3; ++i)
-        tabs_[i].setBounds(top.removeFromLeft(84).reduced(2, 5));
+    for (const auto i : {0, 4, 1, 2})
+        tabs_[static_cast<size_t>(i)].setBounds(top.removeFromLeft(100).reduced(2, 5));
     tabs_[3].setBounds(top.removeFromRight(84).reduced(2, 5));
     panic_.setBounds(top.removeFromRight(64).reduced(2, 5));
     bypass_.setBounds(top.removeFromRight(80).reduced(2, 7));
-    auto modes = top.removeFromRight(252).reduced(4, 5);
+    auto modes = top.removeFromRight(top.getWidth() < 360 ? 222 : 252).reduced(4, 5);
     const auto modeWidth = modes.getWidth() / static_cast<int>(modes_.size());
     for (auto& mode : modes_)
         mode.setBounds(modes.removeFromLeft(modeWidth));
@@ -798,31 +832,69 @@ void Editor::resized()
     const auto keyboardHeight = showKeyboard_.getToggleState() ? 70 : 0;
     keyboard_.setVisible(keyboardHeight != 0);
     keyboard_.setBounds(18, getHeight() - keyboardHeight - 24, getWidth() - 36, keyboardHeight);
+    // All 75 white keys of the MIDI range fill the width.
+    keyboard_.setKeyWidth(static_cast<float>(keyboard_.getWidth() - 16) / 75.0f);
     status_.setBounds(20, getHeight() - 22, getWidth() - 40, 20);
     workspace_ = {18, 126, getWidth() - 36, getHeight() - 126 - keyboardHeight - 124};
     footer_ = {18, workspace_.getBottom() + 10, getWidth() - 36, 88};
 
-    // Play: controls and their influence on the left, XY and output on the right.
-    const auto rightWidth = juce::jmax(300, workspace_.getWidth() / 3);
+    // Play: sound elements drawn as they sound (and the output), the sound space beside them, the first
+    // controls along the bottom. Controls: the knobs on top, then influence, every layer live and XY.
     auto play = workspace_;
-    auto right = play.removeFromRight(rightWidth);
-    play.removeFromRight(12);
-    xyArea_ = right.removeFromTop(right.getHeight() * 11 / 20);
-    right.removeFromTop(12);
-    scopeArea_ = right;
-    highArea_ = play.removeFromTop(juce::jmin(230, play.getHeight() / 2 + 20));
-    play.removeFromTop(12);
-    influenceArea_ = play;
-    auto high = highArea_.reduced(14);
-    high.removeFromTop(26);
-    auto highToolbar = high.removeFromTop(28);
-    layerSelect_.setBounds(highToolbar.removeFromLeft(160));
+    if (view_ == 4)
+    {
+        highArea_ = play.removeFromTop(juce::jmin(230, play.getHeight() * 11 / 20));
+        play.removeFromTop(12);
+        xyArea_ = play.removeFromRight(juce::jlimit(240, 340, play.getWidth() / 4));
+        play.removeFromRight(12);
+        layerStateArea_ = play.removeFromRight(play.getWidth() * 9 / 20);
+        play.removeFromRight(12);
+        influenceArea_ = play;
+    }
+    else
+    {
+        highArea_ = play.removeFromBottom(juce::jlimit(124, 150, play.getHeight() / 3));
+        play.removeFromBottom(12);
+        spaceArea_ = play.removeFromRight(juce::jlimit(300, 420, play.getWidth() * 34 / 100));
+        play.removeFromRight(12);
+        elementsArea_ = play;
+        // Elements and the output share a grid, two or three columns wide.
+        const auto cells = static_cast<int>(elements_.size()) + 1;
+        const auto columns = cells <= 1 ? 1 : cells <= 4 ? 2 : 3;
+        const auto rows = (cells + columns - 1) / columns;
+        const auto cellWidth = (elementsArea_.getWidth() - (columns - 1) * 12) / columns;
+        const auto cellHeight = (elementsArea_.getHeight() - (rows - 1) * 12) / rows;
+        for (int i = 0; i < cells; ++i)
+        {
+            auto cell = juce::Rectangle<int>(elementsArea_.getX() + (i % columns) * (cellWidth + 12),
+                                             elementsArea_.getY() + (i / columns) * (cellHeight + 12),
+                                             cellWidth, cellHeight);
+            // The last cell takes what is left of its row, so a short last row leaves no hole.
+            if (i == cells - 1)
+                cell.setRight(elementsArea_.getRight());
+            if (i < static_cast<int>(elements_.size()))
+                elements_[static_cast<size_t>(i)]->setBounds(cell);
+            else
+                scopeArea_ = cell;
+        }
+    }
+    space_.setBounds(spaceArea_.reduced(12, 10).withTrimmedTop(24));
+    layerState_.setBounds(layerStateArea_.reduced(16, 12).withTrimmedTop(26));
+    auto high = highArea_.reduced(14, view_ == 4 ? 14 : 8);
+    high.removeFromTop(view_ == 4 ? 26 : 22);
+    auto highToolbar = view_ == 4 ? high.removeFromTop(28) : highArea_.reduced(14, 6).withHeight(24);
+    if (view_ == 4)
+        layerSelect_.setBounds(highToolbar.removeFromLeft(160));
+    else
+        highToolbar.removeFromLeft(90);
     if (ranked_)
         order_.setBounds(highToolbar.removeFromLeft(130).withTrimmedLeft(8));
     pageNext_.setBounds(highToolbar.removeFromRight(30));
     pagePrevious_.setBounds(highToolbar.removeFromRight(30));
+    if (view_ != 4)
+        highToolbar.removeFromRight(juce::jmin(330, highToolbar.getWidth() / 2));
     levelHeader_.setBounds(highToolbar.reduced(8, 0));
-    high.removeFromTop(6);
+    high.removeFromTop(view_ == 4 ? 6 : 2);
     const auto highWidth = high.getWidth() / 8;
     for (size_t i = 0; i < highControls_.size(); ++i)
         highControls_[i]->setBounds(high.removeFromLeft(highWidth).reduced(3, 0));
@@ -838,8 +910,8 @@ void Editor::resized()
     // Structure: instances, the selected instance's parameters, and the relationships into it.
     primitiveArea_ = workspace_;
     parameterArea_ = primitiveArea_;
-    primitiveArea_.setWidth(224);
-    parameterArea_.removeFromLeft(236);
+    primitiveArea_.setWidth(300);
+    parameterArea_.removeFromLeft(312);
     routingArea_ = parameterArea_.removeFromRight(juce::jmax(330, parameterArea_.getWidth() * 2 / 5));
     parameterArea_.removeFromRight(12);
     primitives_.setBounds(primitiveArea_.reduced(10).withTrimmedTop(28));
@@ -914,11 +986,11 @@ void Editor::resized()
 
     const auto bottomY = footer_.getY() + 12;
     if (inputGain_)
-        inputGain_->setBounds(34, bottomY, 90, 70);
+        inputGain_->setBounds(34, bottomY - 6, 90, 80);
     if (mix_)
-        mix_->setBounds(132, bottomY, 90, 70);
+        mix_->setBounds(132, bottomY - 6, 90, 80);
     if (outputGain_)
-        outputGain_->setBounds(230, bottomY, 90, 70);
+        outputGain_->setBounds(230, bottomY - 6, 90, 80);
     meters_.setBounds(footer_.getRight() - 132, bottomY - 4, 114, 72);
     telemetry_.setBounds(footer_.getRight() - 250, bottomY + 22, 110, 24);
     processor_.uiSettings().setProperty("width", getWidth(), nullptr);
@@ -970,16 +1042,22 @@ void Editor::layoutSettings()
 }
 void Editor::chooseView(int index)
 {
-    view_ = juce::jlimit(0, 3, index);
+    view_ = juce::jlimit(0, 4, index);
     for (size_t i = 0; i < tabs_.size(); ++i)
         tabs_[i].setToggleState(static_cast<int>(i) == view_, juce::dontSendNotification);
-    for (auto* c :
-         std::initializer_list<juce::Component*>{&scope_, &exploration_, &xAxis_, &yAxis_, &layerSelect_,
-                                                 &pagePrevious_, &pageNext_, &levelHeader_, &influence_})
+    const auto controls = view_ == 0 || view_ == 4;
+    for (auto* c : std::initializer_list<juce::Component*>{&scope_, &space_})
         c->setVisible(view_ == 0);
-    order_.setVisible(view_ == 0 && ranked_);
+    for (auto& element : elements_)
+        element->setVisible(view_ == 0);
+    for (auto* c : std::initializer_list<juce::Component*>{&layerSelect_, &influence_, &layerState_,
+                                                           &exploration_, &xAxis_, &yAxis_})
+        c->setVisible(view_ == 4);
+    for (auto* c : std::initializer_list<juce::Component*>{&pagePrevious_, &pageNext_, &levelHeader_})
+        c->setVisible(controls);
+    order_.setVisible(controls && ranked_);
     for (auto& knob : highControls_)
-        knob->setVisible(view_ == 0);
+        knob->setVisible(controls);
     for (auto* c : std::initializer_list<juce::Component*>{&primitives_, &parameterViewport_,
                                                            &routingViewport_, &paramHeader_, &routeHeader_,
                                                            &rawPrevious_, &rawNext_, &newRoute_})
@@ -1023,7 +1101,8 @@ void Editor::applyTheme()
         chosen.accent = juce::Colour::fromString("ff" + accent.removeCharacters("#"));
     look_.setTheme(chosen);
     processor_.uiSettings().setProperty("theme", ids[index], nullptr);
-    repaint();
+    // Labels inside combo boxes and value text copy their colours when built; rebuild them in the new theme.
+    sendLookAndFeelChange();
 }
 void Editor::refreshLibrary()
 {
@@ -1168,6 +1247,7 @@ void Editor::refreshSound()
                                                          : "Uniform DSP precision: float32",
                            juce::dontSendNotification);
         revision_ = processor_.programRevision.load();
+        telemetryMark_ = processor_.telemetryBlocks.load(std::memory_order_acquire);
         selectedPrimitive_ =
             juce::jlimit(0, static_cast<int>(sound_.at("instances").size()), selectedPrimitive_);
         primitives_.updateContent();
@@ -1214,6 +1294,18 @@ void Editor::refreshSound()
         rebuildLayers();
         rebuildHighControls();
         refreshTensor();
+        rebuildElements();
+        refreshSpace();
+        std::vector<LayerStateView::Layer> stateLayers;
+        for (const auto& layer : sound_.value("control_layers", nlohmann::json::array()))
+        {
+            auto& state = stateLayers.emplace_back();
+            for (const auto& range : layer.at("ranges"))
+                state.ranges.push_back({range.at(0).get<double>(), range.at(1).get<double>()});
+            for (const auto& value : layer.at("values"))
+                state.values.push_back(value.get<double>());
+        }
+        layerState_.setLayers(std::move(stateLayers));
         library_.setButtonText(PresetStore::presetName(processor_.document()));
         chooseView(view_);
     }
@@ -1412,63 +1504,65 @@ int Editor::getNumRows()
 }
 void Editor::paintListBoxItem(int row, juce::Graphics& g, int width, int height, bool selected)
 {
+    // One card per instance: family colour, title, primitive, activation and the live output level.
     const auto& t = look_.theme();
+    auto card = juce::Rectangle<float>(3, 3, static_cast<float>(width - 6), static_cast<float>(height - 6));
+    g.setColour(selected ? t.accent.withAlpha(0.10f) : t.bg.withAlpha(0.55f));
+    g.fillRoundedRectangle(card, 6);
     if (selected)
     {
-        g.setColour(t.accent.withAlpha(0.12f));
-        g.fillRoundedRectangle(
-            juce::Rectangle<float>(2, 2, static_cast<float>(width - 4), static_cast<float>(height - 4)), 4);
+        g.setColour(t.accent.withAlpha(0.7f));
+        g.drawRoundedRectangle(card, 6, 1);
     }
-    g.setColour(selected ? t.accent : t.text2);
-    g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(12, row == 0));
     if (row == 0)
     {
-        g.drawText("All raw parameters", 8, 0, width - 16, height, juce::Justification::centredLeft);
+        g.setColour(selected ? t.accent : t.text);
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(13, true));
+        g.drawText("All raw parameters", card.reduced(12, 0).toNearestInt(),
+                   juce::Justification::centredLeft);
         return;
     }
     try
     {
-        const auto& instance = sound_.at("instances").at(static_cast<size_t>(row - 1));
+        const auto index = static_cast<size_t>(row - 1);
+        const auto& instance = sound_.at("instances").at(index);
         const auto id = js(instance.at("primitive").get<std::string>());
-        const auto index = instance.at("activation").get<size_t>();
-        const auto activation = sound_.at("tensors").at("activation").at("values").at(index).get<double>();
-        // Title: the words every parameter name of this instance shares ("Voice 1"), else its index.
-        juce::StringArray common;
-        int parameters = 0;
-        for (const auto& meta : sound_.value("parameter_metadata", nlohmann::json::array()))
-        {
-            if (meta.value("instance", size_t(-1)) != static_cast<size_t>(row - 1))
-                continue;
-            const auto words = juce::StringArray::fromTokens(js(meta.value("name", std::string{})), " ", "");
-            if (parameters++ == 0)
-                common = words;
-            else
-            {
-                int shared = 0;
-                while (shared < common.size() && shared < words.size() && common[shared] == words[shared])
-                    ++shared;
-                common.removeRange(shared, common.size());
-            }
-        }
-        const auto title = parameters > 1 && !common.isEmpty() ? common.joinIntoString(" ")
-                                                               : "Instance " + juce::String(row - 1);
-        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(13, selected));
-        g.setColour(selected ? t.accent : t.text);
-        g.drawText(title, 8, 3, width - 60, 18, juce::Justification::centredLeft, true);
-        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11));
-        g.setColour(t.text2);
-        g.drawText(juce::String(row - 1) + "  " + id +
-                       (parameters ? "  /  " + juce::String(parameters) + " parameters" : juce::String()),
-                   8, 20, width - 16, 14, juce::Justification::centredLeft, true);
-        g.setColour(t.line);
-        g.fillRoundedRectangle(8.0f, height - 6.0f, width - 60.0f, 3.0f, 1.5f);
-        g.setColour(activation > 0 ? t.mod : t.line);
-        g.fillRoundedRectangle(
-            8.0f, height - 6.0f,
-            static_cast<float>((width - 60) * juce::jlimit(0.0, 1.0, std::abs(activation))), 3.0f, 1.5f);
+        const auto activation = sound_.at("tensors")
+                                    .at("activation")
+                                    .at("values")
+                                    .at(instance.at("activation").get<size_t>())
+                                    .get<double>();
+        const auto colour = familyColour(t, id);
+        const auto active = activation != 0.0;
+        g.setColour(active ? colour : colour.withAlpha(0.3f));
+        g.fillRoundedRectangle(card.withWidth(4).translated(1, 0).reduced(0, 4), 2);
+        auto text = card.reduced(14, 6);
+        const auto parameters = instance.at("parameters").at("count").get<int>();
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(13, true));
+        g.setColour(active ? (selected ? t.accent : t.text) : t.text2);
+        g.drawText(instanceTitle(sound_, index), text.removeFromTop(18).withTrimmedRight(70).toNearestInt(),
+                   juce::Justification::centredLeft, true);
         g.setFont(alfa::ui::AlfaLookAndFeel::monoFont(11));
-        g.setColour(activation > 0 ? t.text : t.text2);
-        g.drawText(compactText(activation), width - 48, 3, 40, 18, juce::Justification::centredRight);
+        g.setColour(active ? t.text : t.text2);
+        g.drawText(active ? "act " + compactText(activation) : juce::String("off"),
+                   juce::Rectangle<float>(card.getRight() - 84, card.getY() + 6, 72, 18).toNearestInt(),
+                   juce::Justification::centredRight);
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11));
+        g.setColour(colour.interpolatedWith(t.text2, 0.35f));
+        g.drawText(juce::String(static_cast<int>(index)) + "  " + id +
+                       (parameters ? "  /  " + juce::String(parameters) + " parameters" : juce::String()),
+                   text.removeFromTop(15).toNearestInt(), juce::Justification::centredLeft, true);
+        // Live output level of this instance in the last block, on a 60 dB scale.
+        auto meter = text.removeFromBottom(5);
+        g.setColour(t.line);
+        g.fillRoundedRectangle(meter, 2.5f);
+        if (telemetryFresh() && index < processor_.instanceLevels.size())
+        {
+            const auto level =
+                levelFraction(processor_.instanceLevels[index].load(std::memory_order_relaxed));
+            g.setColour(colour);
+            g.fillRoundedRectangle(meter.withWidth(meter.getWidth() * level), 2.5f);
+        }
     }
     catch (const std::exception&)
     {
@@ -1484,8 +1578,24 @@ void Editor::selectedRowsChanged(int row)
 void Editor::rebuildParameters()
 {
     parameterRows_.clear();
+    parameterRowIndex_.clear();
+    parameterLiveColour_.clear();
     try
     {
+        // The live mark takes the colour of the strongest relationship into the parameter; parameters moved
+        // only by control layers use the modulation colour.
+        std::map<size_t, std::pair<double, juce::String>> strongest;
+        for (const auto& route : sound_.value("projections", nlohmann::json::array()))
+        {
+            const auto target = route.at("parameter_element").get<size_t>();
+            const auto weight = std::abs(sound_.at("tensors")
+                                             .at(route.at("weights").get<std::string>())
+                                             .at("values")
+                                             .at(route.at("weight_element").get<size_t>())
+                                             .get<double>());
+            if (!strongest.count(target) || weight > strongest[target].first)
+                strongest[target] = {weight, js(route.at("source").get<std::string>())};
+        }
         const auto& values = sound_.at("tensors").at("parameters").at("values");
         size_t start = 0, count = values.size();
         if (selectedPrimitive_ > 0)
@@ -1499,6 +1609,8 @@ void Editor::rebuildParameters()
                 [this, ai](double v, juce::String& e) { return changeTensor("activation", ai, v, e); });
             parameterContent_.addAndMakeVisible(*row);
             parameterRows_.push_back(std::move(row));
+            parameterRowIndex_.push_back(-1);
+            parameterLiveColour_.push_back(look_.theme().mod);
         }
         rawPage_ = juce::jlimit(0, juce::jmax(0, static_cast<int>((count + 63) / 64) - 1), rawPage_);
         const auto begin = start + static_cast<size_t>(rawPage_) * 64;
@@ -1525,6 +1637,10 @@ void Editor::rebuildParameters()
                 locked, parameterRange(index));
             parameterContent_.addAndMakeVisible(*row);
             parameterRows_.push_back(std::move(row));
+            parameterRowIndex_.push_back(static_cast<int>(index));
+            parameterLiveColour_.push_back(strongest.count(index)
+                                               ? sourceColour(look_.theme(), strongest[index].second)
+                                               : look_.theme().mod);
         }
         paramHeader_.setText(juce::String(static_cast<int>(begin)) + "-" +
                                  juce::String(static_cast<int>(end)) + " / " +
@@ -1621,6 +1737,7 @@ void Editor::rebuildRoutes()
                 [this, tensorName, weight](double v, juce::String& e)
                 { return changeTensor(tensorName, weight, v, e); });
             row->showWeightBar(look_.theme(), scale);
+            row->setIdentity(sourceColour(look_.theme(), js(route.at("source").get<std::string>())));
             routingContent_.addAndMakeVisible(*row);
             routeRows_.push_back(std::move(row));
         }
@@ -1720,6 +1837,23 @@ void Editor::selectMatrixCell(int source, int destination)
     matrix_.select(source, destination);
     refreshTensor();
 }
+std::vector<size_t> Editor::controlOrder() const
+{
+    // A learned ranking written by AOM Centre orders the controls, most important first.
+    // Without one the order is the authored index order and nothing is called learned.
+    const auto layers = sound_.value("control_layers", nlohmann::json::array());
+    const auto layer = static_cast<size_t>(highLayer_);
+    const auto count = layer < layers.size() ? layers[layer].at("values").size() : size_t(0);
+    std::vector<size_t> order(count);
+    std::iota(order.begin(), order.end(), size_t{0});
+    if (indexOrder_ || layer >= layers.size() || !layers[layer].contains("ranking"))
+        return order;
+    const auto importance = layers[layer].at("ranking").at("importance").get<std::vector<double>>();
+    if (importance.size() == count)
+        std::stable_sort(order.begin(), order.end(),
+                         [&](size_t a, size_t b) { return importance[a] > importance[b]; });
+    return order;
+}
 void Editor::rebuildHighControls()
 {
     highControls_.clear();
@@ -1805,6 +1939,7 @@ void Editor::rebuildHighControls()
             addChildComponent(*knob);
             highControls_.push_back(std::move(knob));
         }
+        layerState_.setPage(highLayer_, static_cast<int>(begin), static_cast<int>(end));
         const auto pages =
             juce::String(highPage_ + 1) + "/" + juce::String(static_cast<int>((count + 7) / 8));
         if (!count)
@@ -1826,8 +1961,8 @@ void Editor::rebuildHighControls()
         yAxis_.setEnabled(count > 0);
         exploration_.setEnabled(count > 0);
         for (auto& control : highControls_)
-            control->setVisible(view_ == 0);
-        order_.setVisible(view_ == 0 && ranked_);
+            control->setVisible(view_ == 0 || view_ == 4);
+        order_.setVisible((view_ == 0 || view_ == 4) && ranked_);
         resized();
     }
     catch (const std::exception& e)
@@ -1904,6 +2039,190 @@ void Editor::refreshTensor()
         showStatus(e.what(), true);
     }
 }
+void Editor::rebuildElements()
+{
+    // One element per primitive, in order of first appearance; at most five, specific views first.
+    for (auto& element : elements_)
+        removeChildComponent(element.get());
+    elements_.clear();
+    try
+    {
+        const auto& instances = sound_.at("instances");
+        const auto& parameters = sound_.at("tensors").at("parameters").at("values");
+        std::vector<juce::String> primitives;
+        for (const auto& instance : instances)
+            if (const auto id = js(instance.at("primitive").get<std::string>());
+                std::find(primitives.begin(), primitives.end(), id) == primitives.end())
+                primitives.push_back(id);
+        std::stable_partition(primitives.begin(), primitives.end(), [](const juce::String& id)
+                              { return ElementView::kindOf(id) != ElementView::Kind::Generic; });
+        if (primitives.size() > 5)
+            primitives.resize(5);
+        const auto base = parameters.get<std::vector<double>>();
+        for (const auto& id : primitives)
+        {
+            std::vector<ElementView::Instance> members;
+            for (size_t i = 0; i < instances.size(); ++i)
+                if (js(instances[i].at("primitive").get<std::string>()) == id)
+                    members.push_back({i, instances[i].at("parameters").at("offset").get<size_t>(),
+                                       instances[i].at("parameters").at("count").get<size_t>()});
+            std::vector<std::array<double, 2>> ranges;
+            std::vector<juce::String> names;
+            for (size_t p = 0; p < members.front().count; ++p)
+            {
+                const auto range = parameterRange(members.front().offset + p);
+                ranges.push_back(range ? std::array<double, 2>{(*range)[0], (*range)[1]}
+                                       : std::array<double, 2>{0.0, 0.0});
+                names.push_back(parameterName(members.front().offset + p));
+            }
+            static const std::map<ElementView::Kind, juce::String> kindNames{
+                {ElementView::Kind::Envelope, "Envelope"},  {ElementView::Kind::Lowpass, "Low-pass"},
+                {ElementView::Kind::Partials, "Partials"},  {ElementView::Kind::Delay, "Delay"},
+                {ElementView::Kind::Width, "Stereo width"}, {ElementView::Kind::Reverb, "Reverb"}};
+            const auto kind = ElementView::kindOf(id);
+            const auto title = kindNames.count(kind) ? kindNames.at(kind)
+                               : members.size() > 1
+                                   ? id.fromFirstOccurrenceOf(".", false, false).replaceCharacter('_', ' ')
+                                   : instanceTitle(sound_, members.front().index);
+            auto element = std::make_unique<ElementView>(
+                look_, id, title.substring(0, 1).toUpperCase() + title.substring(1), members,
+                std::move(ranges), std::move(names));
+            element->setBase(base);
+            const auto first = members.front().index;
+            element->onOpen = [this, first]
+            {
+                openInstance(first);
+            };
+            element->onEdit = [this, members](const std::vector<std::pair<size_t, double>>& edits)
+            {
+                try
+                {
+                    auto data = nlohmann::json::parse(processor_.document().toStdString());
+                    auto& values = data.at("tensors").at("parameters").at("values");
+                    for (const auto& member : members)
+                        for (const auto& [parameter, value] : edits)
+                            if (parameter < member.count)
+                                values.at(member.offset + parameter) = value;
+                    juce::String error;
+                    if (changeDocument(std::move(data), error))
+                        showStatus("Updated " + juce::String(static_cast<int>(members.size())) +
+                                   (members.size() == 1 ? " instance" : " instances"));
+                }
+                catch (const std::exception& e)
+                {
+                    showStatus(e.what(), true);
+                }
+            };
+            addChildComponent(*element);
+            elements_.push_back(std::move(element));
+        }
+    }
+    catch (const std::exception& e)
+    {
+        showStatus(e.what(), true);
+    }
+}
+void Editor::openInstance(size_t instance)
+{
+    chooseView(1);
+    primitives_.selectRow(static_cast<int>(instance) + 1);
+}
+std::vector<double> Editor::currentLayerValues() const
+{
+    // The coordinates the user edits: authored values, with the eight host controls of layer 0 as automated.
+    std::vector<double> values;
+    const auto layers = sound_.value("control_layers", nlohmann::json::array());
+    const auto layer = static_cast<size_t>(highLayer_);
+    if (layer >= layers.size())
+        return values;
+    values = layers[layer].at("values").get<std::vector<double>>();
+    if (layer == 0)
+        for (size_t i = 0; i < values.size() && i < 8; ++i)
+            if (auto* raw =
+                    processor_.parameters().getRawParameterValue("x" + juce::String(static_cast<int>(i))))
+                values[i] = raw->load();
+    return values;
+}
+void Editor::refreshSpace()
+{
+    juce::StringArray names;
+    const auto layers = sound_.value("control_layers", nlohmann::json::array());
+    const auto layer = static_cast<size_t>(highLayer_);
+    if (layer < layers.size())
+        for (size_t i = 0; i < layers[layer].at("values").size(); ++i)
+            names.add(controlName(layer, i));
+    try
+    {
+        space_.setProjection(projectControls(sound_, layer, [this](size_t p) { return parameterName(p); }),
+                             names);
+    }
+    catch (const std::exception& e)
+    {
+        space_.setProjection({}, {});
+        showStatus(e.what(), true);
+    }
+    space_.setValues(currentLayerValues());
+}
+void Editor::applySpace(const std::vector<double>& values, bool final)
+{
+    const auto layer = static_cast<size_t>(space_.projection().layer);
+    const auto layers = sound_.value("control_layers", nlohmann::json::array());
+    if (layer >= layers.size() || values.size() != layers[layer].at("values").size())
+        return;
+    // Host controls follow the drag; deeper coordinates are written once, when the drag ends.
+    bool deeper = false;
+    for (size_t i = 0; i < values.size(); ++i)
+    {
+        if (layer == 0 && i < 8)
+        {
+            if (auto* parameter =
+                    processor_.parameters().getParameter("x" + juce::String(static_cast<int>(i))))
+            {
+                if (!spaceDragging_)
+                    parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost(parameter->convertTo0to1(static_cast<float>(values[i])));
+                if (final)
+                    parameter->endChangeGesture();
+            }
+        }
+        else if (values[i] != layers[layer].at("values").at(i).get<double>())
+            deeper = true;
+    }
+    spaceDragging_ = !final;
+    space_.setValues(values);
+    if (final && deeper)
+    {
+        try
+        {
+            auto data = nlohmann::json::parse(processor_.document().toStdString());
+            auto& stored = data.at("control_layers").at(layer).at("values");
+            for (size_t i = layer == 0 ? 8 : 0; i < values.size(); ++i)
+                stored.at(i) = values[i];
+            juce::String error;
+            changeDocument(std::move(data), error);
+        }
+        catch (const std::exception& e)
+        {
+            showStatus(e.what(), true);
+        }
+    }
+}
+bool Editor::telemetryFresh() const
+{
+    // Live values describe the loaded sound once a block has run since it was published.
+    return processor_.telemetryBlocks.load(std::memory_order_acquire) > telemetryMark_ + 1;
+}
+std::vector<float> Editor::liveLayerValues() const
+{
+    std::vector<float> result;
+    size_t count = 0;
+    for (const auto& layer : sound_.value("control_layers", nlohmann::json::array()))
+        count += layer.at("values").size();
+    count = juce::jmin(count, processor_.liveLayerValues.size());
+    for (size_t i = 0; i < count; ++i)
+        result.push_back(processor_.liveLayerValues[i].load(std::memory_order_relaxed));
+    return result;
+}
 void Editor::setCoefficient()
 {
     try
@@ -1942,6 +2261,73 @@ void Editor::timerCallback()
     scope_.repaint();
     meters_.repaint();
     exploration_.repaint();
+    const auto fresh = telemetryFresh();
+    if (view_ == 0)
+    {
+        std::vector<float> parameters, levels;
+        if (fresh)
+        {
+            const auto count = juce::jmin(processor_.liveParameters.size(),
+                                          sound_.at("tensors").at("parameters").at("values").size());
+            for (size_t i = 0; i < count; ++i)
+                parameters.push_back(processor_.liveParameters[i].load(std::memory_order_relaxed));
+            const auto instances = juce::jmin(processor_.instanceLevels.size(),
+                                              sound_.value("instances", nlohmann::json::array()).size());
+            for (size_t i = 0; i < instances; ++i)
+                levels.push_back(processor_.instanceLevels[i].load(std::memory_order_relaxed));
+        }
+        const auto rate = processor_.getSampleRate();
+        for (auto& element : elements_)
+            element->setLive(parameters, levels, rate);
+        if (!spaceDragging_)
+            space_.setValues(currentLayerValues());
+        std::vector<std::pair<juce::String, std::vector<double>>> markers;
+        if (highLayer_ == 0)
+            for (size_t k = 0; k < snapshots_.size(); ++k)
+                if (snapshots_[k].valid && selectedSnapshot_ != static_cast<int>(k))
+                {
+                    auto values = currentLayerValues();
+                    for (size_t i = 0; i < values.size() && i < 8; ++i)
+                        values[i] = snapshots_[k].controls[i];
+                    markers.push_back({k == 0 ? "A" : "B", std::move(values)});
+                }
+        space_.setMarkers(std::move(markers));
+    }
+    if (view_ == 4 && fresh)
+        layerState_.setValues(liveLayerValues());
+    if (view_ == 1)
+    {
+        primitives_.repaint();
+        for (size_t i = 0; i < parameterRows_.size() && i < parameterRowIndex_.size(); ++i)
+        {
+            const auto index = parameterRowIndex_[i];
+            parameterRows_[i]->setLive(
+                fresh && index >= 0 && static_cast<size_t>(index) < processor_.liveParameters.size()
+                    ? std::optional<double>(processor_.liveParameters[static_cast<size_t>(index)].load(
+                          std::memory_order_relaxed))
+                    : std::nullopt,
+                parameterLiveColour_[i]);
+        }
+    }
+    if (view_ == 2 && fresh)
+    {
+        const auto layers = sound_.value("control_layers", nlohmann::json::array());
+        const auto layer = static_cast<size_t>(juce::jmax(0, mappingLayer_.getSelectedId() - 1));
+        const auto values = liveLayerValues();
+        std::vector<float> fractions;
+        size_t offset = 0;
+        for (size_t l = 0; l < layer && l < layers.size(); ++l)
+            offset += layers[l].at("values").size();
+        if (layer < layers.size())
+            for (size_t i = 0; i < layers[layer].at("values").size() && offset + i < values.size(); ++i)
+            {
+                const auto& range = layers[layer].at("ranges").at(i);
+                const auto low = range.at(0).get<double>(), high = range.at(1).get<double>();
+                fractions.push_back(high > low ? static_cast<float>((values[offset + i] - low) / (high - low))
+                                               : 0.0f);
+            }
+        matrix_.setLive(std::move(fractions));
+    }
     // The flow line carries notes and timing; this label only appears when updates were rejected.
     if (const auto failures = processor_.failures.load(); failures > 0)
     {

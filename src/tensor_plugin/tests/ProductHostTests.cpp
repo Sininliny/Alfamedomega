@@ -1,3 +1,4 @@
+#include "ElementViews.h"
 #include "FactoryPrograms.h"
 #include "TensorEditor.h"
 #include "TensorProcessor.h"
@@ -6,6 +7,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <complex>
 #include <nlohmann/json.hpp>
@@ -696,4 +698,87 @@ TEST_CASE("Tensor view shows the matrix and capacity first and opens expert tool
     CHECK(usage[0].name == "Primitives");
     CHECK(usage[0].budget >= usage[0].used);
     CHECK(source.isNotEmpty());
+}
+
+TEST_CASE("Sound space projects a control layer onto its strongest directions and telemetry follows blocks",
+          "[tensor-host][product][ui-loop]")
+{
+    juce::ScopedJuceInitialiser_GUI gui;
+    Processor processor;
+    processor.prepareToPlay(48000, 256);
+    juce::String error;
+    REQUIRE(processor.loadPresetJSON(factory("harmonic-field"), error));
+    const auto sound = JSON::parse(processor.document().toStdString());
+    const auto projection = alfa::tensorhost::projectControls(
+        sound, 0, [](size_t i) { return "p" + juce::String(static_cast<int>(i)); });
+    REQUIRE(projection.valid);
+    const auto controls = sound["control_layers"][0]["values"].size();
+    REQUIRE(projection.first.size() == controls);
+    REQUIRE(projection.second.size() == controls);
+    double first = 0, second = 0, cross = 0;
+    for (size_t i = 0; i < controls; ++i)
+    {
+        first += projection.first[i] * projection.first[i];
+        second += projection.second[i] * projection.second[i];
+        cross += projection.first[i] * projection.second[i];
+    }
+    // Two orthonormal directions, ordered by how much of the sound's change each carries.
+    CHECK(first == Catch::Approx(1).margin(1e-6));
+    CHECK(second == Catch::Approx(1).margin(1e-6));
+    CHECK(cross == Catch::Approx(0).margin(1e-6));
+    CHECK(projection.firstShare >= projection.secondShare);
+    CHECK(projection.secondShare > 0);
+    CHECK(projection.firstShare + projection.secondShare <= 1 + 1e-9);
+    CHECK_FALSE(projection.firstMoves.empty());
+
+    const auto blocks = processor.telemetryBlocks.load();
+    juce::AudioBuffer<float> audio(2, 256);
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, .8f), 0);
+    float level = 0;
+    for (int block = 0; block < 8; ++block)
+    {
+        audio.clear();
+        render(processor, audio, midi);
+        for (const auto& instance : processor.instanceLevels)
+            level = std::max(level, instance.load());
+    }
+    CHECK(processor.telemetryBlocks.load() >= blocks + 8);
+    CHECK(level > 0);
+    // Where no projection reaches a parameter, the runtime used exactly the layer mapping:
+    // next layer = clamp(base + M v), parameters = base + M_last v.
+    const auto& layers = sound["control_layers"];
+    std::vector<double> x;
+    for (const auto& v : layers[0]["values"])
+        x.push_back(v.get<double>());
+    std::vector<double> mapped;
+    for (size_t l = 0; l < layers.size(); ++l)
+    {
+        const auto& matrix = layers[l]["matrix"]["values"];
+        const auto rows = layers[l]["matrix"]["shape"][0].get<size_t>();
+        const bool toParameters = l + 1 == layers.size();
+        const auto& base = toParameters ? sound["tensors"]["parameters"]["values"] : layers[l + 1]["values"];
+        std::vector<double> next(rows);
+        for (size_t r = 0; r < rows; ++r)
+        {
+            next[r] = base[r].get<double>();
+            for (size_t c = 0; c < x.size(); ++c)
+                next[r] += matrix[r * x.size() + c].get<double>() * x[c];
+            if (!toParameters)
+                next[r] = std::clamp(next[r], layers[l + 1]["ranges"][r][0].get<double>(),
+                                     layers[l + 1]["ranges"][r][1].get<double>());
+        }
+        (toParameters ? mapped : x) = std::move(next);
+    }
+    std::vector<bool> projected(mapped.size(), false);
+    for (const auto& entry : sound["projections"])
+        projected[entry["parameter_element"].get<size_t>()] = true;
+    size_t checked = 0;
+    for (size_t i = 0; i < mapped.size() && i < processor.liveParameters.size(); ++i)
+        if (!projected[i])
+        {
+            CHECK(processor.liveParameters[i].load() == Catch::Approx(mapped[i]).margin(1e-4));
+            ++checked;
+        }
+    CHECK(checked > 0);
 }

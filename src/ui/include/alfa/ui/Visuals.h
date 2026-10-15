@@ -19,11 +19,15 @@ inline void rotaryGesture(juce::Slider& slider, const juce::String& gesture)
 inline void panel(juce::Graphics& g, const Theme& t, juce::Rectangle<int> area, const juce::String& title,
                   const juce::String& subtitle = {})
 {
+    // Soft vertical gradient, hairline border and a faint top highlight: surfaces read as material.
     const auto bounds = area.toFloat().reduced(0.5f);
-    g.setColour(t.panel);
-    g.fillRoundedRectangle(bounds, 8);
+    g.setGradientFill(juce::ColourGradient(t.panel.brighter(0.035f), bounds.getX(), bounds.getY(),
+                                           t.panel.darker(0.05f), bounds.getX(), bounds.getBottom(), false));
+    g.fillRoundedRectangle(bounds, 10);
     g.setColour(t.line);
-    g.drawRoundedRectangle(bounds, 8, 1);
+    g.drawRoundedRectangle(bounds, 10, 1);
+    g.setColour(juce::Colours::white.withAlpha(t.panel.getPerceivedBrightness() > 0.5f ? 0.5f : 0.035f));
+    g.drawHorizontalLine(juce::roundToInt(bounds.getY()) + 1, bounds.getX() + 10, bounds.getRight() - 10);
     if (title.isEmpty())
         return;
     auto row = area.reduced(12, 0).withHeight(26).withTrimmedTop(6);

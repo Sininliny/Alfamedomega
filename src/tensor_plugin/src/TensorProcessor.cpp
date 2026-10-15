@@ -659,7 +659,11 @@ void Processor::processBlockImpl(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         outputPeak[channel].store(outPeak[channel]);
     }
     if (active_)
+    {
         active_->execution->snapshot(stateSnapshot);
+        active_->execution->telemetry(instanceLevels, liveParameters, liveLayerValues);
+        telemetryBlocks.fetch_add(1, std::memory_order_release);
+    }
     modelMilliseconds.store(modelTime, std::memory_order_relaxed);
     blockMilliseconds.store(
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - began).count(),
@@ -742,6 +746,7 @@ bool Processor::loadJSONImpl(const juce::String& text, juce::String& error, bool
         proposed->dryHistory.resize(static_cast<size_t>(latency));
         const auto defaults = proposed->execution->highestDefaults();
         const auto report = proposed->execution->inspection();
+        auto layout = proposed->execution->layout();
         auto* publication = proposed.get();
         owned_.push_back(std::move(proposed));
         auto* superseded = pending_.exchange(publication, std::memory_order_acq_rel);
@@ -749,6 +754,7 @@ bool Processor::loadJSONImpl(const juce::String& text, juce::String& error, bool
             std::erase_if(owned_, [superseded](const auto& item) { return item.get() == superseded; });
         json_ = text;
         inspection_ = report;
+        layout_ = std::move(layout);
         if (!preserveState)
             for (size_t i = 0; i < std::min(size_t{8}, defaults.size()); ++i)
                 setParameterValue("x" + juce::String(static_cast<int>(i)), defaults[i]);

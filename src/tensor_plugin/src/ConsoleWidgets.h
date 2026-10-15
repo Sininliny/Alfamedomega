@@ -6,6 +6,8 @@
 #include <juce_dsp/juce_dsp.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -40,6 +42,55 @@ inline juce::Colour weightColour(const alfa::ui::Theme& t, double value)
 {
     return value < 0 ? t.mod : t.accent;
 }
+// Identity colours, as in Pigments: every primitive family and every source kind keeps one hue on every
+// view (instance cards, the signal map, relationship dots, live modulation marks). Signs keep amber/blue.
+// Hues are fixed; saturation and brightness follow the theme so light themes stay readable.
+inline juce::Colour identityColour(const alfa::ui::Theme& t, float hue, float saturation = 0.55f)
+{
+    const bool light = t.bg.getPerceivedBrightness() > 0.5f;
+    return juce::Colour::fromHSV(hue, light ? saturation + 0.2f : saturation, light ? 0.55f : 0.9f, 1.0f);
+}
+inline juce::Colour familyColour(const alfa::ui::Theme& t, const juce::String& primitive)
+{
+    static const std::array<std::pair<const char*, float>, 13> hues{{{"control", -1.0f},
+                                                                     {"osc", 0.95f},
+                                                                     {"excitation", 0.80f},
+                                                                     {"physical", 0.27f},
+                                                                     {"cell", 0.19f},
+                                                                     {"filter", 0.47f},
+                                                                     {"nonlinear", 0.03f},
+                                                                     {"spectral", 0.66f},
+                                                                     {"pitchtime", 0.73f},
+                                                                     {"time", 0.53f},
+                                                                     {"spatial", 0.33f},
+                                                                     {"math", 0.12f},
+                                                                     {"granular", 0.88f}}};
+    const auto family = primitive.upToFirstOccurrenceOf(".", false, false);
+    for (const auto& [name, hue] : hues)
+        if (family == name)
+            return hue < 0 ? t.text2 : identityColour(t, hue);
+    return t.text2;
+}
+inline juce::Colour sourceColour(const alfa::ui::Theme& t, const juce::String& kind)
+{
+    static const std::array<std::pair<const char*, float>, 8> hues{{{"midi", 0.54f},
+                                                                    {"audio", 0.30f},
+                                                                    {"gesture", 0.86f},
+                                                                    {"context", 0.15f},
+                                                                    {"user_preference", 0.75f},
+                                                                    {"latent_sound", 0.70f},
+                                                                    {"state", -1.0f},
+                                                                    {"output_history", -1.0f}}};
+    for (const auto& [name, hue] : hues)
+        if (kind == name)
+            return hue < 0 ? t.text2 : identityColour(t, hue, 0.5f);
+    return t.mod;
+}
+// Live level in [0, 1] from a peak amplitude, on a 60 dB scale.
+inline float levelFraction(float peak)
+{
+    return juce::jlimit(0.0f, 1.0f, (juce::Decibels::gainToDecibels(peak, -60.0f) + 60.0f) / 60.0f);
+}
 inline void surface(juce::Graphics& g, const alfa::ui::Theme& t, juce::Rectangle<int> r,
                     const juce::String& title, const juce::String& subtitle = {})
 {
@@ -69,15 +120,14 @@ class ParameterKnob final : public juce::Component
 {
 public:
     ParameterKnob(Processor& p, const juce::String& id, const juce::String& label, bool percent = false)
-        : processor(p)
-        , parameterId(id)
+        : parameterId(id)
     {
         name.setText(label, juce::dontSendNotification);
         name.setJustificationType(juce::Justification::centred);
         addAndMakeVisible(name);
         alfa::ui::visuals::rotaryGesture(slider,
                                          p.uiSettings().getProperty("knob_gesture", "vertical").toString());
-        slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 86, 22);
+        slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 86, 16);
         addAndMakeVisible(slider);
         slider.setWantsKeyboardFocus(true);
         if (percent)
@@ -117,10 +167,13 @@ public:
     }
     void resized() override
     {
+        // Name under the knob, value as quiet text between them.
         auto r = getLocalBounds();
-        name.setBounds(r.removeFromTop(22));
+        name.setBounds(r.removeFromBottom(18));
         slider.setBounds(r);
     }
+    // Built before it joins the editor, so it takes the editor's look (value text, fonts) only now.
+    void parentHierarchyChanged() override { sendLookAndFeelChange(); }
     juce::Slider& control() { return slider; }
     juce::Label& title() { return name; }
     std::function<void()> onTouched;
@@ -131,7 +184,6 @@ public:
     }
 
 private:
-    Processor& processor;
     juce::String parameterId;
     juce::Label name;
     juce::Slider slider;
@@ -156,10 +208,16 @@ public:
         name.setMinimumHorizontalScale(1.0f);
         addAndMakeVisible(name);
         units.setText(unit, juce::dontSendNotification);
-        units.setJustificationType(juce::Justification::centredRight);
+        units.setJustificationType(juce::Justification::centredLeft);
+        units.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11.5f));
+        units.setColour(juce::Label::textColourId, findColour(juce::Label::textColourId).withAlpha(0.6f));
         addAndMakeVisible(units);
         entry.setText(scalarText(value));
         entry.setJustification(juce::Justification::centredRight);
+        // The value reads as text beside the fader; it shows a field only while it has focus.
+        entry.setFont(alfa::ui::AlfaLookAndFeel::monoFont(12.5f));
+        entry.setColour(juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
+        entry.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
         entry.setSelectAllWhenFocused(true);
         addAndMakeVisible(entry);
         entry.onReturnKey = [this]
@@ -206,8 +264,10 @@ public:
         auto r = getLocalBounds().reduced(8, 5);
         if (lockCallback)
             lock.setBounds(r.removeFromRight(64));
-        units.setBounds(r.removeFromRight(48));
-        entry.setBounds(r.removeFromRight(80).reduced(0, 3));
+        units.setBounds(r.removeFromRight(44).withTrimmedLeft(4));
+        entry.setBounds(r.removeFromRight(84).reduced(0, 3));
+        if (identity)
+            r.removeFromLeft(14);
         if (range_)
         {
             name.setBounds(r.removeFromLeft(juce::jmin(240, r.getWidth() * 3 / 5)));
@@ -220,6 +280,12 @@ public:
     {
         g.setColour(findColour(juce::TextEditor::outlineColourId).withAlpha(0.25f));
         g.drawHorizontalLine(getHeight() - 1, 8.0f, static_cast<float>(getWidth() - 8));
+        if (identity)
+        {
+            g.setColour(*identity);
+            g.fillEllipse(juce::Rectangle<float>(7, 7).withCentre(
+                {12.5f, static_cast<float>(name.getBounds().getCentreY())}));
+        }
         if (weightTheme && !range_)
         {
             // Diverging bar under the name: centre is zero, the side shows the sign.
@@ -241,10 +307,51 @@ public:
         weightScale = scale;
         repaint();
     }
+    // A coloured dot before the name: the source kind of a relationship, or the family of an instance.
+    void setIdentity(juce::Colour colour)
+    {
+        identity = colour;
+        resized();
+        repaint();
+    }
+    // The value the runtime used in the last block, drawn on the slider as a band from the edited value.
+    // This is where modulation (projections) moved the parameter; nothing is drawn while they agree.
+    void setLive(std::optional<double> value, juce::Colour colour)
+    {
+        if (value == live && colour == liveColour)
+            return;
+        if (value && live && std::abs(*value - *live) <= 1e-6 * juce::jmax(1.0, std::abs(*value)) &&
+            colour == liveColour)
+            return;
+        live = value;
+        liveColour = colour;
+        repaint();
+    }
+    void paintOverChildren(juce::Graphics& g) override
+    {
+        if (!live || !range_ || !slider.isVisible())
+            return;
+        const auto low = slider.getMinimum(), high = slider.getMaximum();
+        const auto clamped = juce::jlimit(low, high, *live);
+        const auto from = static_cast<float>(slider.getX()) + slider.getPositionOfValue(value_);
+        const auto to = static_cast<float>(slider.getX()) + slider.getPositionOfValue(clamped);
+        if (std::abs(to - from) < 1.0f &&
+            std::abs(*live - value_) <= 1e-9 * juce::jmax(1.0, std::abs(value_)))
+            return;
+        const auto y = static_cast<float>(slider.getBounds().getCentreY());
+        g.setColour(liveColour.withAlpha(0.45f));
+        g.fillRoundedRectangle(juce::Rectangle<float>(juce::jmin(from, to), y - 5, std::abs(to - from), 10),
+                               3);
+        g.setColour(liveColour);
+        g.fillRoundedRectangle(juce::Rectangle<float>(to - 1.5f, y - 8, 3, 16), 1.5f);
+    }
 
 private:
     const alfa::ui::Theme* weightTheme = nullptr;
     double weightScale = 1;
+    std::optional<juce::Colour> identity;
+    std::optional<double> live;
+    juce::Colour liveColour;
     void submit()
     {
         try
@@ -370,8 +477,8 @@ public:
         g.setColour(t.line);
         for (int i = 1; i < 4; ++i)
         {
-            auto x = r.getX() + r.getWidth() * i / 4;
-            auto y = r.getY() + r.getHeight() * i / 4;
+            auto x = r.getX() + r.getWidth() * static_cast<float>(i) / 4;
+            auto y = r.getY() + r.getHeight() * static_cast<float>(i) / 4;
             g.drawLine(x, r.getY(), x, r.getBottom());
             g.drawLine(r.getX(), y, r.getRight(), y);
         }
@@ -520,6 +627,14 @@ public:
         selectedColumn = juce::jlimit(-1, columnLabels.size() - 1, selectedColumn);
         repaint();
     }
+    // Live source values as fractions of their ranges, drawn as a thin bar under each column number.
+    void setLive(std::vector<float> fractions)
+    {
+        if (fractions == liveColumns)
+            return;
+        liveColumns = std::move(fractions);
+        repaint(0, 0, getWidth(), headerHeight);
+    }
     void select(int source, int destination)
     {
         selectedColumn = source;
@@ -541,10 +656,22 @@ public:
         for (int c = 0; c < columnLabels.size(); ++c)
         {
             g.setColour(c == selectedColumn ? t.accent : t.text2);
-            g.drawText(juce::String(c), column(c).withY(0).withHeight(headerHeight),
+            g.drawText(juce::String(c), column(c).withY(0).withHeight(headerHeight - 6),
                        juce::Justification::centred, false);
+            if (static_cast<size_t>(c) < liveColumns.size())
+            {
+                auto bar = column(c).withY(headerHeight - 6).withHeight(3).reduced(3, 0).toFloat();
+                g.setColour(t.line);
+                g.fillRoundedRectangle(bar, 1.5f);
+                g.setColour(t.accent);
+                g.fillRoundedRectangle(
+                    bar.withWidth(bar.getWidth() *
+                                  juce::jlimit(0.0f, 1.0f, liveColumns[static_cast<size_t>(c)])),
+                    1.5f);
+            }
         }
-        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(juce::jlimit(11.0f, 13.0f, rows * 0.55f)));
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(
+            juce::jlimit(11.0f, 13.0f, static_cast<float>(rows) * 0.55f)));
         for (int r = 0; r < rowLabels.size(); ++r)
         {
             const auto y = headerHeight + r * rows;
@@ -574,8 +701,8 @@ public:
                         g.setColour(amount > 0.6f ? t.bg : t.text);
                         g.setFont(alfa::ui::AlfaLookAndFeel::monoFont(10));
                         g.drawText(compactText(v), box, juce::Justification::centred, false);
-                        g.setFont(
-                            alfa::ui::AlfaLookAndFeel::labelFont(juce::jlimit(11.0f, 13.0f, rows * 0.55f)));
+                        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(
+                            juce::jlimit(11.0f, 13.0f, static_cast<float>(rows) * 0.55f)));
                     }
                 }
                 if (r == selectedRow && c == selectedColumn)
@@ -613,6 +740,7 @@ private:
     static constexpr int minimumRow = 20, maximumRow = 34;
     alfa::ui::AlfaLookAndFeel& look;
     std::vector<double> values;
+    std::vector<float> liveColumns;
     juce::StringArray rowLabels, columnLabels;
     double scale = 1;
     int selectedRow = -1, selectedColumn = -1;
@@ -671,6 +799,140 @@ private:
         if (c >= columnLabels.size() || r >= rowLabels.size())
             return {-1, -1};
         return {c, r};
+    }
+};
+// Live values of every control layer: one row of bars per layer, the page shown as knobs outlined.
+// Bars grow from zero for ranges that span it, from the minimum otherwise.
+class LayerStateView final : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    struct Layer
+    {
+        std::vector<std::array<double, 2>> ranges;
+        std::vector<double> values;
+    };
+    explicit LayerStateView(alfa::ui::AlfaLookAndFeel& l)
+        : look(l)
+    {
+    }
+    std::function<void(int layer, int index)> onSelect;
+    void setLayers(std::vector<Layer> list)
+    {
+        layers = std::move(list);
+        repaint();
+    }
+    // Values concatenated layer by layer, as the processor publishes them.
+    void setValues(const std::vector<float>& live)
+    {
+        size_t cursor = 0;
+        bool changed = false;
+        for (auto& layer : layers)
+            for (auto& value : layer.values)
+                if (cursor < live.size())
+                {
+                    changed = changed || std::abs(value - live[cursor]) > 1e-6;
+                    value = live[cursor++];
+                }
+        if (changed)
+            repaint();
+    }
+    void setPage(int layer, int begin, int end)
+    {
+        pageLayer = layer;
+        pageBegin = begin;
+        pageEnd = end;
+        repaint();
+    }
+    void paint(juce::Graphics& g) override
+    {
+        const auto& t = look.theme();
+        auto r = getLocalBounds();
+        if (layers.empty())
+        {
+            g.setColour(t.text2);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(12));
+            g.drawText("This sound has no control layer", r, juce::Justification::topLeft);
+            return;
+        }
+        const auto rowHeight = juce::jlimit(34, 90, r.getHeight() / static_cast<int>(layers.size()));
+        for (size_t l = 0; l < layers.size(); ++l)
+        {
+            auto row = r.removeFromTop(rowHeight);
+            const auto& layer = layers[l];
+            g.setColour(static_cast<int>(l) == pageLayer ? t.accent : t.text2);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11, true));
+            g.drawText("LAYER " + juce::String(static_cast<int>(l)) + "   " +
+                           juce::String(static_cast<int>(layer.values.size())) + " controls",
+                       row.removeFromTop(16), juce::Justification::centredLeft, false);
+            auto bars = row.reduced(0, 4).toFloat();
+            const auto count = std::max<size_t>(1, layer.values.size());
+            const auto w = bars.getWidth() / static_cast<float>(count);
+            for (size_t i = 0; i < layer.values.size(); ++i)
+            {
+                auto box = juce::Rectangle<float>(bars.getX() + w * static_cast<float>(i), bars.getY(), w,
+                                                  bars.getHeight())
+                               .reduced(juce::jmin(2.0f, w * 0.15f), 0);
+                const auto onPage = static_cast<int>(l) == pageLayer && static_cast<int>(i) >= pageBegin &&
+                                    static_cast<int>(i) < pageEnd;
+                g.setColour(onPage ? t.accent.withAlpha(0.10f) : t.bg);
+                g.fillRoundedRectangle(box, 2);
+                const auto low = i < layer.ranges.size() ? layer.ranges[i][0] : -1.0;
+                const auto high = i < layer.ranges.size() ? layer.ranges[i][1] : 1.0;
+                const auto span = high - low > 0 ? high - low : 1.0;
+                const auto zero = low < 0 && high > 0 ? -low / span : 0.0;
+                const auto fraction = juce::jlimit(0.0, 1.0, (layer.values[i] - low) / span);
+                const auto top =
+                    box.getBottom() - box.getHeight() * static_cast<float>(juce::jmax(zero, fraction));
+                const auto bottom =
+                    box.getBottom() - box.getHeight() * static_cast<float>(juce::jmin(zero, fraction));
+                g.setColour(weightColour(t, layer.values[i]).withAlpha(0.85f));
+                g.fillRect(box.withTop(top).withBottom(juce::jmax(bottom, top + 1.0f)));
+                if (zero > 0)
+                {
+                    g.setColour(t.line);
+                    const auto y = box.getBottom() - box.getHeight() * static_cast<float>(zero);
+                    g.drawHorizontalLine(static_cast<int>(y), box.getX(), box.getRight());
+                }
+                if (onPage)
+                {
+                    g.setColour(t.accent.withAlpha(0.6f));
+                    g.drawRoundedRectangle(box, 2, 1);
+                }
+            }
+        }
+    }
+    void mouseMove(const juce::MouseEvent& e) override
+    {
+        const auto hit = hitTestBar(e.getPosition());
+        setTooltip(
+            hit.first < 0
+                ? juce::String()
+                : "X[" + juce::String(hit.first) + "," + juce::String(hit.second) + "] = " +
+                      compactText(
+                          layers[static_cast<size_t>(hit.first)].values[static_cast<size_t>(hit.second)]));
+    }
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        if (const auto hit = hitTestBar(e.getPosition()); hit.first >= 0 && onSelect)
+            onSelect(hit.first, hit.second);
+    }
+
+private:
+    alfa::ui::AlfaLookAndFeel& look;
+    std::vector<Layer> layers;
+    int pageLayer = -1, pageBegin = 0, pageEnd = 0;
+    std::pair<int, int> hitTestBar(juce::Point<int> p) const
+    {
+        if (layers.empty())
+            return {-1, -1};
+        const auto rowHeight = juce::jlimit(34, 90, getHeight() / static_cast<int>(layers.size()));
+        const auto l = p.y / rowHeight;
+        if (l < 0 || l >= static_cast<int>(layers.size()) || p.y % rowHeight < 16)
+            return {-1, -1};
+        const auto count = static_cast<int>(layers[static_cast<size_t>(l)].values.size());
+        if (count == 0 || getWidth() <= 0)
+            return {-1, -1};
+        return {l, juce::jlimit(0, count - 1, p.x * count / getWidth())};
     }
 };
 // Used / budget per resource of the compiled sound, as bars. Budgets come from the sound (or its

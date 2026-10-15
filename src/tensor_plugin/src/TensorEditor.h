@@ -1,5 +1,6 @@
 #pragma once
 #include "ConsoleWidgets.h"
+#include "ElementViews.h"
 #include "PresetStore.h"
 #include "TensorProcessor.h"
 
@@ -13,6 +14,7 @@ public:
     explicit Editor(Processor&);
     ~Editor() override;
     void paint(juce::Graphics&) override;
+    void paintOverChildren(juce::Graphics&) override;
     void resized() override;
     void reportDeviceStatus(const juce::String& text, bool error) { showStatus(text, error); }
     void snapshotView(int index)
@@ -37,9 +39,13 @@ private:
     InfluenceView influence_;
     MatrixView matrix_;
     CapacityView capacity_;
+    SoundSpace space_;
+    std::vector<std::unique_ptr<ElementView>> elements_;
+    LayerStateView layerState_;
     juce::Label brand_, version_, status_, telemetry_, paramHeader_, routeHeader_, levelHeader_,
         matrixSelection_;
-    std::array<juce::TextButton, 4> tabs_;
+    // Views by index: 0 Play, 1 Instances (view.structure), 2 Tensor, 3 Settings, 4 Controls.
+    std::array<juce::TextButton, 5> tabs_;
     std::array<juce::TextButton, 3> modes_;
     juce::TextButton library_{"Sound library"}, savePreset_{"Save as"}, openPreset_{"Open"}, panic_{"Panic"};
     juce::TextButton previousSound_{"<"}, nextSound_{">"}, newRoute_{"New relationship"};
@@ -55,6 +61,9 @@ private:
     juce::Viewport parameterViewport_, routingViewport_, matrixViewport_;
     juce::Component parameterContent_, routingContent_;
     std::vector<std::unique_ptr<NumericRow>> parameterRows_, routeRows_;
+    // Tensor parameter index of each parameter row (-1 for the activation row) and its live mark colour.
+    std::vector<int> parameterRowIndex_;
+    std::vector<juce::Colour> parameterLiveColour_;
     juce::ListBox primitives_{"Primitive activations", this};
     juce::TextEditor document_, inspection_, tensorValues_;
     juce::TextButton apply_{"Apply JSON"}, exportJSON_{"Export JSON"}, importModel_{"Import runtime model"},
@@ -74,6 +83,8 @@ private:
     nlohmann::json sound_;
     std::array<Snapshot, 2> snapshots_;
     uint64_t revision_ = 0;
+    uint64_t telemetryMark_ = 0;
+    bool telemetryFresh() const;
     int view_ = 0, selectedPrimitive_ = 0, highLayer_ = 0, highPage_ = 0, selectedSnapshot_ = 0, rawPage_ = 0;
     int focusedControl_ = 0, matrixSource_ = 0, matrixDestination_ = 0;
     bool refreshing_ = false, routeFormOpen_ = false, expertOpen_ = false, indexOrder_ = false,
@@ -81,7 +92,7 @@ private:
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> settingsLabels_;
     juce::Rectangle<int> workspace_, highArea_, influenceArea_, xyArea_, scopeArea_, primitiveArea_,
         parameterArea_, routingArea_, layerArea_, tensorArea_, selectionArea_, capacityArea_, settingsArea_,
-        footer_;
+        footer_, elementsArea_, spaceArea_, layerStateArea_;
     void timerCallback() override;
     int getNumRows() override;
     void paintListBoxItem(int, juce::Graphics&, int, int, bool) override;
@@ -96,6 +107,7 @@ private:
     void rebuildRoutes();
     void rebuildLayers();
     void rebuildHighControls();
+    std::vector<size_t> controlOrder() const;
     void focusControl(int index);
     void refreshInfluence();
     void selectMatrixCell(int source, int destination);
@@ -104,6 +116,13 @@ private:
     void layoutSettings();
     void paintFlow(juce::Graphics&, juce::Rectangle<int>);
     void refreshTensor();
+    void rebuildElements();
+    void refreshSpace();
+    void applySpace(const std::vector<double>&, bool final);
+    std::vector<double> currentLayerValues() const;
+    void openInstance(size_t instance);
+    bool spaceDragging_ = false;
+    std::vector<float> liveLayerValues() const;
     bool changeTensor(const juce::String&, size_t, double, juce::String&);
     bool changeDocument(nlohmann::json, juce::String&);
     void captureSnapshot(int);

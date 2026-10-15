@@ -76,6 +76,18 @@ public:
     std::atomic<uint64_t> samples{0}, failures{0};
     std::atomic<double> blockMilliseconds{0}, modelMilliseconds{0};
     std::array<std::atomic<float>, 16> stateSnapshot{};
+    // Editor telemetry, written once per block: instance output peaks, the parameters the runtime used
+    // (base plus projections) and control layer values. Sized for display; larger sounds are truncated.
+    std::array<std::atomic<float>, 128> instanceLevels{};
+    std::array<std::atomic<float>, 1024> liveParameters{};
+    std::array<std::atomic<float>, 256> liveLayerValues{};
+    std::atomic<uint64_t> telemetryBlocks{0};
+    // Output and state slices per instance of the current sound, for mapping telemetry to instances.
+    TensorExecution::Layout layout() const
+    {
+        std::lock_guard lock(configurationMutex_);
+        return layout_;
+    }
     juce::MidiKeyboardState keyboard;
 
 private:
@@ -127,6 +139,7 @@ private:
     std::atomic<Program*> pending_{nullptr};
     Program* active_ = nullptr;
     juce::String json_, inspection_;
+    TensorExecution::Layout layout_;
     mutable std::mutex configurationMutex_;
     std::atomic<double> rate_{48000};
     uint64_t clock_ = 0;
