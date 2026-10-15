@@ -182,9 +182,9 @@ bool TensorModelT<Scalar>::infer(const InputsT<Scalar>& inputs) noexcept
 {
     if (hidden_ == 0)
         return false;
-    const std::array<TensorViewT<Scalar>, 7> sources{inputs.audio,       inputs.midi,    inputs.gesture,
-                                                     inputs.userPreference, inputs.latentSound, inputs.context,
-                                                     inputs.waveFeature};
+    const std::array<TensorViewT<Scalar>, 7> sources{
+        inputs.audio,       inputs.midi,    inputs.gesture,    inputs.userPreference,
+        inputs.latentSound, inputs.context, inputs.waveFeature};
     std::size_t offset = 0;
     for (std::size_t category = 0; category < sources.size(); ++category)
     {

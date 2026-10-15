@@ -532,7 +532,8 @@ public:
             const std::array<TensorView, 6> source{native.audio,          native.midi,        native.gesture,
                                                    native.userPreference, native.latentSound, native.context};
             std::array<TensorViewT<Scalar>, 6> converted;
-            const auto convert = [](const TensorView& from, std::span<Scalar> storage, TensorViewT<Scalar>& to)
+            const auto convert =
+                [](const TensorView& from, std::span<Scalar> storage, TensorViewT<Scalar>& to)
             {
                 if (from.values.size() > storage.size())
                     return false;

@@ -125,7 +125,8 @@ std::unique_ptr<HandleBase> prepare(const char* text, double rate, const nlohman
         // wave feature source, whose capacity is then zero.
         const auto& limits = parsed.at("input_capacity");
         if (!limits.is_array() || (limits.size() != 6 && limits.size() != 7))
-            throw std::invalid_argument("float64 C ABI requires explicit input_capacity for six or seven sources");
+            throw std::invalid_argument(
+                "float64 C ABI requires explicit input_capacity for six or seven sources");
         handle->boundedInputs = true;
         std::size_t total = 0;
         const auto& requestedAllowance = parsed.at("budget").at("boundary_conversion_bytes");

@@ -40,8 +40,8 @@ namespace
 {
 // Merged MIDI storage reserved before the first callback, so the audio thread never allocates.
 constexpr int midiReserveBytes = 65536;
-constexpr std::array<const char*, 8> waveFeatureNames{"Tilt",      "Attack", "Sustain", "Tail",
-                                                      "Noisiness", "Roughness", "Motion", "Width"};
+constexpr std::array<const char*, 8> waveFeatureNames{"Tilt",      "Attack",    "Sustain", "Tail",
+                                                      "Noisiness", "Roughness", "Motion",  "Width"};
 juce::AudioProcessorValueTreeState::ParameterLayout hostParameters()
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
@@ -61,7 +61,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout hostParameters()
     for (size_t i = 0; i < waveFeatureNames.size(); ++i)
         layout.add(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"wf" + juce::String(static_cast<int>(i)), 1},
-            juce::String("Wave ") + waveFeatureNames[i], juce::NormalisableRange<float>{-1.0f, 1.0f, 0.0f}, 0.0f));
+            juce::String("Wave ") + waveFeatureNames[i], juce::NormalisableRange<float>{-1.0f, 1.0f, 0.0f},
+            0.0f));
     for (int i = 0; i < 8; ++i)
         layout.add(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"pref" + juce::String(i), 1}, "Preference " + juce::String(i + 1),

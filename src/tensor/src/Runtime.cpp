@@ -397,8 +397,7 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
     if (!prepared_ || !validTensor<Scalar>(inputs.audio) || !validTensor<Scalar>(inputs.midi) ||
         !validTensor<Scalar>(inputs.gesture) || !validTensor<Scalar>(inputs.userPreference) ||
         !validTensor<Scalar>(inputs.latentSound) || !validTensor<Scalar>(inputs.context) ||
-        !validTensor<Scalar>(inputs.waveFeature) ||
-        sample_ == std::numeric_limits<std::uint64_t>::max())
+        !validTensor<Scalar>(inputs.waveFeature) || sample_ == std::numeric_limits<std::uint64_t>::max())
     {
         std::fill(output_.begin(), output_.end(), 0.0f);
         return false;
