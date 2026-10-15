@@ -102,6 +102,55 @@ the target budget. Candidate strategies include resolution reduction, merged act
 routing, reduced temporal detail and approximated interactions. Simple module deletion is not an
 acceptable conversion algorithm. Capacity rejection must not trigger silent destructive pruning.
 
+## Wave feature knobs
+
+Decided by Sinin on 2026-10-15. Training produces eight continuous, bipolar **wave feature
+knobs**. Each names one measured audio descriptor (`training/aom/wave_features.py`,
+`aom.wave-features/1`):
+
+| Knob | Descriptor | Measurement | Unit |
+|---|---|---|---|
+| 0 | tilt | weighted slope of band power density against log2 frequency | dB/oct |
+| 1 | attack | -log10 of the 10 %-90 % envelope rise time per note | -log10 s |
+| 2 | sustain | late held-note energy relative to the note peak | dB |
+| 3 | tail | time for Schroeder-integrated energy after note-off to fall 30 dB (release, echo, reverb) | log10 s |
+| 4 | noisiness | power-weighted 1 - cos of the second phase difference across frames | 0-1 |
+| 5 | roughness | band-envelope modulation power in 20-150 Hz over DC | depth^2 |
+| 6 | motion | std of detrended band level over the held note | dB |
+| 7 | width | side/mid energy | dB |
+
+Descriptors are measured on the output relative to the knob-0 render of the same input, so
+instrument, FX and hybrid operation share one definition; segments come from voice_indexed MIDI
+or, without MIDI, from the signal envelope. A descriptor that cannot be measured on a sound
+(width of mono, tail with no release) is invalid there and its knob inactive. Targets live in
+percentile space of a background calibration: `target = clip(base + 0.35 * knob, 0, 1)`.
+
+The descriptor is the **main direction** of the move, not the only change: turning a knob moves
+the sound itself through the continuous tensor space, so the other descriptors may follow and the
+network decides how the sound gets there. Losses (`knob_losses`): the turned descriptor reaches its
+target (Huber), no unturned descriptor moves more than the turned ones (dominance), and turning a
+knob never moves its descriptor backwards (monotone). Unturned descriptors have no target.
+
+The local teacher is the cheapest move along the descriptor in the training-gradient metric
+`M = diag(lambda) + U S^2 U^T` (offline Jacobians in unconstrained coordinates, shared with the
+perceptual metric; descriptors are not part of that metric):
+
+```text
+dp_k = M^-1 j_k / (j_k^T M^-1 j_k)          j_k = d descriptor_k / d u
+```
+
+It moves descriptor k by one unit at least perceptual cost; locked and absent coordinates are
+excluded. `follow_main_direction` integrates it through the space for large moves, and the runtime
+compiler trains on `sample_knob_curves` automation with the knob smoothness term in the same
+metric. Gradients through the renderer use SPSA with common random numbers, primitive JVPs or a
+differentiable proxy; descriptors need not be differentiable for SPSA.
+
+Two outputs exist together: the runtime compiler reads the knobs as its seventh input category
+`wave_feature`, and `fallback_matrix` exports the knob-0 linearization as the program's
+`wave_features` block for sounds without such a model. The eight wave feature knobs and eight
+user preference faders are separate host controls. These are measured-descriptor controls, not
+hand-authored semantic macros (see `docs/audio-tensor-space/mission.md`).
+
 ## Implementation status
 
 The `src/tensor` runtime executes and validates the four shared tensors. The AOM

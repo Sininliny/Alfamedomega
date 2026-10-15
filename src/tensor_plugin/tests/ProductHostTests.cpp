@@ -483,6 +483,47 @@ TEST_CASE("Indexed X host controls never implicitly populate the preference tens
     CHECK(changed.failures.load() == 0);
 }
 
+TEST_CASE("Wave feature knobs drive the linear fallback matrix of a sound without a compiler model",
+          "[tensor-host][product]")
+{
+    juce::ScopedJuceInitialiser_GUI gui;
+    auto fixture = sineFixture();
+    std::vector<double> matrix(2 * 8, 0.);
+    matrix[1 * 8 + 0] = .1; // wave knob 0 (tilt) raises the amplitude parameter by .1 at full turn
+    fixture["wave_features"] = {
+        {"schema", "aom.wave-features/1"},
+        {"descriptors", {"tilt", "attack", "sustain", "tail", "noisiness", "roughness", "motion", "width"}},
+        {"matrix", {{"axes", {"destination", "source"}}, {"shape", {2, 8}}, {"values", matrix}}}};
+    fixture["budget"]["stored_tensor_elements"] = 3 + 16;
+    Processor turned, reference;
+    turned.prepareToPlay(48000, 32);
+    reference.prepareToPlay(48000, 32);
+    juce::String error;
+    REQUIRE(turned.loadJSON(juce::String(fixture.dump()), error));
+    REQUIRE(reference.loadJSON(juce::String(fixture.dump()), error));
+    turned.setParameterValue("wf0", 1);
+    turned.setParameterValue("pref3", 1); // preference faders reach only the preference tensor
+    juce::AudioBuffer<float> actual(2, 32), expected(2, 32);
+    juce::MidiBuffer midi;
+    for (int block = 0; block < 2; ++block)
+    {
+        actual.clear();
+        expected.clear();
+        render(turned, actual, midi);
+        render(reference, expected, midi);
+    }
+    for (int sample = 0; sample < 32; ++sample)
+        CHECK(actual.getSample(0, sample) ==
+              Catch::Approx(expected.getSample(0, sample) * 1.5f).margin(.000001));
+    CHECK(turned.failures.load() == 0);
+    auto wrong = fixture;
+    wrong["wave_features"]["matrix"]["shape"] = {2, 7};
+    CHECK_FALSE(turned.loadJSON(juce::String(wrong.dump()), error));
+    wrong = fixture;
+    wrong["wave_features"]["schema"] = "aom.wave-features/2";
+    CHECK_FALSE(turned.loadJSON(juce::String(wrong.dump()), error));
+}
+
 TEST_CASE("Precision tier switches execute real notes and restore the same tensor coordinates",
           "[tensor-host][product][precision]")
 {

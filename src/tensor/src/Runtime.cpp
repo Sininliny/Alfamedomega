@@ -158,6 +158,8 @@ SourceValuesT<Scalar> sourceValues(SourceKind source, const InputsT<Scalar>& inp
         return {state, {}};
     case SourceKind::OutputHistory:
         return {history, {}};
+    case SourceKind::WaveFeature:
+        return {inputs.waveFeature.values, inputs.waveFeature.presence};
     }
     return {};
 }
@@ -308,7 +310,7 @@ bool RuntimeT<Scalar>::prepare(const ConfigurationT<Scalar>& configuration, cons
     candidate.state_ = candidate.initial_;
     for (const auto& projection : configuration.projections)
     {
-        if (projection.source < SourceKind::Audio || projection.source > SourceKind::OutputHistory ||
+        if (projection.source < SourceKind::Audio || projection.source > SourceKind::WaveFeature ||
             (projection.weightTensor != WeightTensor::Routing &&
              projection.weightTensor != WeightTensor::Modulation) ||
             (projection.missingSource != MissingSource::Reject &&
@@ -337,7 +339,7 @@ bool RuntimeT<Scalar>::prepare(const ConfigurationT<Scalar>& configuration, cons
         {
             const auto& weights = binding.weightTensor == WeightTensor::Routing ? configuration.routing
                                                                                 : configuration.modulation;
-            if (binding.source < SourceKind::Audio || binding.source > SourceKind::OutputHistory ||
+            if (binding.source < SourceKind::Audio || binding.source > SourceKind::WaveFeature ||
                 (binding.weightTensor != WeightTensor::Routing &&
                  binding.weightTensor != WeightTensor::Modulation) ||
                 (binding.missingSource != MissingSource::Zero &&
@@ -395,7 +397,7 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
     if (!prepared_ || !validTensor<Scalar>(inputs.audio) || !validTensor<Scalar>(inputs.midi) ||
         !validTensor<Scalar>(inputs.gesture) || !validTensor<Scalar>(inputs.userPreference) ||
         !validTensor<Scalar>(inputs.latentSound) || !validTensor<Scalar>(inputs.context) ||
-        sample_ == std::numeric_limits<std::uint64_t>::max())
+        !validTensor<Scalar>(inputs.waveFeature) || sample_ == std::numeric_limits<std::uint64_t>::max())
     {
         std::fill(output_.begin(), output_.end(), 0.0f);
         return false;
@@ -405,9 +407,9 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
     std::copy(committedOutput_.begin(), committedOutput_.end(), candidateOutput_.begin());
     std::copy(configuration_.parameters.values.begin(), configuration_.parameters.values.end(),
               effectiveParameters_.begin());
-    // Every projection and audio binding reads one of eight source views; resolve them once.
-    static_assert(static_cast<std::size_t>(SourceKind::OutputHistory) == 7);
-    std::array<SourceValuesT<Scalar>, 8> sourceTable{};
+    // Every projection and audio binding reads one of nine source views; resolve them once.
+    static_assert(static_cast<std::size_t>(SourceKind::WaveFeature) == 8);
+    std::array<SourceValuesT<Scalar>, 9> sourceTable{};
     for (std::size_t kind = 0; kind < sourceTable.size(); ++kind)
         sourceTable[kind] =
             sourceValues<Scalar>(static_cast<SourceKind>(kind), inputs, state_, committedOutput_);

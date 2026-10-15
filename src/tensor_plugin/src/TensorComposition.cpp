@@ -200,11 +200,12 @@ JSON lower(const JSON& recipe, double rate)
         if (fragment.document.contains("input_capacity"))
         {
             const auto& capacity = fragment.document.at("input_capacity");
-            if (!capacity.is_array() || capacity.size() != 6)
-                throw std::invalid_argument("Fragment input_capacity must contain six widths");
+            // Seven widths since aom.wave-features/1; six-width fragments predate wave features.
+            if (!capacity.is_array() || (capacity.size() != 6 && capacity.size() != 7))
+                throw std::invalid_argument("Fragment input_capacity must contain six or seven widths");
             if (!result.contains("input_capacity"))
-                result["input_capacity"] = {0, 0, 0, 0, 0, 0};
-            for (std::size_t category = 0; category < 6; ++category)
+                result["input_capacity"] = {0, 0, 0, 0, 0, 0, 0};
+            for (std::size_t category = 0; category < capacity.size(); ++category)
                 result["input_capacity"][category] =
                     std::max(result["input_capacity"][category].get<std::size_t>(),
                              capacity[category].get<std::size_t>());

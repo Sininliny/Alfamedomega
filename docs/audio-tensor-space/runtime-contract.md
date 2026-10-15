@@ -12,8 +12,8 @@ mask 1 denotes represented capacity, including genuine zero-valued controls. Mis
 mean all elements are represented. Parameter/routing/modulation capacity excludes padding;
 `storedTensorElements` separately bounds full padded storage. Active contiguous parameter
 slices cannot select absent padding.
-The six `Inputs` fields independently carry audio, MIDI, gestures, preference, latent sound
-and context. An entirely empty view explicitly means absent input. Concrete feature encodings
+The seven `Inputs` fields independently carry audio, MIDI, gestures, preference, latent sound,
+context and the eight wave feature knobs (`waveFeature`, `aom.wave-features/1`). An entirely empty view explicitly means absent input. Concrete feature encodings
 are not inferred from legacy MIDI widths or synthesis methods.
 
 `Configuration` carries activation, parameters, routing, modulation, primitive instances,
@@ -38,8 +38,8 @@ binding from selected information to parameters:
 effective_parameter[d] = base_parameter[d] + sum(weight[w] * source[s])
 ```
 
-The producer selects a typed audio, MIDI, gesture, preference, latent, context or current-state
-source, its element, a destination parameter element, and a coefficient element from either
+The producer selects a typed audio, MIDI, gesture, preference, latent, context, wave feature
+(`wave_feature`) or current-state source, its element, a destination parameter element, and a coefficient element from either
 the routing or modulation tensor. Flattened coefficient selection explicitly identifies the
 condition/time contribution; the runtime does not infer musical feature encodings or choose
 conditions/time windows. One source may contribute to multiple destinations and multiple
@@ -194,7 +194,13 @@ Matrix multiplication adds into the next layer's declared base values; the last
 layer adds into the parameter tensor. Parameter locks restore the locked base value
 after these transformations. Current matrices are authored defaults, not trained
 semantic mappings. Eight stable host automation ports address the first eight
-highest coordinates; all remaining coordinates and layers remain directly editable.
+highest coordinates (`x0`-`x7`); eight wave feature knobs (`wf0`-`wf7`, in [-1, 1]) and eight
+user preference faders (`pref0`-`pref7`) are separate host ports. A compiler model reads the
+knobs through its `wave_feature` input width and the faders through `user_preference`. A program
+without a model that reads wave features may carry a linear fallback, `wave_features`:
+`{"schema": "aom.wave-features/1", "descriptors": [8 names], "matrix": parameter x 8}`, added into
+the parameter tensor after the X layers and before locks; it is ignored when a model reads the
+knobs, and its elements count toward `stored_tensor_elements`; all remaining coordinates and layers remain directly editable.
 A layer may also carry presentation-only fields that never reach the DSP: `labels`
 (one user name per control, at most 64 bytes, empty for the default `X[layer,index]`)
 and `ranking` (`model` hash, optional `name`, one finite `importance` per control) from a

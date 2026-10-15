@@ -7,7 +7,8 @@
     "gesture": 0,
     "user_preference": 0,
     "latent": 0,
-    "context": 0
+    "context": 0,
+    "wave_feature": 0
   },
   "hidden_width": 3,
   "schemas": [
@@ -217,7 +218,8 @@
         "gesture": [],
         "user_preference": [],
         "latent": [],
-        "context": []
+        "context": [],
+        "wave_feature": []
       },
       "values": [
         0.1030556783080101,
@@ -249,7 +251,8 @@
         "gesture": [],
         "user_preference": [],
         "latent": [],
-        "context": []
+        "context": [],
+        "wave_feature": []
       },
       "values": [
         0.058973267674446106,
@@ -281,7 +284,8 @@
         "gesture": [],
         "user_preference": [],
         "latent": [],
-        "context": []
+        "context": [],
+        "wave_feature": []
       },
       "values": [
         0.07846689969301224,

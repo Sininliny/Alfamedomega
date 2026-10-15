@@ -14,6 +14,7 @@ from .session import atomic_json, TrainingCancelled
 
 
 INPUTS = ("audio", "midi", "gesture", "preference", "latent", "context")
+OPTIONAL_INPUTS = ("wave_feature",)   # wave feature knobs; absent means none
 
 
 def performance(spec, allowance):
@@ -21,8 +22,8 @@ def performance(spec, allowance):
     frames, rate = spec["frames"], spec["sample_rate"]
     if type(frames) is not int or frames <= 0 or not math.isfinite(rate) or rate <= 0:
         raise ValueError("Explicit positive frame count and sample rate required")
-    if set(spec["inputs"]) != set(INPUTS):
-        raise ValueError("All six native input streams require explicit vectors")
+    if not set(INPUTS) <= set(spec["inputs"]) <= set(INPUTS + OPTIONAL_INPUTS):
+        raise ValueError("All six native input streams require explicit vectors; wave_feature is optional")
     streams, elements = {}, 0
     for name, value in spec["inputs"].items():
         if isinstance(value, dict):

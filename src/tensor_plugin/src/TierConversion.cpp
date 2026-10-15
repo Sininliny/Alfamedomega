@@ -196,7 +196,7 @@ std::vector<double> render(const JSON& document, const JSON& fixture, double rat
         for (size_t i = 0; i < 6; ++i)
             if (!values[i].empty())
                 view[i] = {axes, shapes[i], values[i], {}};
-        in = {view[0], view[1], view[2], view[3], view[4], view[5]};
+        in = {view[0], view[1], view[2], view[3], view[4], view[5], {}};
         double time = 0;
         const auto result = execution->tick(in, time);
         if (!result.audioRendered || !result.modelAccepted)
@@ -358,8 +358,9 @@ bool convertTier(std::string_view sound, std::string_view tier, double rate, std
                     2,
                     1280,
                     48,
-                    5,
+                    8,
                     candidate.contains("latentSound") ? candidate["latentSound"]["values"].size() : size_t(0),
+                    8,
                     8};
                 if (!prepareExecution(candidate.dump(), rate, diagnostic))
                     throw std::invalid_argument(diagnostic);

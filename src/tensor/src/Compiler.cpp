@@ -84,6 +84,8 @@ SourceKind source(std::string_view name)
         return SourceKind::State;
     if (name == "output_history")
         return SourceKind::OutputHistory;
+    if (name == "wave_feature")
+        return SourceKind::WaveFeature;
     throw std::invalid_argument("Unknown source representation");
 }
 
@@ -107,6 +109,8 @@ std::string_view sourceName(SourceKind kind)
         return "state";
     case SourceKind::OutputHistory:
         return "output_history";
+    case SourceKind::WaveFeature:
+        return "wave_feature";
     }
     throw std::invalid_argument("Unknown source representation");
 }
