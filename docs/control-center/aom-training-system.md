@@ -18,7 +18,7 @@ the user starts a job. Opening the Centre or inspecting a manifest starts no opt
 These models have separate data, architecture and memory allowances. Published
 inference artifacts retain compact training summaries and data digests; complete
 optimizer history remains in the private checkpoint, avoiding growing inference files. Local learned
-state does not automatically become the host's five semantic preference controls:
+state does not automatically become the host's eight preference faders:
 the caller owns that encoding. AOM jobs do not install legacy method-vector/ONNX
 models. The legacy pages retain their historical workflows. A single Centre instance
 serializes queued jobs; independent Centre/CLI processes do not share a process lock.
@@ -40,7 +40,7 @@ Choose a Python containing PyTorch and NumPy in Settings, then:
    **Evaluate reconstruction**. Inspect Jobs for the measured results.
 
 The producer copies original canonical tensors, applies explicitly bounded unlocked
-perturbations and renders declared six-stream performances through native DSP. Each input may
+perturbations and renders declared six-stream performances (plus an optional `wave_feature` stream) through native DSP. Each input may
 be a constant feature vector or an explicit `{"frames": [[...], ...]}` trajectory
 with one fixed-width row per rendered sample. This preserves authored note releases,
 gestures and automation rather than replacing them with held controls. It writes PCM32 recordings without silently clipping or rescaling them.
@@ -73,7 +73,7 @@ The WAV model has independent original-canonical and rendered-instance heads plu
 presence heads. Regression ignores padding; training-only statistics normalize the
 targets. Validation uses those same statistics and never changes model parameters.
 The runtime learner preserves ordered events, resets neural context at sequence
-boundaries and supports all six explicitly encoded input categories.
+boundaries and supports all seven explicitly encoded input categories.
 
 An optional WAV manifest section adds a **real native DSP reconstruction loss**:
 
@@ -142,12 +142,15 @@ Runtime manifests contain `ontology`, `schemas`, `input_widths`, `hidden_width`,
 ```json
 {"canonical_id": "original-group", "split": "train", "events": [
   {"inputs": {"audio": [], "midi": [200.0, 0.4], "gesture": [],
-              "user_preference": [], "latent": [], "context": []},
+              "user_preference": [], "latent": [], "context": [], "wave_feature": []},
    "target_json": "label.aom.json"}
 ]}
 ```
 
-Declare widths for **all six** input categories, including explicit zero widths.
+Declare widths for **all seven** input categories, including explicit zero widths.
+`wave_feature` carries the eight wave feature knobs (at most 8 wide, `user_preference` at most 8);
+knob values, descriptor measurement, calibration, teacher directions and losses are in
+`training/aom/wave_features.py` and `training/METHOD.md`, "Wave feature knobs".
 A model with a `midi` width above zero reads fixed MIDI coordinates, so the plugin
 loads it only into a sound whose `performance.midi_layout` is `voice_indexed`, and
 the width must be at most `voice_capacity` × 10 (ten fields per voice slot, in the

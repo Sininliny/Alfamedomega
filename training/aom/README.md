@@ -65,13 +65,18 @@ primitive identities and projection bindings; arbitrary new structures are not
 claimed by the reference model.
 
 `runtime_model.py` supplies a separate recurrent runtime tensor predictor trained
-on ordered six-category input events. Its neural context is distinct from DSP
+on ordered seven-category input events (the seventh is the wave feature knobs). Its neural context is distinct from DSP
 state, and no inference rate is assumed. `export_runtime_model` writes exact
 PyTorch GRU weights, explicit inference clock and golden differential vectors for
 C++ execution. `local_learning.py` supplies a separate local pairwise preference
 model and context-dependent measured-importance model. Both have independent
 CPU working-memory allowances; preferences and dimension importance are learned
 from local labels rather than assumed rankings.
+
+`wave_features.py` defines the eight wave feature knobs (`aom.wave-features/1`): the
+descriptor measurements, percentile calibration, the main-direction teacher in the
+training-gradient metric, knob automation for runtime training, the linear fallback
+block and the PyTorch knob losses. See `training/METHOD.md`, "Wave feature knobs".
 
 `tiers.py` learns local sensitivity from measured candidate experiments and
 searches explicit proposed configurations under compiler-validated capacities.

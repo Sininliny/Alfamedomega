@@ -8,7 +8,8 @@ from .session import optimize, atomic_json, inference_metadata
 from dataclasses import asdict
 
 
-INPUT_CATEGORIES = ("audio", "midi", "gesture", "user_preference", "latent", "context")
+# wave_feature: the eight wave feature knobs (aom.wave-features/1, see wave_features.py).
+INPUT_CATEGORIES = ("audio", "midi", "gesture", "user_preference", "latent", "context", "wave_feature")
 
 
 class RuntimeTensorModel(nn.Module):
@@ -21,7 +22,7 @@ class RuntimeTensorModel(nn.Module):
     def __init__(self, input_widths: dict[str, int], hidden_width: int, schemas: dict[str, TensorSchema]):
         super().__init__()
         if set(input_widths) != set(INPUT_CATEGORIES) or any(type(v) is not int or v < 0 for v in input_widths.values()):
-            raise ValueError("Explicit widths for all six input categories required")
+            raise ValueError("Explicit widths for all seven input categories required")
         if hidden_width <= 0 or sum(input_widths.values()) <= 0:
             raise ValueError("Positive hidden and aggregate input width required")
         self.input_widths = dict(input_widths)
@@ -36,7 +37,7 @@ class RuntimeTensorModel(nn.Module):
 
     def encode(self, inputs):
         if set(inputs) != set(INPUT_CATEGORIES):
-            raise ValueError("All six input categories require explicit data or empty vectors")
+            raise ValueError("All seven input categories require explicit data or empty vectors")
         flat = []
         for category in INPUT_CATEGORIES:
             values = inputs[category]
@@ -78,7 +79,7 @@ def train_runtime_sequences(model: RuntimeTensorModel, sequences, *, ontology: s
                             gradient_clip=1.0, validation=None):
     """Separate runtime supervision with ordered input/target event sequences.
 
-    Each sequence contains (six-category feature dict, Representation) pairs.
+    Each sequence contains (seven-category feature dict, Representation) pairs.
     Epochs begin with zero neural context and backpropagate through all events;
     DSP execution is never part of this learned recurrence.
     """

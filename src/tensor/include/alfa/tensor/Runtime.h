@@ -46,6 +46,9 @@ struct InputsT
     TensorViewT<Scalar> userPreference;
     TensorViewT<Scalar> latentSound;
     TensorViewT<Scalar> context;
+    // Eight wave feature knobs (aom.wave-features/1): each asks for a relative move of one
+    // measured audio descriptor. Empty when the host supplies none.
+    TensorViewT<Scalar> waveFeature;
 };
 
 struct Slice
@@ -139,7 +142,8 @@ enum class SourceKind
     LatentSound,
     Context,
     State,
-    OutputHistory
+    OutputHistory,
+    WaveFeature
 };
 
 enum class WeightTensor

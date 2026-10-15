@@ -49,7 +49,7 @@ def prepare_runtime(path):
         raise ValueError("Positive finite runtime presence loss weight required")
     widths, hidden = manifest["input_widths"], manifest["hidden_width"]
     if set(widths) != set(INPUT_CATEGORIES) or any(type(v) is not int or v < 0 for v in widths.values()) or not sum(widths.values()):
-        raise ValueError("Explicit valid widths for all six runtime inputs required")
+        raise ValueError("Explicit valid widths for all seven runtime inputs required")
     if type(hidden) is not int or hidden <= 0:
         raise ValueError("Positive runtime hidden width required")
     schemas = {k: TensorSchema(tuple(v["axes"]), tuple(v["padded_shape"])) for k, v in manifest["schemas"].items()}

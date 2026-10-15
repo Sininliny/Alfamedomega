@@ -99,6 +99,11 @@ class Execution final : public TensorExecution
     std::vector<Scalar> mapped_, highest_;
     std::array<std::vector<Scalar>, 4> initialControls_;
     std::vector<Layer> layers_;
+    // Linear wave feature fallback (aom.wave-features/1): parameter x knob matrix applied when no
+    // compiler model reads the wave_feature input. Empty when the sound carries none.
+    std::vector<Scalar> waveMatrix_;
+    std::array<Scalar, 8> wave_{};
+    bool modelReadsWave_ = false;
     std::vector<Mix> mix_;
     std::unique_ptr<TensorModelT<Scalar>> model_;
     juce::String modelIdentity_;
@@ -114,6 +119,8 @@ class Execution final : public TensorExecution
     std::vector<ScopedModel> scopedModels_;
     TensorT<Scalar> latent_;
     std::array<std::vector<Scalar>, 6> boundary_;
+    // Preference faders and wave feature knobs: fixed host widths, converted in place.
+    std::array<Scalar, 8> preferenceBoundary_{}, waveBoundary_{};
     std::vector<Scalar> levels_;
     std::string report_;
 
@@ -219,16 +226,18 @@ public:
                 stored += count;
             };
             const auto voiceCapacity = readNativePolicy(data).voiceCapacity;
-            const auto validateModelInputs = [voiceCapacity](const JSON& model, size_t latentCount)
+            const auto validateModelInputs = [this, voiceCapacity](const JSON& model, size_t latentCount)
             {
-                const std::array<const char*, 6> names{"audio",           "midi",   "gesture",
-                                                       "user_preference", "latent", "context"};
+                if (model.at("input_widths").at("wave_feature").get<uint64_t>() > 0)
+                    modelReadsWave_ = true;
+                const std::array<const char*, 7> names{"audio",  "midi",    "gesture",     "user_preference",
+                                                       "latent", "context", "wave_feature"};
                 // A model reads fixed MIDI coordinates, so it needs rows that keep their slot:
                 // compact rows shift when a note is released and are absent while no note is held.
                 if (model.at("input_widths").at("midi").get<uint64_t>() > 0 && voiceCapacity == 0)
                     throw std::invalid_argument(
                         "A compiler model that reads MIDI requires performance.midi_layout = voice_indexed");
-                const std::array<size_t, 6> capacities{2, voiceCapacity * 10, 48, 5, latentCount, 8};
+                const std::array<size_t, 7> capacities{2, voiceCapacity * 10, 48, 8, latentCount, 8, 8};
                 for (size_t i = 0; i < names.size(); ++i)
                     if (model.at("input_widths").at(names[i]).get<uint64_t>() > capacities[i])
                         throw std::invalid_argument(
@@ -236,6 +245,30 @@ public:
             };
             if (!layers_.empty())
                 highest_ = layers_[0].base;
+            if (data.contains("wave_features"))
+            {
+                const auto& wave = data.at("wave_features");
+                if (wave.at("schema") != "aom.wave-features/1")
+                    throw std::invalid_argument("Unsupported wave feature schema");
+                const auto& names = wave.at("descriptors");
+                if (!names.is_array() || names.size() != wave_.size())
+                    throw std::invalid_argument("Wave features name exactly eight descriptors");
+                for (const auto& name : names)
+                    if (!name.is_string())
+                        throw std::invalid_argument("Wave feature descriptors must be text");
+                const auto matrix = inputTensor<Scalar>(wave.at("matrix"));
+                if (matrix.shape != std::vector<size_t>{controls_.parameters.values.size(), wave_.size()} ||
+                    matrix.axes != std::vector<std::string>{"destination", "source"})
+                    throw std::invalid_argument("Wave feature matrix must be parameter x 8");
+                for (const auto value : matrix.values)
+                    if (!std::isfinite(value))
+                        throw std::invalid_argument("Wave feature matrix must be finite");
+                if (stored > budget.storedTensorElements ||
+                    matrix.values.size() > budget.storedTensorElements - stored)
+                    throw std::invalid_argument("Wave feature matrix exceeds stored tensor capacity");
+                stored += matrix.values.size();
+                waveMatrix_ = matrix.values;
+            }
             if (data.contains("latentSound"))
             {
                 latent_ = inputTensor<Scalar>(data.at("latentSound"));
@@ -362,8 +395,9 @@ public:
             }
             if constexpr (std::is_same_v<Scalar, double>)
             {
-                // These are native-host conversion capacities, not primitive slots.
-                const std::array<size_t, 6> capacities{2, 1280, 48, 5, latent_.values.size(), 8};
+                // These are native-host conversion capacities, not primitive slots. The eight
+                // preference faders and eight wave feature knobs use fixed member storage.
+                const std::array<size_t, 6> capacities{2, 1280, 48, 0, latent_.values.size(), 8};
                 size_t elements = 0;
                 for (const auto count : capacities)
                     elements += count;
@@ -372,7 +406,7 @@ public:
                     throw std::invalid_argument(
                         "Float64 host input conversion exceeds declared boundary_conversion_bytes");
                 for (size_t i = 0; i < boundary_.size(); ++i)
-                    if (i != 4)
+                    if (i != 3 && i != 4)
                         boundary_[i].resize(capacities[i]);
             }
             if (model_ || !scopedModels_.empty())
@@ -443,13 +477,26 @@ public:
                                     : layers_[0].base[i];
         return mapControls();
     }
+    bool updateWaveFeatures(std::span<const float> values) noexcept override
+    {
+        for (size_t i = 0; i < wave_.size(); ++i)
+        {
+            const auto value = i < values.size() ? values[i] : 0.0f;
+            if (!std::isfinite(value))
+                return false;
+            wave_[i] = std::clamp(static_cast<Scalar>(value), Scalar(-1), Scalar(1));
+        }
+        return true;
+    }
     bool mapControls() noexcept
     {
-        if (layers_.empty())
+        const bool waveFallback = !waveMatrix_.empty() && !modelReadsWave_;
+        if (layers_.empty() && !waveFallback)
             return true;
         for (auto& layer : layers_)
             std::copy(layer.base.begin(), layer.base.end(), layer.values.begin());
-        std::copy(highest_.begin(), highest_.end(), layers_[0].values.begin());
+        if (!layers_.empty())
+            std::copy(highest_.begin(), highest_.end(), layers_[0].values.begin());
         std::copy(controls_.parameters.values.begin(), controls_.parameters.values.end(), mapped_.begin());
         for (size_t i = 0; i < layers_.size(); ++i)
         {
@@ -463,6 +510,10 @@ public:
                     destination[d] =
                         std::clamp(destination[d], layers_[i + 1].ranges[d][0], layers_[i + 1].ranges[d][1]);
         }
+        if (waveFallback)
+            for (size_t d = 0; d < mapped_.size(); ++d)
+                for (size_t k = 0; k < wave_.size(); ++k)
+                    mapped_[d] += waveMatrix_[d * wave_.size() + k] * wave_[k];
         for (size_t i = 0; i < controls_.parameterLocks.size(); ++i)
             if (controls_.parameterLocks[i])
                 mapped_[i] = controls_.parameters.values[i];
@@ -481,19 +532,27 @@ public:
             const std::array<TensorView, 6> source{native.audio,          native.midi,        native.gesture,
                                                    native.userPreference, native.latentSound, native.context};
             std::array<TensorViewT<Scalar>, 6> converted;
+            const auto convert = [](const TensorView& from, std::span<Scalar> storage, TensorViewT<Scalar>& to)
+            {
+                if (from.values.size() > storage.size())
+                    return false;
+                std::transform(from.values.begin(), from.values.end(), storage.begin(),
+                               [](float value) { return static_cast<Scalar>(value); });
+                to = {from.axes, from.shape, std::span<const Scalar>(storage).first(from.values.size()),
+                      from.presence};
+                return true;
+            };
             for (size_t i = 0; i < source.size(); ++i)
             {
                 if (i == 4)
                     continue;
-                if (source[i].values.size() > boundary_[i].size())
+                if (!(i == 3 ? convert(source[i], preferenceBoundary_, converted[i])
+                             : convert(source[i], boundary_[i], converted[i])))
                     return {false, true};
-                std::transform(source[i].values.begin(), source[i].values.end(), boundary_[i].begin(),
-                               [](float value) { return static_cast<Scalar>(value); });
-                converted[i] = {source[i].axes, source[i].shape,
-                                std::span<const Scalar>(boundary_[i]).first(source[i].values.size()),
-                                source[i].presence};
             }
-            inputs = {converted[0], converted[1], converted[2], converted[3], converted[4], converted[5]};
+            inputs = {converted[0], converted[1], converted[2], converted[3], converted[4], converted[5], {}};
+            if (!convert(native.waveFeature, waveBoundary_, inputs.waveFeature))
+                return {false, true};
         }
         inputs.latentSound = view(latent_);
         bool accepted = true, modelEvent = false;

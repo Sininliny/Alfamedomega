@@ -147,7 +147,17 @@ Control layers are expandable and indexed as X0, X1 or X[layer,index]. Only bott
 instance parameters carry semantic names such as filter cutoff. A higher control can affect
 many lower controls through an editable matrix. Current configurations use explicitly authored
 default mappings and ordering; future training can learn the mappings and perceptual ranking.
-Do not label the current ordering as learned or add brightness/warmth macro definitions.
+Do not label the current ordering as learned or add hand-authored semantic macros (for example
+a brightness or warmth mapping written by hand).
+
+Measured-descriptor controls are allowed (Sinin, 2026-10-15): a control may name an audio
+descriptor when the descriptor is a fixed algorithm with a unit, measured on rendered audio, and
+the mapping from control to tensors is trained against that measurement. The product has eight
+such **wave feature knobs** (tilt, attack, sustain, tail, noisiness, roughness, motion, width;
+see [training/METHOD.md](../../training/METHOD.md)). Each moves the sound along its descriptor
+as the main direction through the continuous tensor space; the other descriptors may follow and
+the network decides how. They coexist with eight user preference faders, which move through the
+user preference tensor space, and with the indexed X layers.
 There is no fixed internal knob count: pagination and the finite host automation interface do
 not limit the executable tensor dimensions. Raw tensor editing includes activation, routing,
 state allocation, clocks and processing relationships. Locks and selected overrides must have

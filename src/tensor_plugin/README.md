@@ -16,8 +16,13 @@ remaining adaptations. Catalog coverage is not a claim of optimized legacy parit
 Controls are X[layer,index]. Expand arbitrary control layers, edit their many-to-many
 matrices, or inspect all scalar DSP instance parameters and locks. Only bottom
 instance parameters carry semantic names/units. Default matrices are authored;
-there are no brightness/warmth macro definitions or fabricated learned ordering.
+there are no hand-authored semantic macros or fabricated learned ordering.
 Eight stable X automation ports address the first eight highest coordinates.
+Eight wave feature knobs (`wf0`-`wf7`: tilt, attack, sustain, tail, noisiness,
+roughness, motion, width) move the sound along measured descriptors through a
+compiler model's `wave_feature` input or the program's linear `wave_features`
+fallback; eight preference faders (`pref0`-`pref7`) feed the `user_preference`
+input. See `training/METHOD.md`, "Wave feature knobs".
 Pagination and host port count do not limit internal tensor dimensions.
 
 Settings selects one uniform execution type: Lite/Standard float32, Pro/Studio

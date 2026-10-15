@@ -37,8 +37,8 @@ struct Handle final : HandleBase
     std::unique_ptr<alfa::tensor::TensorModelT<Scalar>> model;
     alfa::tensor::Clock modelClock;
     std::array<std::string, 1> axes{"feature"};
-    std::array<std::vector<Scalar>, 6> conversion;
-    std::array<std::size_t, 6> inputCapacity{};
+    std::array<std::vector<Scalar>, 7> conversion;
+    std::array<std::size_t, 7> inputCapacity{};
     bool boundedInputs = false;
     std::size_t outputCount() const noexcept override { return runtime.output().size(); }
     std::size_t scalarBytes() const noexcept override { return sizeof(Scalar); }
@@ -55,7 +55,7 @@ struct Handle final : HandleBase
         if ((outputs != 0 && frames > capacity / outputs) ||
             (outputs != 0 && frames != 0 && output == nullptr))
             return 0;
-        for (std::size_t category = 0; category < 6; ++category)
+        for (std::size_t category = 0; category < 7; ++category)
         {
             if (widths[category] != 0 && sources[category] == nullptr)
                 return 0;
@@ -69,9 +69,9 @@ struct Handle final : HandleBase
         }
         for (std::size_t sample = 0; sample < frames; ++sample)
         {
-            std::array<alfa::tensor::TensorViewT<Scalar>, 6> views;
-            std::array<std::array<std::size_t, 1>, 6> shapes;
-            for (std::size_t category = 0; category < 6; ++category)
+            std::array<alfa::tensor::TensorViewT<Scalar>, 7> views;
+            std::array<std::array<std::size_t, 1>, 7> shapes;
+            for (std::size_t category = 0; category < 7; ++category)
                 if (widths[category] != 0)
                 {
                     shapes[category] = {widths[category]};
@@ -86,8 +86,8 @@ struct Handle final : HandleBase
                     }
                     views[category] = {axes, shapes[category], values, {}};
                 }
-            const alfa::tensor::InputsT<Scalar> inputs{views[0], views[1], views[2],
-                                                       views[3], views[4], views[5]};
+            const alfa::tensor::InputsT<Scalar> inputs{views[0], views[1], views[2], views[3],
+                                                       views[4], views[5], views[6]};
             if ((model && runtime.sample() % modelClock.periodSamples == modelClock.phaseSamples &&
                  !model->apply(inputs, runtime)) ||
                 !runtime.tick(inputs))
@@ -120,11 +120,12 @@ std::unique_ptr<HandleBase> prepare(const char* text, double rate, const nlohman
     }
     if (parsed.contains("input_capacity") || !std::is_same_v<Scalar, float>)
     {
-        // The external ABI remains float32. Producers supply six capacities for
-        // double boundary conversion; storage is allocated only during prepare.
+        // The external ABI remains float32. Producers supply capacities for double boundary
+        // conversion; storage is allocated only during prepare. A six-width list predates the
+        // wave feature source, whose capacity is then zero.
         const auto& limits = parsed.at("input_capacity");
-        if (!limits.is_array() || limits.size() != 6)
-            throw std::invalid_argument("float64 C ABI requires explicit input_capacity for six sources");
+        if (!limits.is_array() || (limits.size() != 6 && limits.size() != 7))
+            throw std::invalid_argument("float64 C ABI requires explicit input_capacity for six or seven sources");
         handle->boundedInputs = true;
         std::size_t total = 0;
         const auto& requestedAllowance = parsed.at("budget").at("boundary_conversion_bytes");
@@ -132,7 +133,7 @@ std::unique_ptr<HandleBase> prepare(const char* text, double rate, const nlohman
             (!requestedAllowance.is_number_integer() || requestedAllowance.get<std::int64_t>() < 0))
             throw std::invalid_argument("Invalid boundary conversion memory allowance");
         const auto allowance = requestedAllowance.get<std::size_t>();
-        for (std::size_t category = 0; category < 6; ++category)
+        for (std::size_t category = 0; category < limits.size(); ++category)
         {
             if (!limits[category].is_number_unsigned() &&
                 (!limits[category].is_number_integer() || limits[category].get<std::int64_t>() < 0))
@@ -217,8 +218,8 @@ AOM_EXPORT void aom_reset(void* opaque) noexcept
     }
 }
 
-// Six packed row-major arrays: audio, MIDI, gesture, user preference, latent sound,
-// context. Widths are supplied, never inferred from a fixed model or synthesis method.
+// Seven packed row-major arrays: audio, MIDI, gesture, user preference, latent sound,
+// context, wave feature. Widths are supplied, never inferred from a fixed model or synthesis method.
 AOM_EXPORT int aom_render(void* opaque, std::size_t frames, const float* const* sources,
                           const std::size_t* widths, float* output, std::size_t outputCapacity) noexcept
 {

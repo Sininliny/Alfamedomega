@@ -137,6 +137,7 @@ private:
     std::atomic<float>* outputGain_ = nullptr;
     std::atomic<float>* mix_ = nullptr;
     std::atomic<float>* bypass_ = nullptr;
+    std::array<std::atomic<float>*, 8> waveFeatureParameters_{}, preferenceParameters_{};
     size_t waveformWrite_ = 0;
     class ConfigurationEdit;
     bool loadJSONImpl(const juce::String&, juce::String& error, bool preserveState);
@@ -173,13 +174,13 @@ private:
     std::atomic<size_t> retireRead_{0}, retireWrite_{0};
     std::array<float, 16 * 3> gestures_{};
     std::array<float, 8> context_{};
-    std::array<float, 5> preferences_{};
+    std::array<float, 8> preferences_{}, waveFeatures_{};
     std::array<std::string, 2> midiAxes_{"note", "feature"};
     std::array<size_t, 2> midiShape_{0, 10};
     std::array<std::string, 2> gestureAxes_{"channel", "feature"};
     std::array<size_t, 2> gestureShape_{16, 3};
     std::array<std::string, 1> audioAxes_{"channel"}, contextAxes_{"feature"}, preferenceAxes_{"feature"};
-    std::array<size_t, 1> stereoShape_{2}, contextShape_{8}, preferenceShape_{5};
+    std::array<size_t, 1> stereoShape_{2}, contextShape_{8}, preferenceShape_{8}, waveShape_{8};
     void event(const juce::MidiMessage&) noexcept;
     void timerCallback() override;
 };

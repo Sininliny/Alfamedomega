@@ -40,6 +40,8 @@ namespace
 {
 // Merged MIDI storage reserved before the first callback, so the audio thread never allocates.
 constexpr int midiReserveBytes = 65536;
+constexpr std::array<const char*, 8> waveFeatureNames{"Tilt",      "Attack", "Sustain", "Tail",
+                                                      "Noisiness", "Roughness", "Motion", "Width"};
 juce::AudioProcessorValueTreeState::ParameterLayout hostParameters()
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
@@ -54,6 +56,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout hostParameters()
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"bypass", 1}, "Bypass", false));
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"mode", 1}, "Input mode", juce::StringArray{"Instrument", "FX", "Hybrid"}, 0));
+    // Wave feature knobs: 0 is the loaded sound; each turns the sound along one measured descriptor
+    // (aom.wave-features/1). Preference faders move it through the user preference tensor space.
+    for (size_t i = 0; i < waveFeatureNames.size(); ++i)
+        layout.add(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"wf" + juce::String(static_cast<int>(i)), 1},
+            juce::String("Wave ") + waveFeatureNames[i], juce::NormalisableRange<float>{-1.0f, 1.0f, 0.0f}, 0.0f));
+    for (int i = 0; i < 8; ++i)
+        layout.add(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"pref" + juce::String(i), 1}, "Preference " + juce::String(i + 1),
+            juce::NormalisableRange<float>{-1.0f, 1.0f, 0.0f}, 0.0f));
     return layout;
 }
 } // namespace
@@ -68,6 +80,13 @@ Processor::Processor()
     outputGain_ = parameters_.getRawParameterValue("output_gain");
     mix_ = parameters_.getRawParameterValue("mix");
     bypass_ = parameters_.getRawParameterValue("bypass");
+    for (int i = 0; i < 8; ++i)
+    {
+        waveFeatureParameters_[static_cast<size_t>(i)] =
+            parameters_.getRawParameterValue("wf" + juce::String(i));
+        preferenceParameters_[static_cast<size_t>(i)] =
+            parameters_.getRawParameterValue("pref" + juce::String(i));
+    }
     for (const auto* id : {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "mode"})
         parameters_.addParameterListener(id, this);
     uiSettings_.setProperty("theme", "Graphite", nullptr);
@@ -556,7 +575,13 @@ void Processor::processBlockImpl(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     std::array<float, 8> controls;
     for (size_t i = 0; i < controls.size(); ++i)
         controls[i] = xControls[i].load();
-    if (active_ && !active_->execution->updateControls(controls))
+    for (size_t i = 0; i < waveFeatures_.size(); ++i)
+    {
+        waveFeatures_[i] = waveFeatureParameters_[i]->load();
+        preferences_[i] = preferenceParameters_[i]->load();
+    }
+    if (active_ && (!active_->execution->updateWaveFeatures(waveFeatures_) ||
+                    !active_->execution->updateControls(controls)))
         failures.fetch_add(1, std::memory_order_relaxed);
     mergedMidi_.clear();
     // Only short channel messages reach event(), so SysEx and meta events are not copied. Event
@@ -660,6 +685,7 @@ void Processor::processBlockImpl(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         context_[1] = static_cast<float>(rate_);
         input.context = {contextAxes_, contextShape_, context_, {}};
         input.userPreference = {preferenceAxes_, preferenceShape_, preferences_, {}};
+        input.waveFeature = {preferenceAxes_, waveShape_, waveFeatures_, {}};
         if (active_)
         {
             const auto rendered = active_->execution->tick(input, modelTime);
@@ -874,9 +900,9 @@ bool Processor::setTier(const juce::String& tier, juce::String& error)
         }
         data["scalar_type"] = alfa::tensor::scalarTypeName(profile.scalarType);
         const auto latent = data.contains("latentSound") ? data["latentSound"]["values"].size() : size_t(0);
-        data["input_capacity"] = {2, 1280, 48, 5, latent, 8};
+        data["input_capacity"] = {2, 1280, 48, 8, latent, 8, 8};
         data["budget"]["boundary_conversion_bytes"] =
-            (2 + 1280 + 48 + 5 + latent + 8) * alfa::tensor::scalarBytes(profile.scalarType);
+            (2 + 1280 + 48 + 8 + latent + 8 + 8) * alfa::tensor::scalarBytes(profile.scalarType);
         return editConfigurationJSON(data.dump(2), error);
     }
     catch (const std::exception& failure)

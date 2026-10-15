@@ -35,6 +35,9 @@ public:
     };
     virtual ~TensorExecution() = default;
     virtual bool updateControls(std::span<const float>) noexcept = 0;
+    // Eight wave feature knobs in [-1, 1]. Stored for the linear fallback matrix, which the next
+    // updateControls applies; a compiler model reads them from Inputs::waveFeature instead.
+    virtual bool updateWaveFeatures(std::span<const float>) noexcept = 0;
     virtual TickResult tick(const alfa::tensor::Inputs&, double& modelMilliseconds) noexcept = 0;
     virtual float mixedOutput(int channel) const noexcept = 0;
     virtual void reset() noexcept = 0;

@@ -476,6 +476,17 @@ TEST_CASE("Affine tensor projection shares inputs and recurrent state across par
     REQUIRE(runtime.prepare(config, budget(), 48000.0, error));
     REQUIRE(runtime.tick(inputs));
     CHECK(runtime.output()[0] == 0.75f); // Gesture still contributes, padded MIDI does not.
+
+    // Wave feature knobs are a routable source like any other input category.
+    config.projections = {{SourceKind::WaveFeature, 0, 0, WeightTensor::Routing, 0, MissingSource::Reject}};
+    const std::array<float, 1> knob{0.5f};
+    auto knobs = audioInput(knob);
+    knobs.waveFeature = knobs.audio;
+    knobs.audio = {};
+    REQUIRE(runtime.prepare(config, budget(), 48000.0, error));
+    REQUIRE(runtime.tick(knobs));
+    CHECK(runtime.output()[0] == 0.5f);
+    REQUIRE_FALSE(runtime.tick({}));
 }
 
 TEST_CASE("Migration retains exact legacy project bytes and requires explicit semantic translation",

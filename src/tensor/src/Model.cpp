@@ -61,8 +61,8 @@ bool TensorModelT<Scalar>::prepare(std::string_view json, const ConfigurationT<S
         if (document.at("schema") != "aom.runtime.gru/1" || document.at("ontology") != "aom.math/1")
             throw std::invalid_argument("Unsupported runtime compiler model");
         TensorModelT<Scalar> candidate;
-        const std::array<std::string, 6> categories{"audio",           "midi",   "gesture",
-                                                    "user_preference", "latent", "context"};
+        const std::array<std::string, 7> categories{"audio",  "midi",    "gesture",     "user_preference",
+                                                    "latent", "context", "wave_feature"};
         std::size_t inputWidth = 0;
         for (std::size_t category = 0; category < categories.size(); ++category)
         {
@@ -182,8 +182,9 @@ bool TensorModelT<Scalar>::infer(const InputsT<Scalar>& inputs) noexcept
 {
     if (hidden_ == 0)
         return false;
-    const std::array<TensorViewT<Scalar>, 6> sources{
-        inputs.audio, inputs.midi, inputs.gesture, inputs.userPreference, inputs.latentSound, inputs.context};
+    const std::array<TensorViewT<Scalar>, 7> sources{inputs.audio,       inputs.midi,    inputs.gesture,
+                                                     inputs.userPreference, inputs.latentSound, inputs.context,
+                                                     inputs.waveFeature};
     std::size_t offset = 0;
     for (std::size_t category = 0; category < sources.size(); ++category)
     {

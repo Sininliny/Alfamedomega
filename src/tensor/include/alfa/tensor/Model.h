@@ -31,7 +31,7 @@ public:
     [[nodiscard]] std::span<const Scalar> presenceLogits() const noexcept { return logits_; }
 
 private:
-    std::array<std::size_t, 6> widths_{};
+    std::array<std::size_t, 7> widths_{};
     std::size_t hidden_ = 0;
     Clock clock_{};
     Scalar threshold_ = 0.0f;

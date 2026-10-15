@@ -67,11 +67,11 @@ class NativeRuntime:
         self._dll.aom_reset(self._handle)
 
     def render(self, audio=None, midi=None, gesture=None, preference=None, latent=None,
-               context=None, frames=None):
+               context=None, frames=None, wave_feature=None):
         if not self._handle:
             raise ValueError("Runtime is closed")
         arrays = []
-        for value in (audio, midi, gesture, preference, latent, context):
+        for value in (audio, midi, gesture, preference, latent, context, wave_feature):
             if value is None:
                 arrays.append(None)
                 continue
@@ -87,9 +87,9 @@ class NativeRuntime:
             arrays.append(np.ascontiguousarray(array))
         if frames is None or type(frames) is not int or frames < 0:
             raise ValueError("An explicit nonnegative frame count or input array is required")
-        widths = (ctypes.c_size_t * 6)(*(0 if value is None else value.shape[1] for value in arrays))
+        widths = (ctypes.c_size_t * 7)(*(0 if value is None else value.shape[1] for value in arrays))
         pointer = ctypes.POINTER(ctypes.c_float)
-        pointers = (pointer * 6)(*(pointer() if value is None else value.ctypes.data_as(pointer)
+        pointers = (pointer * 7)(*(pointer() if value is None else value.ctypes.data_as(pointer)
                                   for value in arrays))
         output = np.empty((frames, self.output_count), dtype=np.float32)
         if not self._dll.aom_render(self._handle, frames, pointers, widths,

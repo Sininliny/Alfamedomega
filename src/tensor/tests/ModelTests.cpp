@@ -162,3 +162,33 @@ TEST_CASE("Double compiler model keeps typed precision recurrent reset and scala
     REQUIRE(floatModel.infer(floatInput));
     CHECK(static_cast<double>(floatModel.values()[0]) != first);
 }
+
+TEST_CASE("Compiler model reads the wave feature knobs as its seventh input category", "[tensor][model]")
+{
+    using namespace alfa::tensor;
+    auto fixture = nlohmann::json::parse(fileContents("training/aom/testdata/runtime_gru.json"));
+    Configuration config;
+    std::string error;
+    REQUIRE(parseJSON(fileContents("programs/instrument.aom.json"), config, error));
+    // Every other width is zero, so moving the two MIDI features to the last category keeps
+    // the concatenated input, and the golden predictions, identical.
+    fixture["input_widths"]["wave_feature"] = fixture["input_widths"]["midi"];
+    fixture["input_widths"]["midi"] = 0;
+    TensorModel model;
+    REQUIRE(model.prepare(fixture.dump(), config, error));
+    std::array<std::string, 1> axes{"feature"};
+    for (const auto& golden : fixture.at("golden"))
+    {
+        const auto knobs = golden.at("inputs").at("midi").get<std::vector<float>>();
+        std::array<std::size_t, 1> shape{knobs.size()};
+        Inputs inputs;
+        REQUIRE_FALSE(model.infer(inputs)); // Declared knob features are required.
+        inputs.waveFeature = {axes, shape, knobs, {}};
+        REQUIRE(model.infer(inputs));
+        const auto expected = golden.at("values").get<std::vector<float>>();
+        for (std::size_t index = 0; index < expected.size(); ++index)
+            CHECK(model.values()[index] == Catch::Approx(expected[index]).margin(0.000001));
+    }
+    fixture["input_widths"].erase("wave_feature");
+    REQUIRE_FALSE(model.prepare(fixture.dump(), config, error)); // Widths are explicit.
+}
