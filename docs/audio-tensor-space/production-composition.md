@@ -70,9 +70,9 @@ learning model.
 
 The following are complete single-primitive executable JSON documents, usable as standalone FX examples or as explicit fragments copied into a larger tensor configuration:
 
-- [Ring delay](../../programs/primitives/ring-delay.aom.json): Standard/float32, 64-sample history, delay 16, feedback 0.5, one input binding and 3 journal entries.
-- [Hadamard8 FDN](../../programs/primitives/fdn-hadamard8.aom.json): Pro/float64, eight histories of capacity 16, independent delay/gain/damping triples, only operand 0 excited by input channel 0, 32 journal entries. The host example averages eight outputs and duplicates that scalar to two output channels; it makes no spatial rendering claim.
-- [Causal FIR](../../programs/primitives/causal-fir.aom.json): Standard/float32, four explicit coefficients, four history slots, one audio operand and 3 journal entries. The current input tap is included in the readout.
+- [Ring delay](../../programs/primitives/ring-delay.amo.json): Standard/float32, 64-sample history, delay 16, feedback 0.5, one input binding and 3 journal entries.
+- [Hadamard8 FDN](../../programs/primitives/fdn-hadamard8.amo.json): Pro/float64, eight histories of capacity 16, independent delay/gain/damping triples, only operand 0 excited by input channel 0, 32 journal entries. The host example averages eight outputs and duplicates that scalar to two output channels; it makes no spatial rendering claim.
+- [Causal FIR](../../programs/primitives/causal-fir.amo.json): Standard/float32, four explicit coefficients, four history slots, one audio operand and 3 journal entries. The current input tap is included in the readout.
 
 When composing fragments, reassign activation indices, parameter slices, binding weight coordinates, initial-state slices and output indices. Recalculate the full budget. `stored_tensor_elements` includes tensor storage, asset values and allocated audio operand values; `projection_terms` also counts audio bindings. `sparse_state_writes` counts reserved journal entries, not history length. A float32 fragment cannot be silently inserted into a float64 executable through a hidden local buffer: parse/prepare the complete configuration with its uniform scalar type.
 

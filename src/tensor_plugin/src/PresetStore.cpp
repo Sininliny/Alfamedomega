@@ -4,6 +4,7 @@
 #include "alfa/tensor/Compiler.h"
 #include "alfa/tensor/Model.h"
 #include "alfa/tensor/Precision.h"
+#include "alfa/tensor/Schema.h"
 
 #include <juce_cryptography/juce_cryptography.h>
 
@@ -45,7 +46,7 @@ PresetEntry entryFor(const juce::File& file, const juce::String& text)
     if (name.isEmpty())
     {
         name = file.getFileNameWithoutExtension();
-        if (name.endsWithIgnoreCase(".aom"))
+        if (name.endsWithIgnoreCase(".amo") || name.endsWithIgnoreCase(".aom")) // rename-compat
             name = name.dropLastCharacters(4);
     }
     auto id = object.contains("preset") ? stringField(object.at("preset"), "id") : juce::String{};
@@ -95,14 +96,16 @@ bool PresetStore::validateDocument(const juce::String& document, juce::String& e
     try
     {
         const auto object = JSON::parse(document.toStdString());
-        if (!object.is_object() || object.value("schema", "") != "aom.tensor/1")
-            throw std::invalid_argument("Preset must contain a complete aom.tensor/1 sound document");
+        if (!object.is_object() || !object.contains("schema") ||
+            !alfa::tensor::schemaIs(object.at("schema"), "amo.tensor/1"))
+            throw std::invalid_argument("Preset must contain a complete amo.tensor/1 sound document");
         if (object.contains("preset"))
         {
             const auto& metadata = object.at("preset");
-            if (!metadata.is_object() || metadata.value("schema", "") != "aom.preset/1" ||
+            if (!metadata.is_object() || !metadata.contains("schema") ||
+                !alfa::tensor::schemaIs(metadata.at("schema"), "amo.preset/1") ||
                 stringField(metadata, "id").isEmpty() || stringField(metadata, "name").trim().isEmpty())
-                throw std::invalid_argument("Unsupported or incomplete aom.preset/1 metadata");
+                throw std::invalid_argument("Unsupported or incomplete amo.preset/1 metadata");
             if (metadata.contains("category") && !metadata.at("category").is_string())
                 throw std::invalid_argument("Preset category must be text");
         }
@@ -138,7 +141,8 @@ bool PresetStore::refresh(juce::String& error)
         return false;
     }
     juce::Array<juce::File> files;
-    directory_.findChildFiles(files, juce::File::findFiles, false, "*.aom.json");
+    // Presets saved before the AMO rename end in .aom.json; they stay listed. rename-compat
+    directory_.findChildFiles(files, juce::File::findFiles, false, "*.amo.json;*.aom.json"); // rename-compat
     std::set<std::string> ids;
     for (const auto& file : files)
     {
@@ -243,7 +247,7 @@ bool PresetStore::save(const juce::String& name, const juce::String& category, c
         auto object = JSON::parse(document.toStdString());
         auto metadata = object.value("preset", JSON::object());
         const auto id = replacing ? replacing->id : juce::Uuid().toString();
-        metadata["schema"] = "aom.preset/1";
+        metadata["schema"] = "amo.preset/1";
         metadata["id"] = id.toStdString();
         metadata["name"] = name.trim().toStdString();
         metadata["category"] = category.trim().toStdString();
@@ -256,7 +260,7 @@ bool PresetStore::save(const juce::String& name, const juce::String& category, c
             error = "Cannot create preset library directory";
             return false;
         }
-        const auto target = replacing ? replacing->file : directory_.getChildFile(id + ".aom.json");
+        const auto target = replacing ? replacing->file : directory_.getChildFile(id + ".amo.json");
         if (!replacing && target.exists())
         {
             error = "New preset identity unexpectedly already exists";

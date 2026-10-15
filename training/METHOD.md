@@ -71,7 +71,7 @@ Do not assume pitch shifting, peak normalization or denoising automatically meet
 Validation must compare canonical recovery across nuisance variations, instance recovery after
 perturbation, and reconstruction/performance behavior. Include cases where articulation or temporal
 structure changes while superficial spectral resemblance remains similar. A controlled-render dataset producer and independent native reconstruction checks are
-implemented in `training/aom`. The pitch-relative reference feature policy is validated
+implemented in `training/amo`. The pitch-relative reference feature policy is validated
 on small controlled fixtures; general perceptual normalization remains producer-owned
 and is not certified for arbitrary recordings.
 
@@ -81,7 +81,7 @@ Chosen by Sinin on 2026-10-15 from the gradient proposal (steps 1 and 2). Notati
 p are declared parameter values, u = c(p) training coordinates (`linear` keeps p, `log`
 uses log p), y = R(p) the native render under the example's declared performance.
 
-Feature map phi(y), in `training/aom/perceptual.py`, per channel: log band energies on
+Feature map phi(y), in `training/amo/perceptual.py`, per channel: log band energies on
 48 log-spaced bands at STFT sizes 256, 1024 and 4096 (weight 0.03), log RMS envelope,
 and the smoothed cumulative power distribution F over log frequency in octaves
 (Cramer term). Reconstruction distance:
@@ -144,8 +144,8 @@ acceptable conversion algorithm. Capacity rejection must not trigger silent dest
 ## Wave feature knobs
 
 Decided by Sinin on 2026-10-15. Training produces eight continuous, bipolar **wave feature
-knobs**. Each names one measured audio descriptor (`training/aom/wave_features.py`,
-`aom.wave-features/1`):
+knobs**. Each names one measured audio descriptor (`training/amo/wave_features.py`,
+`amo.wave-features/1`):
 
 | Knob | Descriptor | Measurement | Unit |
 |---|---|---|---|

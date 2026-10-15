@@ -224,8 +224,8 @@ void PrimitiveFragmentPanel::create()
         const auto bindings = array(bindings_);
         const auto channels = index(channels_);
         JSON sound{
-            {"schema", "aom.tensor/1"},
-            {"ontology", "aom.math/1"},
+            {"schema", "amo.tensor/1"},
+            {"ontology", "amo.math/1"},
             {"tier", tier_.toStdString()},
             {"tensors",
              {{"activation", tensor(JSON::array({1}), "primitive")},

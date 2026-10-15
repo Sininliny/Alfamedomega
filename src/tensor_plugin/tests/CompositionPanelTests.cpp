@@ -40,7 +40,7 @@ void click(juce::Component& panel, const juce::String& text)
 juce::String fixture()
 {
     auto sound = JSON::parse(juce::File(juce::String(ALFA_SOURCE_DIR))
-                                 .getChildFile("programs/fx.aom.json")
+                                 .getChildFile("programs/fx.amo.json")
                                  .loadFileAsString()
                                  .toStdString());
     sound["instances"][0]["primitive"] = "math.feedback_cell";

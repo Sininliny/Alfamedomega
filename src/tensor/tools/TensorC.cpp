@@ -13,9 +13,9 @@
 #include <type_traits>
 
 #if defined(_WIN32)
-#define AOM_EXPORT extern "C" __declspec(dllexport)
+#define AMO_EXPORT extern "C" __declspec(dllexport)
 #else
-#define AOM_EXPORT extern "C" __attribute__((visibility("default")))
+#define AMO_EXPORT extern "C" __attribute__((visibility("default")))
 #endif
 
 namespace
@@ -163,7 +163,7 @@ void writeError(char* destination, std::size_t capacity, std::string_view error)
 }
 } // namespace
 
-AOM_EXPORT void* aom_create(const char* document, double sampleRate, char* error,
+AMO_EXPORT void* amo_create(const char* document, double sampleRate, char* error,
                             std::size_t errorCapacity) noexcept
 {
     try
@@ -199,19 +199,19 @@ AOM_EXPORT void* aom_create(const char* document, double sampleRate, char* error
     }
 }
 
-AOM_EXPORT void aom_destroy(void* opaque) noexcept
+AMO_EXPORT void amo_destroy(void* opaque) noexcept
 {
     delete static_cast<HandleBase*>(opaque);
 }
-AOM_EXPORT std::size_t aom_output_count(void* opaque) noexcept
+AMO_EXPORT std::size_t amo_output_count(void* opaque) noexcept
 {
     return opaque == nullptr ? 0 : static_cast<HandleBase*>(opaque)->outputCount();
 }
-AOM_EXPORT std::size_t aom_scalar_bytes(void* opaque) noexcept
+AMO_EXPORT std::size_t amo_scalar_bytes(void* opaque) noexcept
 {
     return opaque == nullptr ? 0 : static_cast<HandleBase*>(opaque)->scalarBytes();
 }
-AOM_EXPORT void aom_reset(void* opaque) noexcept
+AMO_EXPORT void amo_reset(void* opaque) noexcept
 {
     if (opaque != nullptr)
     {
@@ -221,7 +221,7 @@ AOM_EXPORT void aom_reset(void* opaque) noexcept
 
 // Seven packed row-major arrays: audio, MIDI, gesture, user preference, latent sound,
 // context, wave feature. Widths are supplied, never inferred from a fixed model or synthesis method.
-AOM_EXPORT int aom_render(void* opaque, std::size_t frames, const float* const* sources,
+AMO_EXPORT int amo_render(void* opaque, std::size_t frames, const float* const* sources,
                           const std::size_t* widths, float* output, std::size_t outputCapacity) noexcept
 {
     if (opaque == nullptr || sources == nullptr || widths == nullptr)

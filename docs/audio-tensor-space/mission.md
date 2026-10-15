@@ -119,9 +119,13 @@ locks; a failed budget check does not authorize silently changing the sound.
 
 ## Models and AMO Centre
 
-The project abbreviation is AMO. Machine identifiers that predate this spelling keep `aom`
-(the `training/aom` package, `aom.*` schema ids, `.aom.json` files, `AOM_*` variables and the
-`aom_*` C API) so saved programs and models stay loadable.
+<!-- rename-compat: the next paragraph keeps the old spelling on purpose -->
+The project abbreviation is AMO. Everything written before 2026-10-15 spelled it AOM, so the
+loaders still accept the old spelling (rename-compat): `aom.*` schema and ontology ids (C++
+`alfa/tensor/Schema.h`, Python `training/amo/schema.py`), `.aom.json` presets in the user
+library, the `aom-dual-tensor-v1` learner package, the `AOM_TENSOR_LIBRARY` variable and the
+`alfa-cc aom` command. Writers always emit `amo`. `scripts/rename-aom-to-amo.py` converts a
+branch that predates the rename; run it before merging main into that branch.
 
 Keep three model purposes distinct:
 

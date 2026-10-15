@@ -17,7 +17,7 @@ VST3, while preserving the existing targets.
   and returns zero only when all checks pass. This does not require an audio device.
 - A native DSP rendered dataset trains both canonical and perturbed-instance heads.
   Save/load, WAV inference, bounded locked tensor export, native recompilation and
-  WAV rendering execute in `python -m training.aom.smoke build/aom-smoke`.
+  WAV rendering execute in `python -m training.amo.smoke build/amo-smoke`.
 - The controlled canonical harmonic coefficient was recovered as 0.35335 against
   the original 0.35. Canonical loss fell from 0.05110 to 0.0000462; rendered-instance
   loss fell from 0.09097 to 0.00000224. These are fixture results, not evidence of
@@ -33,7 +33,7 @@ VST3, while preserving the existing targets.
 cmake --build build --config Release --parallel 4
 ctest --test-dir build -C Release --output-on-failure
 & 'build/src/tensor_plugin/AlfamedomegaTensor_artefacts/Release/Standalone/Alfamedomega Tensor.exe' --tensor-smoke-test
-python -m training.aom.smoke build/aom-smoke
+python -m training.amo.smoke build/amo-smoke
 .venv/Scripts/python.exe -m pytest apps/control-center/tests -q -p no:cacheprovider --basetemp build/cc-tests-fresh
 ```
 
@@ -72,9 +72,9 @@ certification is inferred from the local build and deterministic checks.
 - Actual trained runtime GRU rendered 16,000 samples at 16 kHz. Its learned routing
   coefficient produced peak 0.159958 versus baseline 0.080000; reset replay was
   bitwise identical. A one-byte model allowance was refused. See
-  `build/aom-smoke/runtime-report.json`.
+  `build/amo-smoke/runtime-report.json`.
 
-CMake's `ALFA_AOM_TRAINING_PYTHON` selects an interpreter containing NumPy/PyTorch,
+CMake's `ALFA_AMO_TRAINING_PYTHON` selects an interpreter containing NumPy/PyTorch,
 independently of the GUI environment. For this host it is
 `C:/Users/Sinin/miniconda3/python.exe`. This is a local cache choice, not a portable
 repository default.
@@ -95,7 +95,7 @@ is inferred from its interruption.
 The learned runtime smoke is reproducible from a clean checkout after native build:
 
 ```powershell
-python -m training.aom.runtime_smoke build/aom-runtime-smoke
+python -m training.amo.runtime_smoke build/amo-runtime-smoke
 ```
 
 It generates explicit test targets, trains/exports a model, renders native A/B

@@ -36,7 +36,7 @@ JSON reference(const char* name)
 }
 JSON cell(double initial)
 {
-    auto document = reference("programs/fx.aom.json");
+    auto document = reference("programs/fx.amo.json");
     document["instances"][0]["primitive"] = "math.feedback_cell";
     document["instances"][0]["initial_state"] = {initial};
     document["instances"][0]["input_channels"] = 1;
@@ -59,8 +59,8 @@ TensorComposition::Binding link(const char* id, const char* from, const char* to
 TEST_CASE("Composed fragment compiler models retain disjoint predictions recurrence and precision",
           "[tensor-host][composition][model]")
 {
-    auto instrument = reference("programs/instrument.aom.json");
-    instrument["runtimeModel"] = reference("training/aom/testdata/runtime_gru.json");
+    auto instrument = reference("programs/instrument.amo.json");
+    instrument["runtimeModel"] = reference("training/amo/testdata/runtime_gru.json");
     instrument["performance"] =
         nlohmann::json{{"midi_layout", "voice_indexed"}, {"voice_capacity", 1}, {"release_seconds", 0.0}};
     TensorComposition composition(48000, budget(), "Standard");
@@ -183,7 +183,7 @@ TEST_CASE("Explicit inter-fragment feedback executes committed history without g
 TEST_CASE("Instrument and FX fragments share explicit recurrent information and survive precision conversion",
           "[tensor-host][composition][precision]")
 {
-    auto instrument = reference("programs/instrument.aom.json");
+    auto instrument = reference("programs/instrument.amo.json");
     auto fx = cell(0);
     TensorComposition composition(48000, budget(), "Pro");
     juce::String error;
@@ -360,7 +360,7 @@ TEST_CASE("Model predictions retain user control authority across layers clocks 
         for (const bool locked : {false, true})
             for (const bool composed : {false, true})
             {
-                auto authored = reference("programs/instrument.aom.json");
+                auto authored = reference("programs/instrument.amo.json");
                 authored["tier"] = tier;
                 authored["scalar_type"] = std::string(tier) == "Pro" ? "float64" : "float32";
                 authored["budget"] = JSON::parse(budget().toStdString());
@@ -370,7 +370,7 @@ TEST_CASE("Model predictions retain user control authority across layers clocks 
                 authored["parameter_locks"] = {0, locked ? 1 : 0};
                 authored["control_layers"] =
                     JSON::array({layer(0., 2., 1), layer(.3, 3., 1), layer(.1, .25, 2)});
-                auto model = reference("training/aom/testdata/runtime_gru.json");
+                auto model = reference("training/amo/testdata/runtime_gru.json");
                 for (auto& weights : model["weights"])
                     for (auto& value : weights)
                         value = 0.;
@@ -430,8 +430,8 @@ TEST_CASE("Model predictions retain user control authority across layers clocks 
 TEST_CASE("Scoped compiler loading validates containers identities and latent storage",
           "[tensor-host][composition][model][validation]")
 {
-    auto source = reference("programs/instrument.aom.json");
-    source["runtimeModel"] = reference("training/aom/testdata/runtime_gru.json");
+    auto source = reference("programs/instrument.amo.json");
+    source["runtimeModel"] = reference("training/amo/testdata/runtime_gru.json");
     source["performance"] =
         nlohmann::json{{"midi_layout", "voice_indexed"}, {"voice_capacity", 1}, {"release_seconds", 0.0}};
     TensorComposition composition(48000, budget());
@@ -481,10 +481,10 @@ TEST_CASE("Execution reset restores authored tensors before the first delayed mo
     for (const auto* tier : {"Standard", "Pro"})
         for (const bool scoped : {false, true})
         {
-            auto document = reference("programs/instrument.aom.json");
+            auto document = reference("programs/instrument.amo.json");
             document["tier"] = tier;
             document["budget"] = JSON::parse(budget().toStdString());
-            auto model = reference("training/aom/testdata/runtime_gru.json");
+            auto model = reference("training/amo/testdata/runtime_gru.json");
             model["clock"] = {{"period_samples", 97}, {"phase_samples", 11}};
             document["runtimeModel"] = model;
             document["performance"] = nlohmann::json{
@@ -536,8 +536,8 @@ TEST_CASE("Execution reset restores authored tensors before the first delayed mo
 TEST_CASE("Compiler imports reject feature widths unavailable at the native host boundary",
           "[tensor-host][model][validation]")
 {
-    auto document = reference("programs/instrument.aom.json");
-    auto model = reference("training/aom/testdata/runtime_gru.json");
+    auto document = reference("programs/instrument.amo.json");
+    auto model = reference("training/amo/testdata/runtime_gru.json");
     model["input_widths"]["audio"] = 3;
     model["input_widths"]["midi"] = 0;
     model["weights"]["cell.weight_ih"] = std::vector<double>(27);
@@ -558,8 +558,8 @@ TEST_CASE("Compiler models that read MIDI require stable voice-indexed rows",
 {
     // Compact rows shift on release and vanish while no note is held, so a model reading
     // fixed MIDI coordinates is refused there instead of seeing notes change slots.
-    auto document = reference("programs/instrument.aom.json");
-    document["runtimeModel"] = reference("training/aom/testdata/runtime_gru.json");
+    auto document = reference("programs/instrument.amo.json");
+    document["runtimeModel"] = reference("training/amo/testdata/runtime_gru.json");
     std::string error;
     CHECK(alfa::tensorhost::prepareExecution(document.dump(), 48000, error) == nullptr);
     CHECK(error.find("voice_indexed") != std::string::npos);

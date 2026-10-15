@@ -3,6 +3,7 @@
 #include "alfa/tensor/AdvancedProduction.h"
 #include "alfa/tensor/Kernels.h"
 #include "alfa/tensor/Precision.h"
+#include "alfa/tensor/Schema.h"
 #include "alfa/tensor/Universe.h"
 
 #include <cmath>
@@ -141,7 +142,7 @@ PrimitiveT<Scalar> primitive(std::string_view id, std::size_t stateElements,
 
 void validateHeader(const Json& document)
 {
-    if (document.at("schema") != "aom.tensor/1" || document.at("ontology") != "aom.math/1")
+    if (!schemaIs(document.at("schema"), "amo.tensor/1") || !schemaIs(document.at("ontology"), "amo.math/1"))
         throw std::invalid_argument("Unsupported tensor schema or ontology version");
 }
 } // namespace
@@ -314,8 +315,8 @@ bool readBudgetJSON(std::string_view text, Budget& output, std::string& error)
 template <typename Scalar>
 std::string serializeJSON(const ConfigurationT<Scalar>& configuration)
 {
-    Json document{{"schema", "aom.tensor/1"},
-                  {"ontology", "aom.math/1"},
+    Json document{{"schema", "amo.tensor/1"},
+                  {"ontology", "amo.math/1"},
                   {"tensors",
                    {{"activation", tensorJSON<Scalar>(configuration.activation)},
                     {"parameters", tensorJSON<Scalar>(configuration.parameters)},

@@ -13,7 +13,7 @@ mean all elements are represented. Parameter/routing/modulation capacity exclude
 `storedTensorElements` separately bounds full padded storage. Active contiguous parameter
 slices cannot select absent padding.
 The seven `Inputs` fields independently carry audio, MIDI, gestures, preference, latent sound,
-context and the eight wave feature knobs (`waveFeature`, `aom.wave-features/1`). An entirely empty view explicitly means absent input. Concrete feature encodings
+context and the eight wave feature knobs (`waveFeature`, `amo.wave-features/1`). An entirely empty view explicitly means absent input. Concrete feature encodings
 are not inferred from legacy MIDI widths or synthesis methods.
 
 `Configuration` carries activation, parameters, routing, modulation, primitive instances,
@@ -143,7 +143,7 @@ Their callbacks and tests are a small numerical foundation, not coverage of the 
 
 ## Serialized compiler, learned execution and native hosting
 
-`Compiler.h` accepts `aom.tensor/1`, ontology `aom.math/1`, with four named
+`Compiler.h` accepts `amo.tensor/1`, ontology `amo.math/1`, with four named
 prediction tensors, dynamically described primitive instances, assets, explicit
 projection terms, clocks, initial state, locks and independent capacity limits.
 The compiler validates them and derives state allocation and an execution
@@ -161,7 +161,7 @@ The host's explicit `outputMix` rows are `[primitive_output_element, channel,
 gain]`. Mixing is performed after simultaneous recurrent updates; it does not
 introduce a module chain or establish general tensor routing semantics.
 
-`aom.runtime.gru/1` embeds an independently budgeted neural compiler: six input
+`amo.runtime.gru/1` embeds an independently budgeted neural compiler: six input
 category widths, explicit GRU weights and persistent neural context, four output
 schemas, producer-defined bounds and inference clock. Native inference matches
 PyTorch sequential vectors. It predicts tensor values/presence and never renders
@@ -177,7 +177,7 @@ not to an instrument-method selector. Its three modes share the same compiler
 contract. The legacy host remains a separate compatibility entry.
 
 Offline WAV import, local preference/importance learning, hardware probes and
-constrained tier candidate optimization are implemented in `training/aom`. These
+constrained tier candidate optimization are implemented in `training/amo`. These
 later capabilities supersede the foundation-only status descriptions above;
 [validation](validation.md) records their actual limitations.
 
@@ -198,7 +198,7 @@ highest coordinates (`x0`-`x7`); eight wave feature knobs (`wf0`-`wf7`, in [-1, 
 user preference faders (`pref0`-`pref7`) are separate host ports. A compiler model reads the
 knobs through its `wave_feature` input width and the faders through `user_preference`. A program
 without a model that reads wave features may carry a linear fallback, `wave_features`:
-`{"schema": "aom.wave-features/1", "descriptors": [8 names], "matrix": parameter x 8}`, added into
+`{"schema": "amo.wave-features/1", "descriptors": [8 names], "matrix": parameter x 8}`, added into
 the parameter tensor after the X layers and before locks; it is ignored when a model reads the
 knobs, and its elements count toward `stored_tensor_elements`; all remaining coordinates and layers remain directly editable.
 A layer may also carry presentation-only fields that never reach the DSP: `labels`

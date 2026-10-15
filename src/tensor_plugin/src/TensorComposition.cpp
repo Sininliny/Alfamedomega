@@ -3,6 +3,7 @@
 #include "TensorExecution.h"
 #include "alfa/tensor/Compiler.h"
 #include "alfa/tensor/Precision.h"
+#include "alfa/tensor/Schema.h"
 
 #include <juce_cryptography/juce_cryptography.h>
 
@@ -108,8 +109,9 @@ void remapSource(JSON& relation, const Fragment& fragment, std::size_t sharedTot
 }
 JSON lower(const JSON& recipe, double rate)
 {
-    if (recipe.at("schema") != "aom.composition/1" || !recipe.at("fragments").is_array() ||
-        !recipe.at("recurrent_bindings").is_array() || !recipe.at("budget").is_object())
+    if (!alfa::tensor::schemaIs(recipe.at("schema"), "amo.composition/1") ||
+        !recipe.at("fragments").is_array() || !recipe.at("recurrent_bindings").is_array() ||
+        !recipe.at("budget").is_object())
         throw std::invalid_argument("Unsupported composition recipe");
     std::vector<Fragment> fragments;
     alfa::tensor::PrecisionProfile target;
@@ -120,7 +122,7 @@ JSON lower(const JSON& recipe, double rate)
         throw std::invalid_argument(error);
     std::array<std::size_t, 4> tensorCounts{};
     std::size_t sharedTotal = 0, localTotal = 0, outputTotal = 0, instanceTotal = 0, depth = 0;
-    JSON result{{"schema", "aom.tensor/1"},         {"ontology", "aom.math/1"},
+    JSON result{{"schema", "amo.tensor/1"},         {"ontology", "amo.math/1"},
                 {"budget", recipe.at("budget")},    {"tensors", JSON::object()},
                 {"instances", JSON::array()},       {"projections", JSON::array()},
                 {"parameter_locks", JSON::array()}, {"shared_initial_state", JSON::array()},
@@ -200,7 +202,7 @@ JSON lower(const JSON& recipe, double rate)
         if (fragment.document.contains("input_capacity"))
         {
             const auto& capacity = fragment.document.at("input_capacity");
-            // Seven widths since aom.wave-features/1; six-width fragments predate wave features.
+            // Seven widths since amo.wave-features/1; six-width fragments predate wave features.
             if (!capacity.is_array() || (capacity.size() != 6 && capacity.size() != 7))
                 throw std::invalid_argument("Fragment input_capacity must contain six or seven widths");
             if (!result.contains("input_capacity"))
@@ -503,7 +505,7 @@ JSON bindingJSON(const TensorComposition::Binding& binding)
 TensorComposition::TensorComposition(double sampleRate, juce::String budgetJSON, juce::String targetTier)
     : sampleRate_(sampleRate)
 {
-    recipe_ = JSON{{"schema", "aom.composition/1"},
+    recipe_ = JSON{{"schema", "amo.composition/1"},
                    {"budget", JSON::parse(budgetJSON.toStdString())},
                    {"target_tier", targetTier.toStdString()},
                    {"fragments", JSON::array()},

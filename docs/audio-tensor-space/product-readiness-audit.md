@@ -18,7 +18,7 @@
 
 ### 宿主状态恢复不是完整事务
 
-检查时 `setStateInformation` 先调用 `loadJSON(configuration)`，之后才读取 `mode`、`x_controls` 和其他字段。将 configuration 换成另一有效声音，但令 `mode` 为字符串或 `x_controls` 为对象，会在新声音已经发布后抛出类型错误并被空 catch 吞掉，留下混合状态。它也未检查 `state_schema`，未来 `aom.host/999` 会按当前格式加载。
+检查时 `setStateInformation` 先调用 `loadJSON(configuration)`，之后才读取 `mode`、`x_controls` 和其他字段。将 configuration 换成另一有效声音，但令 `mode` 为字符串或 `x_controls` 为对象，会在新声音已经发布后抛出类型错误并被空 catch 吞掉，留下混合状态。它也未检查 `state_schema`，未来 `amo.host/999` 会按当前格式加载。
 
 建议：先解析、验证完整 wrapper 和可选旧格式，准备所有候选数据，再提交声音/参数/UI；未支持版本拒绝。新 `ProductSafetyTests.cpp` 覆盖 malformed mode、X controls、未来 schema、错误 XML 根和 APVTS 越域值的事务拒绝。主线程已实现 wrapper 预验证，接受 absent/host1/host2 并拒绝未来 schema；最终运行证据应以最新中央回归记录为准，本审计只更新源码状态。
 

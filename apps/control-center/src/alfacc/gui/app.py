@@ -1034,7 +1034,7 @@ class MainWindow(QMainWindow):
         self.ctx = ctx
         self.setWindowTitle("AMO Centre")
         self.resize(1180, 800)
-        self.aom_recent, self.aom_finished = {}, set()
+        self.amo_recent, self.amo_finished = {}, set()
         central = QWidget()
         h = QHBoxLayout(central)
         h.setContentsMargins(0, 0, 0, 0)

@@ -357,8 +357,8 @@ TEST_CASE("A session this build cannot restore is kept verbatim and reported", "
     REQUIRE(processor.loadJSON(sine().dump(), error));
     const auto running = processor.document();
     auto newer = session(processor);
-    newer["state_schema"] = "aom.host/3";
-    newer["configuration"] = "{\"schema\": \"aom.tensor/2\"}";
+    newer["state_schema"] = "amo.host/3";
+    newer["configuration"] = "{\"schema\": \"amo.tensor/2\"}";
     const auto bytes = newer.dump();
     restore(processor, bytes);
     // The running sound stays, the user is told, and saving returns the session untouched.
@@ -375,7 +375,7 @@ TEST_CASE("A session this build cannot restore is kept verbatim and reported", "
     CHECK(processor.keepsUnrestoredSession());
     REQUIRE(processor.loadJSON(sine().dump(), error));
     CHECK_FALSE(processor.keepsUnrestoredSession());
-    CHECK(session(processor).at("state_schema") == "aom.host/2");
+    CHECK(session(processor).at("state_schema") == "amo.host/2");
     // A good session after a bad one restores normally and clears the kept bytes.
     restore(processor, bytes);
     CHECK(processor.keepsUnrestoredSession());

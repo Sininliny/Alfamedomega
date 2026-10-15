@@ -46,7 +46,7 @@ struct InputsT
     TensorViewT<Scalar> userPreference;
     TensorViewT<Scalar> latentSound;
     TensorViewT<Scalar> context;
-    // Eight wave feature knobs (aom.wave-features/1): each asks for a relative move of one
+    // Eight wave feature knobs (amo.wave-features/1): each asks for a relative move of one
     // measured audio descriptor. Empty when the host supplies none.
     TensorViewT<Scalar> waveFeature;
 };

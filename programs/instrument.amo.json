@@ -1,0 +1,113 @@
+{
+  "schema": "amo.tensor/1",
+  "ontology": "amo.math/1",
+  "description": "Explicit MIDI frequency/velocity projection reference, not a learned default synthesis architecture.",
+  "tensors": {
+    "activation": {
+      "axes": [
+        "primitive"
+      ],
+      "shape": [
+        1
+      ],
+      "values": [
+        1
+      ]
+    },
+    "parameters": {
+      "axes": [
+        "parameter"
+      ],
+      "shape": [
+        2
+      ],
+      "values": [
+        0,
+        0
+      ]
+    },
+    "routing": {
+      "axes": [
+        "coefficient"
+      ],
+      "shape": [
+        2
+      ],
+      "values": [
+        1,
+        0.2
+      ]
+    },
+    "modulation": {
+      "axes": [
+        "relationship"
+      ],
+      "shape": [
+        0
+      ],
+      "values": []
+    }
+  },
+  "instances": [
+    {
+      "primitive": "math.sine",
+      "activation": 0,
+      "parameters": {
+        "offset": 0,
+        "count": 2
+      },
+      "clock": {
+        "period_samples": 1,
+        "phase_samples": 0
+      },
+      "output_between_updates": "zero",
+      "state_size": 1,
+      "initial_state": [
+        0
+      ],
+      "assets": []
+    }
+  ],
+  "projections": [
+    {
+      "source": "midi",
+      "source_element": 0,
+      "parameter_element": 0,
+      "weights": "routing",
+      "weight_element": 0,
+      "missing_source": "zero"
+    },
+    {
+      "source": "midi",
+      "source_element": 1,
+      "parameter_element": 1,
+      "weights": "routing",
+      "weight_element": 1,
+      "missing_source": "zero"
+    }
+  ],
+  "parameter_locks": [],
+  "shared_initial_state": [],
+  "outputMix": [
+    [
+      0,
+      0,
+      1
+    ],
+    [
+      0,
+      1,
+      1
+    ]
+  ],
+  "budget": {
+    "active_primitives": 1,
+    "state_elements": 1,
+    "parameter_elements": 2,
+    "routing_elements": 2,
+    "modulation_elements": 0,
+    "output_elements": 1,
+    "stored_tensor_elements": 5,
+    "projection_terms": 2
+  }
+}

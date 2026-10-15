@@ -71,7 +71,7 @@ src/alfacc/
   settings.py    paths and settings.json
   models.py      the Models folder: manifest, import, bundles, verify
   jobs.py        background job queue with logs and progress
-  aom.py         independent tensor training/data/evaluation jobs
+  amo.py         independent tensor training/data/evaluation jobs
   training.py    legacy training/export jobs and Colab notebooks
   preference.py  libraries, index, labels, learner batches
   assimilate/    plugin discovery, range finding, densities, harvest jobs, analysis worker

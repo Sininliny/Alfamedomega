@@ -1,5 +1,7 @@
 #include "alfa/tensor/Model.h"
 
+#include "alfa/tensor/Schema.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -58,7 +60,8 @@ bool TensorModelT<Scalar>::prepare(std::string_view json, const ConfigurationT<S
     try
     {
         const auto document = nlohmann::json::parse(json);
-        if (document.at("schema") != "aom.runtime.gru/1" || document.at("ontology") != "aom.math/1")
+        if (!alfa::tensor::schemaIs(document.at("schema"), "amo.runtime.gru/1") ||
+            !alfa::tensor::schemaIs(document.at("ontology"), "amo.math/1"))
             throw std::invalid_argument("Unsupported runtime compiler model");
         TensorModelT<Scalar> candidate;
         const std::array<std::string, 7> categories{"audio",  "midi",    "gesture",     "user_preference",

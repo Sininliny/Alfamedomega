@@ -22,27 +22,27 @@ if(ALFA_BUILD_TESTS)
     target_include_directories(alfa_tensor_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/dsp/include)
     find_package(Python3 QUIET COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
-        set(ALFA_AOM_TRAINING_PYTHON "${Python3_EXECUTABLE}" CACHE FILEPATH
+        set(ALFA_AMO_TRAINING_PYTHON "${Python3_EXECUTABLE}" CACHE FILEPATH
             "Python with NumPy and PyTorch for the AMO learner tests")
-        add_test(NAME alfa_aom_training_contracts
-            COMMAND ${ALFA_AOM_TRAINING_PYTHON} -m unittest
-                    training.tests.test_aom_contracts training.tests.test_aom_hardware -v)
-        set_tests_properties(alfa_aom_training_contracts PROPERTIES
+        add_test(NAME alfa_amo_training_contracts
+            COMMAND ${ALFA_AMO_TRAINING_PYTHON} -m unittest
+                    training.tests.test_amo_contracts training.tests.test_amo_hardware -v)
+        set_tests_properties(alfa_amo_training_contracts PROPERTIES
             WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
-        execute_process(COMMAND ${ALFA_AOM_TRAINING_PYTHON} -c "import numpy, torch"
-            RESULT_VARIABLE ALFA_AOM_TORCH_AVAILABLE OUTPUT_QUIET ERROR_QUIET)
-        if(ALFA_AOM_TORCH_AVAILABLE EQUAL 0)
-            add_test(NAME alfa_aom_training_learners
-                COMMAND ${ALFA_AOM_TRAINING_PYTHON} -m unittest
-                    training.tests.test_aom_learner training.tests.test_aom_local_learning
-                    training.tests.test_aom_runtime_model training.tests.test_aom_tiers
-                    training.tests.test_aom_perceptual -v)
-            set_tests_properties(alfa_aom_training_learners PROPERTIES
+        execute_process(COMMAND ${ALFA_AMO_TRAINING_PYTHON} -c "import numpy, torch"
+            RESULT_VARIABLE ALFA_AMO_TORCH_AVAILABLE OUTPUT_QUIET ERROR_QUIET)
+        if(ALFA_AMO_TORCH_AVAILABLE EQUAL 0)
+            add_test(NAME alfa_amo_training_learners
+                COMMAND ${ALFA_AMO_TRAINING_PYTHON} -m unittest
+                    training.tests.test_amo_learner training.tests.test_amo_local_learning
+                    training.tests.test_amo_runtime_model training.tests.test_amo_tiers
+                    training.tests.test_amo_perceptual -v)
+            set_tests_properties(alfa_amo_training_learners PROPERTIES
                 WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
                 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
         else()
-            message(STATUS "AMO learner tests require NumPy/PyTorch; set ALFA_AOM_TRAINING_PYTHON to that environment")
+            message(STATUS "AMO learner tests require NumPy/PyTorch; set ALFA_AMO_TRAINING_PYTHON to that environment")
         endif()
     endif()
 endif()

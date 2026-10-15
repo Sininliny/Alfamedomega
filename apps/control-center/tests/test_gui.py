@@ -48,15 +48,15 @@ def test_window_runs_a_training_job_and_shows_the_model(qapp, ctx):
 
 
 def test_tensor_page_uses_durable_training_jobs(qapp, ctx, tmp_path):
-    python = os.environ.get("AOM_TRAINING_TEST_PYTHON")
+    python = os.environ.get("AMO_TRAINING_TEST_PYTHON")
     if not python:
-        pytest.skip("Set AOM_TRAINING_TEST_PYTHON for the offline AMO integration")
+        pytest.skip("Set AMO_TRAINING_TEST_PYTHON for the offline AMO integration")
     import json
     from pathlib import Path
     from alfacc.gui.app import MainWindow
     ctx.settings.training_python = python
     manifest = tmp_path / "feedback.json"
-    manifest.write_text(json.dumps({"schema": "aom.training-manifest/1", "category": "user_preference",
+    manifest.write_text(json.dumps({"schema": "amo.training-manifest/1", "category": "user_preference",
         "feature_widths": {"state": 1}, "hidden_width": 4, "steps": 3, "learning_rate": .01,
         "available_ram_bytes": 10_000_000, "seed": 2, "observations": [{"group_id": "local",
         "first": {"state": [.8]}, "second": {"state": [.2]}, "preferred_first": True}]}), encoding="utf-8")
@@ -84,11 +84,11 @@ def test_tensor_page_uses_durable_training_jobs(qapp, ctx, tmp_path):
     assert "saved " in page.log.toPlainText()
     assert ctx.store.models() == []
     assert json.loads(output.read_text())["category"] == "user_preference"
-    win.grab().save(str(tmp_path / "aom-centre.png"))
+    win.grab().save(str(tmp_path / "amo-centre.png"))
     win.close()
 
 
-def test_aom_centre_puts_tensor_work_first_and_checks_inputs(qapp, ctx):
+def test_amo_centre_puts_tensor_work_first_and_checks_inputs(qapp, ctx):
     from alfacc.gui.app import MainWindow
     win = MainWindow(ctx)
     win.show()
@@ -106,14 +106,14 @@ def test_aom_centre_puts_tensor_work_first_and_checks_inputs(qapp, ctx):
     assert "WAV model" in win.evaluate_page.panel.status.text()
     assert ctx.jobs.list() == []
     # Results chain forward into empty fields only.
-    win.aom_recent.update(manifest="/data/manifest.json", wav_model="/data/model.pt")
+    win.amo_recent.update(manifest="/data/manifest.json", wav_model="/data/model.pt")
     win.evaluate_page.manifest.setText("/mine/manifest.json")
     win.show_page(win.datasets_page)
     win.show_page(win.evaluate_page)
     assert win.evaluate_page.model.text() == "/data/model.pt"
     assert win.evaluate_page.manifest.text() == "/mine/manifest.json"
     # Ranking needs the sound, model and context, then queues a rank-controls job for the chosen layer.
-    win.aom_recent["importance_model"] = "/data/importance.json"
+    win.amo_recent["importance_model"] = "/data/importance.json"
     win.show_page(win.rank_page)
     assert win.rank_page.model.text() == "/data/importance.json"
     win.rank_page.rank()
