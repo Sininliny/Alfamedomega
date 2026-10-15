@@ -50,7 +50,7 @@ def test_window_runs_a_training_job_and_shows_the_model(qapp, ctx):
 def test_tensor_page_uses_durable_training_jobs(qapp, ctx, tmp_path):
     python = os.environ.get("AOM_TRAINING_TEST_PYTHON")
     if not python:
-        pytest.skip("Set AOM_TRAINING_TEST_PYTHON for the offline AOM integration")
+        pytest.skip("Set AOM_TRAINING_TEST_PYTHON for the offline AMO integration")
     import json
     from pathlib import Path
     from alfacc.gui.app import MainWindow
@@ -92,7 +92,7 @@ def test_aom_centre_puts_tensor_work_first_and_checks_inputs(qapp, ctx):
     from alfacc.gui.app import MainWindow
     win = MainWindow(ctx)
     win.show()
-    assert win.windowTitle() == "AOM Centre"
+    assert win.windowTitle() == "AMO Centre"
     assert win.stack.currentWidget() is win.import_page
     names = [win.nav.item(i).text() for i in range(win.nav.count())]
     assert names.index("Import sound") < names.index("Jobs") < names.index("LEGACY") < names.index("Models")

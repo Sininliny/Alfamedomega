@@ -117,12 +117,16 @@ of low-impact dimensions and approximated interactions. Do not simply delete mod
 substitute a predefined method. Conversion must respect protected musical properties and
 locks; a failed budget check does not authorize silently changing the sound.
 
-## Models and AOM Centre
+## Models and AMO Centre
+
+The project abbreviation is AMO. Machine identifiers that predate this spelling keep `aom`
+(the `training/aom` package, `aom.*` schema ids, `.aom.json` files, `AOM_*` variables and the
+`aom_*` C API) so saved programs and models stay loadable.
 
 Keep three model purposes distinct:
 
 - Runtime model: predictable CPU use, low latency and DSP control generation.
-- Preset learning model: offline WAV-to-editable-AOM reconstruction and deeper search.
+- Preset learning model: offline WAV-to-editable-AMO reconstruction and deeper search.
 - User preference model: local taste adaptation and exploration.
 
 They do not share an assumed parameter budget. Offline import may take time, but must estimate
@@ -131,14 +135,14 @@ Device categories such as laptops, 8-core desktops and high-memory/GPU workstati
 capacity-estimation examples, not mandatory hardware requirements.
 
 WAV learning uses dual supervision: the primary target is the original canonical normalized
-AOM representation **before perturbation**; the secondary target is the actual perturbed
+AMO representation **before perturbation**; the secondary target is the actual perturbed
 rendered instance for reconstruction and parameter understanding. Do not train only for
 perturbed recovery. Render controlled perturbations over multiple pitches and recording
 conditions. Normalize irrelevant pitch, loudness and recording variation while preserving
 timbre, articulation and temporal behavior. Detailed data/loss requirements are in
 [training/METHOD.md](../../training/METHOD.md).
 
-AOM Centre learns from audio together with construction representations, routing,
+AMO Centre learns from audio together with construction representations, routing,
 parameter behavior and performance context. Similar waveform matching alone is insufficient.
 
 ## User interaction and migration

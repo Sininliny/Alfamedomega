@@ -24,7 +24,7 @@ public:
         double weight = 1;
     };
 
-    // Budget is explicit JSON with the same capacity fields as an AOM document.
+    // Budget is explicit JSON with the same capacity fields as an AMO document.
     // An optional target tier explicitly authorizes uniform precision conversion.
     TensorComposition(double sampleRate, juce::String budgetJSON, juce::String targetTier = {});
     bool add(const juce::String& fragmentId, const juce::String& document, juce::String& error);

@@ -1,4 +1,4 @@
-"""Shared widgets for AOM Centre pages: labels, buttons, cards, path fields and the page frame."""
+"""Shared widgets for AMO Centre pages: labels, buttons, cards, path fields and the page frame."""
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,

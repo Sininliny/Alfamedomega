@@ -88,7 +88,7 @@ class ContextImportanceModel(FeatureModel):
 class LocalPreferenceModel(FeatureModel):
     """Learn local pairwise user feedback over arbitrary representation features.
 
-    Features may contain masked AOM coordinates and semantic/context features;
+    Features may contain masked AMO coordinates and semantic/context features;
     their encoding is explicit. Preferences are learned from actual local labels,
     not population-derived rankings or a fixed synthesis-method list.
     """

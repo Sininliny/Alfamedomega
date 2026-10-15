@@ -1,4 +1,4 @@
-# AOM tensor learning and execution
+# AMO tensor learning and execution
 
 This independent package supplies validated training data, executable reference
 learners, model export and native DSP rendering. The legacy trainer remains
@@ -7,7 +7,7 @@ pretrained on the history of digital audio.
 
 `WavExample` contains two separate supervision targets:
 
-- `canonical`: the original normalized AOM representation **before parameter
+- `canonical`: the original normalized AMO representation **before parameter
   perturbation**, used as the primary target.
 - `rendered_instance`: the perturbed representation that produced the training
   rendering, used as the secondary target for reconstruction and parameter
@@ -113,7 +113,7 @@ mask threshold and sample rate; it writes an editable executable preset only
 after native compiler validation. `train-runtime` uses a separate event-sequence
 manifest and exports the GRU model directly for C++ inference.
 
-The same workflows are exposed from AOM Centre:
+The same workflows are exposed from AMO Centre:
 
 ```powershell
 alfa-cc aom --repository C:/source/code/Alfamedomega train MANIFEST MODEL
@@ -121,7 +121,7 @@ alfa-cc aom --repository C:/source/code/Alfamedomega train-runtime EVENTS_MANIFE
 alfa-cc aom --repository C:/source/code/Alfamedomega import-wav MODEL WAV TEMPLATE BOUNDS OUTPUT --head primary_canonical --mask-threshold 0.5 --sample-rate 48000
 ```
 
-Those paths are explicit command arguments. AOM commands do not initialize the
+Those paths are explicit command arguments. AMO commands do not initialize the
 legacy model store. Existing top-level `train` and `export` retain their legacy
 workflow and compatibility and are labeled accordingly in command help.
 
@@ -140,7 +140,7 @@ output directory. Use `--dll PATH` when the native library is outside standard
 build directories.
 
 
-## AOM Centre training workflow
+## AMO Centre training workflow
 
 The four model roles now use the shared optimizer-session lifecycle with progress,
 atomic checkpoints/publication, exact local resume, explicit CPU/CUDA selection,
@@ -150,7 +150,7 @@ recordings one at a time. `build-dataset` generates controlled native pairs;
 An optional finite-difference native waveform objective trains explicitly selected
 continuous unlocked parameters independently of coordinate/presence losses.
 
-See [the training system guide](../../docs/control-center/aom-training-system.md) for
+See [the training system guide](../../docs/control-center/amo-training-system.md) for
 GUI/CLI operation, all manifest contracts, example data, memory policy, cancellation,
 quality gates and the limits of the reference analysis/reconstruction policies.
 Synthetic executable examples are in [examples](examples/controlled-dataset-plan.json).

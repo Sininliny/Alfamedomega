@@ -1,4 +1,4 @@
-"""AOM Centre pages for the Audio Tensor Space: one page per task, each asking only for its own inputs.
+"""AMO Centre pages for the Audio Tensor Space: one page per task, each asking only for its own inputs.
 
 All work runs as durable jobs in a separate process (see ..aom). Results chain forward through
 `win.aom_recent`: a built dataset fills the manifest fields, a trained WAV model fills Evaluate and
@@ -17,7 +17,7 @@ from .widgets import Page, PathField, button, card, label
 STATUS = {"queued": "Queued", "running": "Working", "succeeded": "Completed", "failed": "Failed",
           "cancelled": "Cancelled", "interrupted": "Interrupted"}
 
-# Four separate model roles with separate data and budgets (docs/control-center/aom-training-system.md).
+# Four separate model roles with separate data and budgets (docs/control-center/amo-training-system.md).
 ROLES = [
     ("train", "WAV recognition", "wav_preset_learning", "model.pt", "PyTorch model (*.pt)",
      "Learns how a recording was constructed: the original preset before perturbation and the "

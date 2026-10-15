@@ -1,6 +1,6 @@
-# AOM Centre training system
+# AMO Centre training system
 
-The Audio Tensor Space page runs offline AOM work through the shared Jobs queue.
+The Audio Tensor Space page runs offline AMO work through the shared Jobs queue.
 Each run has durable progress, logs, output paths and a private training checkpoint.
 The Python selected in Settings runs the learner; the Centre process does not import
 PyTorch or execute DSP training inside an audio callback. Training starts only when
@@ -19,7 +19,7 @@ These models have separate data, architecture and memory allowances. Published
 inference artifacts retain compact training summaries and data digests; complete
 optimizer history remains in the private checkpoint, avoiding growing inference files. Local learned
 state does not automatically become the host's eight preference faders:
-the caller owns that encoding. AOM jobs do not install legacy method-vector/ONNX
+the caller owns that encoding. AMO jobs do not install legacy method-vector/ONNX
 models. The legacy pages retain their historical workflows. A single Centre instance
 serializes queued jobs; independent Centre/CLI processes do not share a process lock.
 
@@ -236,7 +236,7 @@ Cancel requests a cooperative stop and saves a complete optimizer boundary. A hu
 process receives a forced stop after 15 seconds; sudden power loss or that forced
 stop resumes from the most recent periodic checkpoint. Increase checkpoint frequency
 for expensive native objectives. An independent Centre session can signal the same
-running AOM job through its recorded cancellation file. Cancellation of another job
+running AMO job through its recorded cancellation file. Cancellation of another job
 does not terminate the active process.
 
 ## CLI and hardware
@@ -257,8 +257,8 @@ python -m training.aom rank-controls SOUND.json build/aom-importance.json CONTEX
 The Centre CLI records the same durable jobs:
 
 ```powershell
-alfa-cc --home C:/AOM/Data aom --repository C:/source/code/Alfamedomega train MANIFEST MODEL --job --python C:/Python-Torch/python.exe
-alfa-cc --home C:/AOM/Data aom --repository C:/source/code/Alfamedomega train MANIFEST MODEL --job --resume --python C:/Python-Torch/python.exe
+alfa-cc --home C:/AMO/Data aom --repository C:/source/code/Alfamedomega train MANIFEST MODEL --job --python C:/Python-Torch/python.exe
+alfa-cc --home C:/AMO/Data aom --repository C:/source/code/Alfamedomega train MANIFEST MODEL --job --resume --python C:/Python-Torch/python.exe
 alfa-cc aom --repository C:/source/code/Alfamedomega preflight MANIFEST --category runtime
 alfa-cc aom --repository C:/source/code/Alfamedomega train-runtime EVENTS_MANIFEST MODEL_JSON --job
 alfa-cc aom --repository C:/source/code/Alfamedomega train-preference FEEDBACK_MANIFEST MODEL_JSON

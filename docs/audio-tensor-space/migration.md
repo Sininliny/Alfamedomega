@@ -98,7 +98,7 @@ independent model budget, explicit clock, bounded predictions and user locks.
 `training/aom` now provides actual dual-head training, native DSP rendering,
 WAV-to-editable-template inference, runtime model training/export, local pairwise
 preference learning, context-dependent importance and measured constrained tier
-candidate search. AOM Centre exposes tensor workflows separately from legacy
+candidate search. AMO Centre exposes tensor workflows separately from legacy
 method training. See [validation](validation.md) for reproducible execution and
 remaining generalization/product limits. Earlier foundation-only observations
 above are retained as the audit history, not the current implementation status.

@@ -1,6 +1,6 @@
 # 旧支持系统复用审计
 
-本审计覆盖旧推理、训练、工具、AOM Centre 的数据与任务服务、偏好数据以及旧预设。DSP 数学内核和插件界面另有专项审计。这里的“可复用”是源码检查结论，不等于已经接入新插件；本次只新增本文件，没有启动训练或修改实现。
+本审计覆盖旧推理、训练、工具、AMO Centre 的数据与任务服务、偏好数据以及旧预设。DSP 数学内核和插件界面另有专项审计。这里的“可复用”是源码检查结论，不等于已经接入新插件；本次只新增本文件，没有启动训练或修改实现。
 
 分类含义：**直接复用**表示独立于旧音色表示的工具或机制可保留；**适配**表示保留机制但必须更换数据契约或补齐边界；**参考重写**表示只能提取算法或工程经验；**不带入**表示旧默认值、表示和产品方向不能成为新系统约束。一个文件可能需要拆分后分别处理。
 
@@ -20,19 +20,19 @@
 | `src/inference/tests/AllocationGuard.h`、`AllocationGuard.cpp`、`RealtimeSafetyTests.cpp`、`RtsanTests.cpp` | 直接复用工具，适配测试 | 分配捕捉、实时线程验证工具可迁移；替换被测宿主与数据。Windows/glibc 覆盖不同，不能把只捕捉 `operator new` 视为所有库分配均已覆盖。 |
 | `src/inference/tests/ModelLibraryTests.cpp`、`FrameClockTests.cpp`、`PipelineTests.cpp`、`HostTests.cpp` | 参考重写 | 保留损坏文件、失败加载、边界/reset、跨线程完整帧的测试场景；固定旧布局的断言继续测试旧实现，不改名冒充新张量测试。 |
 
-## AOM Centre 服务与存储
+## AMO Centre 服务与存储
 
 | 路径 | 判断 | 可保留内容与必须改变的部分 |
 | --- | --- | --- |
 | `apps/control-center/src/alfacc/settings.py` | 直接复用工具，适配设置 | argv 分词、显式路径覆盖、解释器发现、atomic JSON 与 Windows 短暂共享冲突重试可保留。新训练默认入口必须显式区分旧脚本；并发写同一文件时应改用唯一临时文件/协调，现有固定 `.tmp` 不是多写者事务。 |
 | `apps/control-center/src/alfacc/jobs.py` | 直接复用任务框架 | 命令 argv、独立进程、日志、取消、超时、状态持久化/中断识别不依赖 method。心跳/日志节流是管理任务时间尺度，与音频控制更新率无关。 |
-| `apps/control-center/src/alfacc/context.py` | 适配 | 保存用户设置、发现仓库与服务组合可用；当前构造会创建目录并初始化旧 ModelStore/PreferenceStore。不要让音频实例构造或纯 AOM 命令被迫初始化旧训练服务。新 AOM CLI 已独立路由。 |
+| `apps/control-center/src/alfacc/context.py` | 适配 | 保存用户设置、发现仓库与服务组合可用；当前构造会创建目录并初始化旧 ModelStore/PreferenceStore。不要让音频实例构造或纯 AMO 命令被迫初始化旧训练服务。新 AMO CLI 已独立路由。 |
 | `apps/control-center/src/alfacc/models.py` | 适配 | 哈希、导入 staging、版本清单、bundle 校验、先取消列出再删除、后台任务可保留。旧 REQUIRED_GRAPHS、tier 名单、schema1、frame250 是旧 ONNX 包契约。替换期间 final→old→staging 的序列与清单提交不是完整事务，第二次 rename/清单失败应可回滚；新包还须限制压缩解包大小并严格校验 Windows 文件名与解析后的根路径。 |
 | `apps/control-center/src/alfacc/tiers.py` | 不带入 | 4M/16M/64M/256M 模型参数量、安装体积和 expert 图列表不能替代新运行容量预算。名称可以经产品决定继续使用，数字不能自动继承。 |
 | `apps/control-center/src/alfacc/training.py` | 参考重写 | 后台运行、不在 GUI 进程导入 Torch、环境检查、导出步骤、Colab notebook 生成可参考。TrainSpec 的旧阶段/tier/default steps 和脚本导出图名称不能自动接入新训练。当前环境检查只查询 CUDA 是否存在，并未估算可用 RAM/VRAM。 |
 | `apps/control-center/src/alfacc/preference.py` | 适配 | 用户选择的库路径、增量文件索引、手动标签、局部删除、分类授权和独立 learner 进程可保留。文件/文件夹名只是弱标签；不能变成对音色构造的真实监督。`learner_supports` 源码字符串探测应改为版本化能力接口。 |
 | `apps/control-center/src/alfacc/assimilate/discovery.py` | 直接复用扫描机制 | 插件与预设文件发现、显式额外目录、格式支持查询可用于采集。发现某种格式不代表当前 render-host 实际支持它。 |
-| `apps/control-center/src/alfacc/assimilate/harvest.py` | 适配 | 分进程扫描/渲染、采集记录、分阶段探测与日志可保留。音高探测阈值、采样网格与 rendered WAV 不等于已知 AOM canonical target；外部插件样本需要单独记录来源和不可观测构造。 |
+| `apps/control-center/src/alfacc/assimilate/harvest.py` | 适配 | 分进程扫描/渲染、采集记录、分阶段探测与日志可保留。音高探测阈值、采样网格与 rendered WAV 不等于已知 AMO canonical target；外部插件样本需要单独记录来源和不可观测构造。 |
 | `apps/control-center/src/alfacc/assimilate/plans.py` | 适配 | 渲染清单、note/velocity/duration 组合、稳定 probe 标识可保留。`estimate()` 估算的是音频秒数/渲染数量，既不是实际处理 ETA，也不是 RAM/VRAM 安全预算。预置密度不能成为用户未确认的新系统优先级。 |
 | `apps/control-center/src/alfacc/assimilate/analyze_worker.py` | 参考重写 | PCM 解码、包络/音高测量可参考；mono 化、固定帧长、静音和 pitch 阈值是采集策略，不能覆盖空间信息与完整 articulation 的新训练要求。 |
 
@@ -68,4 +68,4 @@
 
 先保留与声音表示无关的加载校验、任务隔离、授权、库索引和测试工具；随后以新 tensor schema 适配模型包、事件和采集元数据。旧推理与生成接口需要参考重写，不能因为它们已经能运行就把 method、固定槽位或 250 Hz 带回新执行模型。
 
-每次迁移必须区分“源码机制复用”“数据格式兼容”“声音行为保持”。特别是旧 APVTS preset、外部插件 rendered WAV 和历史 preference profile，均不能无损等同于 canonical AOM representation。未确定的 tier 数字、优先级、归一化策略与声音身份约束继续由明确契约/用户方向决定。本次没有自动采用旧数值，也没有删除旧组件或测试。
+每次迁移必须区分“源码机制复用”“数据格式兼容”“声音行为保持”。特别是旧 APVTS preset、外部插件 rendered WAV 和历史 preference profile，均不能无损等同于 canonical AMO representation。未确定的 tier 数字、优先级、归一化策略与声音身份约束继续由明确契约/用户方向决定。本次没有自动采用旧数值，也没有删除旧组件或测试。

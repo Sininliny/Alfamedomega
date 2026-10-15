@@ -1,6 +1,6 @@
-# Alfamedomega interface and AOM Centre design
+# Alfamedomega interface and AMO Centre design
 
-- **Status:** Implemented in the tensor product editor (`src/tensor_plugin`) and AOM Centre (`apps/control-center`)
+- **Status:** Implemented in the tensor product editor (`src/tensor_plugin`) and AMO Centre (`apps/control-center`)
 - **Date:** 2026-10-01, Play and Controls redesigned 2026-10-14, visual style and heading 2026-10-15
 - **Supersedes:** the 2026-09-29 method-first draft (Perform / Signal flow / Sound design / Customize,
   Musician / Student / Developer levels, 32 method knobs). It is in git history.
@@ -186,9 +186,9 @@ refresh, how many sounds and where), **This sound** (precision and the capacity 
 engine** (sample rate, block time, latency, active notes, state values, channels; live). Settings never
 change the sound.
 
-## AOM Centre
+## AMO Centre
 
-The window is named **AOM Centre**. The Audio Tensor Space work comes first; the four legacy pages
+The window is named **AMO Centre**. The Audio Tensor Space work comes first; the four legacy pages
 (models, method training, preferences, plugin assimilation) are grouped under a **Legacy** heading at
 the bottom of the navigation and stay fully working.
 

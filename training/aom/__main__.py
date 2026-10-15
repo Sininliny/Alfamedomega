@@ -13,7 +13,7 @@ def main():
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
-    parser = argparse.ArgumentParser(description="AOM dual-supervised WAV tensor learner")
+    parser = argparse.ArgumentParser(description="AMO dual-supervised WAV tensor learner")
     commands = parser.add_subparsers(dest="command", required=True)
     training = commands.add_parser("train")
     training.add_argument("manifest", type=Path)
