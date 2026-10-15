@@ -105,6 +105,7 @@ Editor::Editor(Processor& p)
     , influence_(look_)
     , matrix_(look_)
     , capacity_(look_)
+    , reach_(look_)
     , space_(look_)
     , heading_(look_)
     , layerState_(look_)
@@ -276,6 +277,10 @@ Editor::Editor(Processor& p)
     {
         selectMatrixCell(source, destination);
     };
+    reach_.onSelect = [this](int source)
+    {
+        selectMatrixCell(source, matrixDestination_);
+    };
     // The matrix is the Tensor view; raw JSON, model import and composition open on request.
     expert_.setComponentID("view.expert");
     expert_.setClickingTogglesState(true);
@@ -332,6 +337,7 @@ Editor::Editor(Processor& p)
                                                            &routingViewport_,
                                                            &matrixViewport_,
                                                            &capacity_,
+                                                           &reach_,
                                                            &expert_,
                                                            &influence_,
                                                            &newRoute_,
@@ -746,23 +752,11 @@ void Editor::paint(juce::Graphics& g)
         {
             surface(g, t, selectionArea_, "Selected coefficient");
             surface(g, t, capacityArea_, "Capacity", "what this sound uses");
+            surface(g, t, reachArea_, "Reach", "how strongly each control drives the next layer");
         }
     }
     if (view_ == 3)
-    {
-        surface(g, t, settingsArea_, "Settings", "separate from the sound");
-        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(12, true));
-        for (const auto& [area, text] : settingsLabels_)
-        {
-            g.setColour(t.text2);
-            g.drawText(text, area, juce::Justification::bottomLeft, true);
-        }
-        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11));
-        g.drawFittedText(
-            store_ ? store_->directory().getFullPathName() : juce::String{},
-            folder_.getBounds().translated(0, 36).withWidth(refresh_.getRight() - folder_.getX()),
-            juce::Justification::topLeft, 2);
-    }
+        paintSettings(g);
     paintFlow(g, flowArea_);
 }
 void Editor::paintOverChildren(juce::Graphics& g)
@@ -817,6 +811,100 @@ void Editor::paintFingerprints(juce::Graphics& g)
                                        : (v > 0 ? t.accent : t.mod).withAlpha(0.25f + 0.75f * amount));
             g.fillRoundedRectangle(juce::Rectangle<float>(x, y, size, size), 1.2f);
             x += size + gap;
+        }
+    }
+}
+void Editor::paintSettings(juce::Graphics& g)
+{
+    const auto& t = look_.theme();
+    for (const auto& card : settingsCards_)
+        surface(g, t, card.area, card.title, card.note);
+    g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11.5f, true));
+    for (const auto& [area, text] : settingsLabels_)
+    {
+        g.setColour(t.text2);
+        g.drawText(text, area, juce::Justification::bottomLeft, true);
+    }
+    // Palette: the theme's colours as swatches, so a theme can be judged before it is exported.
+    {
+        const std::array<std::pair<const char*, juce::Colour>, 8> swatches{
+            {{"Background", t.bg}, {"Panel", t.panel}, {"Line", t.line}, {"Text", t.text},
+             {"Secondary", t.text2}, {"Accent", t.accent}, {"Modulation", t.mod}, {"Warning", t.warn}}};
+        const auto pitch = juce::jlimit(30.0f, 90.0f, static_cast<float>(paletteArea_.getHeight() + 8) / 4.0f);
+        const auto width = (static_cast<float>(paletteArea_.getWidth()) - 10.0f) / 2.0f;
+        for (size_t i = 0; i < swatches.size(); ++i)
+        {
+            const auto cell = juce::Rectangle<float>(static_cast<float>(paletteArea_.getX()) + static_cast<float>(i % 2) * (width + 10.0f),
+                                                     static_cast<float>(paletteArea_.getY()) + static_cast<float>(i / 2) * pitch,
+                                                     width, pitch - 8.0f);
+            if (cell.getBottom() > static_cast<float>(paletteArea_.getBottom()))
+                break;
+            alfa::ui::visuals::recessed(g, t, cell, 6);
+            const auto chip = cell.reduced(5).withWidth(cell.getHeight() - 10);
+            g.setColour(swatches[i].second);
+            g.fillRoundedRectangle(chip, 4);
+            g.setColour(t.line);
+            g.drawRoundedRectangle(chip, 4, 1);
+            auto text = cell.withTrimmedLeft(chip.getRight() - cell.getX() + 8).reduced(0, 3);
+            g.setColour(t.text);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11.5f, true));
+            g.drawText(swatches[i].first, text.removeFromTop(text.getHeight() / 2), juce::Justification::bottomLeft, true);
+            g.setColour(t.text2);
+            g.setFont(alfa::ui::AlfaLookAndFeel::monoFont(10));
+            g.drawText("#" + swatches[i].second.toDisplayString(false), text, juce::Justification::topLeft, true);
+        }
+    }
+    // Library: where sounds are kept and how many there are.
+    {
+        auto note = libraryNote_.toFloat();
+        g.setColour(t.text);
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(12, true));
+        const auto count = store_ ? static_cast<int>(store_->entries().size()) : 0;
+        g.drawText(juce::String(count) + (count == 1 ? " sound" : " sounds") + " in the library",
+                   note.removeFromTop(20), juce::Justification::centredLeft, true);
+        g.setColour(t.text2);
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11));
+        g.drawFittedText(store_ ? store_->directory().getFullPathName() : juce::String{}, note.toNearestInt(),
+                         juce::Justification::topLeft, 3);
+    }
+    // Engine: live readouts as tiles that share the card's height.
+    {
+        size_t state = 0;
+        try
+        {
+            for (const auto& instance : sound_.at("instances"))
+                state += instance.value("state_size", size_t(0));
+        }
+        catch (const std::exception&)
+        {
+        }
+        const auto rate = processor_.getSampleRate();
+        const auto latency = processor_.getLatencySamples();
+        const std::array<std::pair<juce::String, juce::String>, 6> stats{
+            {{"Sample rate", compactText(rate / 1000.0) + " kHz"},
+             {"Block time", juce::String(processor_.blockMilliseconds.load(), 2) + " ms"},
+             {"Latency", juce::String(latency) + " samples"},
+             {"Active notes", juce::String(processor_.activeNotes.load())},
+             {"State values", juce::String(static_cast<int>(state))},
+             {"Channels", juce::String(processor_.getTotalNumInputChannels()) + " in  /  " +
+                              juce::String(processor_.getTotalNumOutputChannels()) + " out"}}};
+        const auto area = engineArea_.toFloat();
+        const auto width = (area.getWidth() - 8.0f) / 2.0f;
+        const auto pitch = juce::jlimit(50.0f, 96.0f, area.getHeight() / 3.0f);
+        for (size_t i = 0; i < stats.size(); ++i)
+        {
+            const auto cell = juce::Rectangle<float>(area.getX() + static_cast<float>(i % 2) * (width + 8.0f),
+                                                     area.getY() + static_cast<float>(i / 2) * pitch, width, pitch - 8.0f);
+            if (cell.getBottom() > area.getBottom() + 1.0f)
+                break;
+            alfa::ui::visuals::recessed(g, t, cell, 6);
+            const auto text = cell.withSizeKeepingCentre(cell.getWidth(), 38).reduced(10, 0);
+            g.setColour(t.text);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(pitch > 70 ? 18.0f : 15.0f, true));
+            g.drawText(stats[i].second, text.withTrimmedBottom(16), juce::Justification::bottomLeft, true);
+            g.setColour(t.text2);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(10.5f));
+            g.drawText(stats[i].first, text.withTrimmedTop(24), juce::Justification::topLeft, true);
         }
     }
 }
@@ -996,11 +1084,13 @@ void Editor::resized()
     // Structure: instances, the selected instance's parameters, and the relationships into it.
     primitiveArea_ = workspace_;
     parameterArea_ = primitiveArea_;
-    primitiveArea_.setWidth(300);
-    parameterArea_.removeFromLeft(312);
-    routingArea_ = parameterArea_.removeFromRight(juce::jmax(330, parameterArea_.getWidth() * 2 / 5));
+    primitiveArea_.setWidth(juce::jlimit(240, 300, workspace_.getWidth() / 4));
+    parameterArea_.removeFromLeft(primitiveArea_.getWidth() + 12);
+    routingArea_ = parameterArea_.removeFromRight(juce::jlimit(300, 420, parameterArea_.getWidth() * 2 / 5));
     parameterArea_.removeFromRight(12);
     primitives_.setBounds(primitiveArea_.reduced(10).withTrimmedTop(28));
+    // Cards share the list's height, so a sound with few groups shows each group's values instead of a hole.
+    primitives_.setRowHeight(juce::jlimit(58, 132, primitives_.getHeight() / juce::jmax(1, getNumRows())));
     auto params = parameterArea_.reduced(10).withTrimmedTop(26);
     paramHeader_.setBounds(params.removeFromTop(25));
     // Paging only exists for the raw parameter list; a primitive's rows always fit one list.
@@ -1048,8 +1138,16 @@ void Editor::resized()
     tensorArea_ = layerArea_.removeFromRight(expertOpen_ ? workspace_.getWidth() / 2
                                                          : juce::jlimit(300, 380, workspace_.getWidth() / 3));
     layerArea_.removeFromRight(12);
-    selectionArea_ = tensorArea_.withHeight(juce::jmin(176, tensorArea_.getHeight() / 2));
-    capacityArea_ = tensorArea_.withTrimmedTop(selectionArea_.getHeight() + 12);
+    // Selected coefficient and capacity take what they show; the reach of each control fills the rest.
+    selectionArea_ = tensorArea_.withHeight(juce::jmin(150, tensorArea_.getHeight() / 3));
+    capacityArea_ = tensorArea_.withTrimmedTop(selectionArea_.getHeight() + 10);
+    reachArea_ = capacityArea_.withTrimmedTop(
+        juce::jlimit(capacity_.minimumHeight(capacityArea_.getWidth() - 28) + 42,
+                     juce::jmax(capacity_.minimumHeight(capacityArea_.getWidth() - 28) + 42,
+                                capacity_.preferredHeight(capacityArea_.getWidth() - 28) + 42),
+                     capacityArea_.getHeight() - 10 - 56 - reach_.preferredHeight()) + 10);
+    capacityArea_.setBottom(reachArea_.getY() - 10);
+    reach_.setBounds(reachArea_.reduced(14).withTrimmedTop(28));
     auto layers = layerArea_.reduced(12).withTrimmedTop(28);
     auto layerRow = layers.removeFromTop(30);
     mappingLayer_.setBounds(layerRow.removeFromLeft(juce::jmin(220, layerRow.getWidth() / 2)));
@@ -1096,49 +1194,74 @@ void Editor::resized()
 }
 void Editor::layoutSettings()
 {
-    // Two columns of labelled rows; labels are painted from settingsLabels_ so nothing overlaps.
+    // Cards: appearance with the live palette on the left; playing and library above, the loaded sound
+    // and the audio engine below on the right. Labels are painted from settingsLabels_ so nothing overlaps.
     settingsLabels_.clear();
-    auto area = settingsArea_.reduced(24).withTrimmedTop(30);
-    auto left = area.removeFromLeft(juce::jmin(560, area.getWidth() / 2));
-    area.removeFromLeft(24);
-    auto right = area;
+    settingsCards_.clear();
+    constexpr int gap = 10;
+    auto area = settingsArea_;
+    auto appearance = area.removeFromLeft(juce::jlimit(300, 420, area.getWidth() * 34 / 100));
+    area.removeFromLeft(gap);
+    auto upper = area.removeFromTop(132);
+    area.removeFromTop(gap);
+    auto playing = upper.removeFromLeft((upper.getWidth() - gap) / 2);
+    upper.removeFromLeft(gap);
+    auto library = upper;
+    auto engine = area.removeFromRight(juce::jlimit(240, 360, area.getWidth() * 2 / 5));
+    area.removeFromRight(gap);
+    auto sound = area;
+    settingsCards_.push_back({appearance, "Appearance", "interface only"});
+    settingsCards_.push_back({playing, "Playing", {}});
+    settingsCards_.push_back({library, "Sound library", {}});
+    settingsCards_.push_back({sound, "This sound", "resources and precision"});
+    settingsCards_.push_back({engine, "Audio engine", "live"});
+    const auto inner = [](juce::Rectangle<int> card) { return card.reduced(16, 14).withTrimmedTop(30); };
     const auto label = [this](juce::Rectangle<int>& column, const juce::String& text)
     {
-        settingsLabels_.push_back({column.removeFromTop(22), text});
+        settingsLabels_.push_back({column.removeFromTop(20), text});
         column.removeFromTop(4);
     };
-    label(left, "Theme");
-    auto row = left.removeFromTop(32);
-    theme_.setBounds(row.removeFromLeft(200));
-    row.removeFromLeft(10);
-    exportTheme_.setBounds(row.removeFromLeft(130));
-    row.removeFromLeft(10);
-    importTheme_.setBounds(row.removeFromLeft(130));
-    left.removeFromTop(16);
-    auto pair = left.removeFromTop(22);
-    settingsLabels_.push_back({pair.removeFromLeft(210), "Accent colour"});
-    settingsLabels_.push_back({pair, "Knob drag"});
-    left.removeFromTop(4);
-    row = left.removeFromTop(32);
-    accent_.setBounds(row.removeFromLeft(200));
-    row.removeFromLeft(10);
-    gesture_.setBounds(row.removeFromLeft(200));
-    left.removeFromTop(16);
-    label(left, "On-screen keyboard");
-    showKeyboard_.setBounds(left.removeFromTop(32).withWidth(160));
-    left.removeFromTop(16);
-    label(left, "Sound library folder");
-    row = left.removeFromTop(32);
-    folder_.setBounds(row.removeFromLeft(200));
-    row.removeFromLeft(10);
-    refresh_.setBounds(row.removeFromLeft(150));
 
-    label(right, "Sound resources and precision");
-    precision_.setBounds(right.removeFromTop(26));
-    right.removeFromTop(6);
-    resources_.setBounds(right.removeFromTop(40));
-    right.removeFromTop(6);
-    hostPrecision_.setBounds(right.removeFromTop(40));
+    auto left = inner(appearance);
+    label(left, "Theme");
+    theme_.setBounds(left.removeFromTop(30));
+    left.removeFromTop(8);
+    auto row = left.removeFromTop(30);
+    exportTheme_.setBounds(row.removeFromLeft((row.getWidth() - 8) / 2));
+    row.removeFromLeft(8);
+    importTheme_.setBounds(row);
+    left.removeFromTop(14);
+    label(left, "Accent colour");
+    accent_.setBounds(left.removeFromTop(30));
+    left.removeFromTop(14);
+    label(left, "Palette");
+    paletteArea_ = left;
+
+    auto play = inner(playing);
+    auto keys = play.removeFromRight(juce::jmin(150, play.getWidth() / 3));
+    play.removeFromRight(12);
+    label(play, "Knob drag");
+    gesture_.setBounds(play.removeFromTop(30));
+    label(keys, "Display");
+    showKeyboard_.setBounds(keys.removeFromTop(30));
+
+    auto folder = inner(library);
+    row = folder.removeFromTop(30);
+    folder_.setBounds(row.removeFromLeft((row.getWidth() - 8) / 2));
+    row.removeFromLeft(8);
+    refresh_.setBounds(row);
+    folder.removeFromTop(8);
+    libraryNote_ = folder;
+
+    auto resources = inner(sound);
+    precision_.setBounds(resources.removeFromTop(24));
+    resources.removeFromTop(4);
+    hostPrecision_.setBounds(resources.removeFromBottom(36));
+    resources_.setBounds(resources.removeFromBottom(36));
+    resources.removeFromBottom(8);
+    if (view_ == 3)
+        capacity_.setBounds(resources.withTrimmedTop(6));
+    engineArea_ = inner(engine);
 }
 void Editor::chooseView(int index)
 {
@@ -1169,8 +1292,10 @@ void Editor::chooseView(int index)
     for (auto* c : std::initializer_list<juce::Component*>{&matrixViewport_, &mappingLayer_, &expert_})
         c->setVisible(view_ == 2);
     for (auto* c :
-         std::initializer_list<juce::Component*>{&matrixSelection_, &matrixValue_, &setMatrix_, &capacity_})
+         std::initializer_list<juce::Component*>{&matrixSelection_, &matrixValue_, &setMatrix_, &capacity_,
+                                                 &reach_})
         c->setVisible(view_ == 2 && !expertOpen_);
+    capacity_.setVisible((view_ == 2 && !expertOpen_) || view_ == 3);
     for (auto* c :
          std::initializer_list<juce::Component*>{&document_, &inspection_, &tensorValues_, &tensorSelect_,
                                                  &apply_, &exportJSON_, &importModel_, &compose_})
@@ -1704,15 +1829,62 @@ void Editor::paintListBoxItem(int row, juce::Graphics& g, int width, int height,
         g.setColour(t.accent.withAlpha(0.7f));
         g.drawRoundedRectangle(card, 6, 1);
     }
+    // Tall cards add a profile: each parameter's authored value as a fraction of its range.
+    const auto tall = height >= 84;
+    const auto& values = sound_["tensors"]["parameters"]["values"];
+    const auto fraction = [&](size_t d)
+    {
+        if (d >= values.size() || d >= parameterRanges_.size() || !values[d].is_number())
+            return 0.0f;
+        const auto [low, high] = parameterRanges_[d];
+        return high > low ? static_cast<float>(juce::jlimit(0.0, 1.0, (values[d].get<double>() - low) / (high - low)))
+                          : 0.0f;
+    };
+    const auto profile = [&](juce::Rectangle<float> area, const std::vector<std::pair<float, juce::Colour>>& bars)
+    {
+        g.setColour(t.bg.withAlpha(0.5f));
+        g.fillRoundedRectangle(area, 4);
+        if (bars.empty())
+            return;
+        auto inner = area.reduced(6, 5);
+        const auto step = inner.getWidth() / static_cast<float>(bars.size());
+        const auto width = juce::jmax(1.0f, juce::jmin(step - juce::jmin(2.0f, step * 0.3f), 10.0f));
+        for (size_t i = 0; i < bars.size(); ++i)
+        {
+            const auto x = inner.getX() + step * static_cast<float>(i) + (step - width) / 2;
+            const auto h = juce::jmax(1.0f, inner.getHeight() * bars[i].first);
+            g.setColour(bars[i].second.withAlpha(0.8f));
+            g.fillRoundedRectangle(x, inner.getBottom() - h, width, h, juce::jmin(1.5f, width / 2));
+        }
+    };
     if (row == 0)
     {
+        auto text = card.reduced(14, tall ? 9.0f : 0.0f);
+        auto top = tall ? text.removeFromTop(18) : text;
         g.setColour(selected ? t.accent : t.text);
         g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(13, true));
-        g.drawText("All parameters", card.reduced(14, 0).toNearestInt(), juce::Justification::centredLeft);
+        g.drawText("All parameters", top.toNearestInt(), juce::Justification::centredLeft);
         g.setColour(t.text2);
         g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11));
-        g.drawText(juce::String(static_cast<int>(sound_["tensors"]["parameters"]["values"].size())) + " raw",
-                   card.reduced(14, 0).toNearestInt(), juce::Justification::centredRight);
+        g.drawText(juce::String(static_cast<int>(values.size())) + " raw", top.toNearestInt(),
+                   juce::Justification::centredRight);
+        if (!tall)
+            return;
+        size_t instances = 0;
+        for (const auto& group : groups_)
+            instances += group.members.size();
+        g.drawText(juce::String(static_cast<int>(groups_.size())) + " groups  ·  " +
+                       juce::String(static_cast<int>(instances)) + " instances  ·  values in their ranges",
+                   text.removeFromTop(16), juce::Justification::centredLeft, true);
+        // Every parameter in tensor order, coloured by its group.
+        std::vector<std::pair<float, juce::Colour>> bars(values.size(), {0.0f, t.text2});
+        for (size_t d = 0; d < bars.size(); ++d)
+            bars[d].first = fraction(d);
+        for (const auto& group : groups_)
+            for (const auto& member : group.members)
+                for (size_t q = 0; q < member.count && member.offset + q < bars.size(); ++q)
+                    bars[member.offset + q].second = familyColour(t, group.primitive);
+        profile(text.withTrimmedTop(6), bars);
         return;
     }
     if (static_cast<size_t>(row - 1) >= groups_.size())
@@ -1763,6 +1935,19 @@ void Editor::paintListBoxItem(int row, juce::Graphics& g, int width, int height,
                    text.removeFromTop(16), juce::Justification::centredLeft, true);
         // Each voice's live output level in the last block, on a 60 dB scale.
         auto meters = text.removeFromBottom(5);
+        if (tall)
+        {
+            // The group's parameters in order, averaged over its voices.
+            std::vector<std::pair<float, juce::Colour>> bars;
+            for (size_t q = 0; q < group.members.front().count; ++q)
+            {
+                float sum = 0;
+                for (const auto& member : group.members)
+                    sum += fraction(member.offset + q);
+                bars.push_back({sum / static_cast<float>(group.members.size()), colour});
+            }
+            profile(text.withTrimmedTop(6).withTrimmedBottom(8), bars);
+        }
         const auto count = static_cast<float>(group.members.size());
         const auto width = (meters.getWidth() - 3.0f * (count - 1)) / count;
         for (size_t k = 0; k < group.members.size(); ++k)
@@ -2168,16 +2353,19 @@ void Editor::rebuildLayers()
                 rows.add(layer + 1 < layers.size() ? controlName(layer + 1, i) : parameterName(i));
             for (size_t i = 0; i < sources; ++i)
                 columns.add(controlName(layer, i));
+            reach_.setMatrix(values, rows, columns);
             matrix_.setMatrix(std::move(values), rows, columns);
             matrixSource_ = juce::jlimit(0, juce::jmax(0, static_cast<int>(sources) - 1), matrixSource_);
             matrixDestination_ =
                 juce::jlimit(0, juce::jmax(0, static_cast<int>(destinations) - 1), matrixDestination_);
             matrix_.select(matrixSource_, matrixDestination_);
+            reach_.select(matrixSource_);
             setMatrix_.setEnabled(sources > 0 && destinations > 0);
         }
         else
         {
             matrix_.setMatrix({}, {}, {});
+            reach_.setMatrix({}, {}, {});
             setMatrix_.setEnabled(false);
         }
     }
@@ -2193,6 +2381,7 @@ void Editor::selectMatrixCell(int source, int destination)
     matrixSource_ = source;
     matrixDestination_ = destination;
     matrix_.select(source, destination);
+    reach_.select(source);
     refreshTensor();
 }
 std::vector<size_t> Editor::controlOrder() const
@@ -2787,6 +2976,8 @@ void Editor::timerCallback()
     }
     if (view_ == 4 && fresh)
         layerState_.setValues(liveLayerValues());
+    if (view_ == 3)
+        repaint(engineArea_);
     if (view_ == 1)
     {
         primitives_.repaint();
