@@ -233,7 +233,7 @@ TEST_CASE("Malformed and unsupported host sessions cannot partially replace a ru
             REQUIRE(xml != nullptr);
             auto* mix = xml->getChildByAttribute("id", "mix");
             REQUIRE(mix != nullptr);
-            mix->setAttribute("value", 42.);
+            mix->setAttribute("value", "not-a-number"); // out-of-range values are clamped instead
             corrupt["parameters"] = xml->toString().toStdString();
         }
         if (failure == 5)
@@ -276,7 +276,7 @@ TEST_CASE("Invalid host audio is silenced with finite output meters and valid dr
     CHECK(audio.getSample(1, 7) == .25f);
 }
 
-TEST_CASE("Host accepts declared mono stereo and disabled input layouts and rejects mismatched buses",
+TEST_CASE("Host accepts mono stereo mono-to-stereo and disabled input layouts and rejects others",
           "[tensor-host][product-safety]")
 {
     juce::ScopedJuceInitialiser_GUI gui;
@@ -292,6 +292,9 @@ TEST_CASE("Host accepts declared mono stereo and disabled input layouts and reje
     CHECK_FALSE(processor.isBusesLayoutSupported(layout));
     layout.outputBuses.set(0, juce::AudioChannelSet::stereo());
     layout.inputBuses.set(0, juce::AudioChannelSet::mono());
+    CHECK(processor.isBusesLayoutSupported(layout)); // mono-track insert, input feeds both channels
+    layout.outputBuses.set(0, juce::AudioChannelSet::mono());
+    layout.inputBuses.set(0, juce::AudioChannelSet::stereo());
     CHECK_FALSE(processor.isBusesLayoutSupported(layout));
     layout.outputBuses.set(0, juce::AudioChannelSet::disabled());
     CHECK_FALSE(processor.isBusesLayoutSupported(layout));
@@ -330,6 +333,8 @@ TEST_CASE("Compatible parameter edits with a runtime compiler retain held notes 
                                             .getChildFile("training/aom/testdata/runtime_gru.json")
                                             .loadFileAsString()
                                             .toStdString());
+    sound["performance"] =
+        nlohmann::json{{"midi_layout", "voice_indexed"}, {"voice_capacity", 1}, {"release_seconds", 0.0}};
     Processor edited, reference;
     edited.prepareToPlay(48000, 32);
     reference.prepareToPlay(48000, 32);

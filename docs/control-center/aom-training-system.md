@@ -148,6 +148,13 @@ Runtime manifests contain `ontology`, `schemas`, `input_widths`, `hidden_width`,
 ```
 
 Declare widths for **all six** input categories, including explicit zero widths.
+A model with a `midi` width above zero reads fixed MIDI coordinates, so the plugin
+loads it only into a sound whose `performance.midi_layout` is `voice_indexed`, and
+the width must be at most `voice_capacity` × 10 (ten fields per voice slot, in the
+order listed in `src/tensor_plugin/README.md`). Compact rows shift when a note is
+released and are absent while nothing is held, so they are refused for models.
+Training data for such a model must use the same voice-indexed slots, with silent
+slots present as zero rows.
 The feature values above are fixture choices. Native producer `render.inputs` uses
 `preference` for the corresponding native wrapper argument; runtime event/model
 schemas use `user_preference`. Each clock requires explicit `period_samples` and

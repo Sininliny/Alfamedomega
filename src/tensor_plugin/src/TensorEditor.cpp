@@ -2456,6 +2456,14 @@ void Editor::timerCallback()
                        juce::dontSendNotification);
     if (processor_.programRevision.load() != revision_)
         refreshSound();
+    if (const auto warning = processor_.hostWarningRevision.load(std::memory_order_acquire);
+        warning != warningRevision_)
+    {
+        warningRevision_ = warning;
+        const auto text = processor_.hostWarning();
+        showStatus(text, true);
+        status_.setTooltip(text);
+    }
     syncMode();
     undo_.setEnabled(processor_.undoManager().canUndo());
     redo_.setEnabled(processor_.undoManager().canRedo());

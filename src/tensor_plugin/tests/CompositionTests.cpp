@@ -61,6 +61,8 @@ TEST_CASE("Composed fragment compiler models retain disjoint predictions recurre
 {
     auto instrument = reference("programs/instrument.aom.json");
     instrument["runtimeModel"] = reference("training/aom/testdata/runtime_gru.json");
+    instrument["performance"] =
+        nlohmann::json{{"midi_layout", "voice_indexed"}, {"voice_capacity", 1}, {"release_seconds", 0.0}};
     TensorComposition composition(48000, budget(), "Standard");
     juce::String error;
     REQUIRE(composition.add("A", instrument.dump(), error));
@@ -377,6 +379,8 @@ TEST_CASE("Model predictions retain user control authority across layers clocks 
                 model["output_bounds"] = {{0., 1.}, {0., 1000.}, {0., 1.}, {-1., 1.}, {-1., 1.}};
                 model["clock"] = {{"period_samples", 7}, {"phase_samples", 0}};
                 authored["runtimeModel"] = model;
+                authored["performance"] = nlohmann::json{
+                    {"midi_layout", "voice_indexed"}, {"voice_capacity", 1}, {"release_seconds", 0.0}};
                 auto expected = authored;
                 expected.erase("runtimeModel");
                 expected["tensors"]["parameters"]["values"][1] = locked ? .12 : .2;
@@ -428,6 +432,8 @@ TEST_CASE("Scoped compiler loading validates containers identities and latent st
 {
     auto source = reference("programs/instrument.aom.json");
     source["runtimeModel"] = reference("training/aom/testdata/runtime_gru.json");
+    source["performance"] =
+        nlohmann::json{{"midi_layout", "voice_indexed"}, {"voice_capacity", 1}, {"release_seconds", 0.0}};
     TensorComposition composition(48000, budget());
     juce::String error;
     REQUIRE(composition.add("first", source.dump(), error));
@@ -481,6 +487,8 @@ TEST_CASE("Execution reset restores authored tensors before the first delayed mo
             auto model = reference("training/aom/testdata/runtime_gru.json");
             model["clock"] = {{"period_samples", 97}, {"phase_samples", 11}};
             document["runtimeModel"] = model;
+            document["performance"] = nlohmann::json{
+                {"midi_layout", "voice_indexed"}, {"voice_capacity", 1}, {"release_seconds", 0.0}};
             document["control_layers"] = JSON::array(
                 {{{"values", {0.}},
                   {"ranges", {{-1., 1.}}},
@@ -543,4 +551,31 @@ TEST_CASE("Compiler imports reject feature widths unavailable at the native host
     document["runtimeModel"] = model;
     CHECK(alfa::tensorhost::prepareExecution(document.dump(), 48000, error) == nullptr);
     CHECK(error.find("source capacity") != std::string::npos);
+}
+
+TEST_CASE("Compiler models that read MIDI require stable voice-indexed rows",
+          "[tensor-host][model][validation]")
+{
+    // Compact rows shift on release and vanish while no note is held, so a model reading
+    // fixed MIDI coordinates is refused there instead of seeing notes change slots.
+    auto document = reference("programs/instrument.aom.json");
+    document["runtimeModel"] = reference("training/aom/testdata/runtime_gru.json");
+    std::string error;
+    CHECK(alfa::tensorhost::prepareExecution(document.dump(), 48000, error) == nullptr);
+    CHECK(error.find("voice_indexed") != std::string::npos);
+    document["performance"] = {
+        {"midi_layout", "voice_indexed"}, {"voice_capacity", 1}, {"release_seconds", 0.0}};
+    CHECK(alfa::tensorhost::prepareExecution(document.dump(), 48000, error) != nullptr);
+    // The width may not exceed the rows the declared voices provide (ten fields each).
+    auto model = document["runtimeModel"];
+    const auto hidden = model["hidden_width"].get<size_t>();
+    model["input_widths"]["midi"] = 11;
+    model["weights"]["cell.weight_ih"] = std::vector<double>(3 * hidden * 11);
+    model["budget"]["parameter_elements"] =
+        model["budget"]["parameter_elements"].get<size_t>() + 3 * hidden * 9;
+    document["runtimeModel"] = model;
+    CHECK(alfa::tensorhost::prepareExecution(document.dump(), 48000, error) == nullptr);
+    CHECK(error.find("source capacity") != std::string::npos);
+    document["performance"]["voice_capacity"] = 2;
+    CHECK(alfa::tensorhost::prepareExecution(document.dump(), 48000, error) != nullptr);
 }

@@ -389,6 +389,50 @@ TEST_CASE("Custom interface theme survives editor construction reopen and host r
     reopen(restored);
 }
 
+TEST_CASE("Mix, input gain and bypass changes ramp instead of stepping", "[tensor-host][product]")
+{
+    juce::ScopedJuceInitialiser_GUI gui;
+    Processor processor;
+    processor.prepareToPlay(48000, 4096);
+    juce::String error;
+    REQUIRE(processor.loadPresetJSON(factory("stereo-field"), error));
+    juce::AudioBuffer<float> audio(2, 4096);
+    juce::MidiBuffer midi;
+    // A nearly silent wet path against a constant dry input: every switch is a 0.4 jump
+    // unless the processor ramps it.
+    processor.setParameterValue("input_gain", -60);
+    const auto largestStep = [&](float& previous)
+    {
+        fill(audio, .4f);
+        render(processor, audio, midi);
+        float step = 0;
+        for (int i = 0; i < audio.getNumSamples(); ++i)
+        {
+            step = std::max(step, std::abs(audio.getSample(0, i) - previous));
+            previous = audio.getSample(0, i);
+        }
+        return step;
+    };
+    float previous = 0;
+    largestStep(previous);
+    REQUIRE(previous == Catch::Approx(.0004).margin(.00001));
+    processor.setParameterValue("mix", 0);
+    CHECK(largestStep(previous) < .01f);
+    CHECK(previous == Catch::Approx(.4).margin(.00001));
+    processor.setParameterValue("mix", 1);
+    largestStep(previous);
+    CHECK(previous == Catch::Approx(.0004).margin(.00001));
+    processor.setParameterValue("bypass", 1);
+    CHECK(largestStep(previous) < .01f);
+    CHECK(previous == .4f);
+    processor.setParameterValue("bypass", 0);
+    CHECK(largestStep(previous) < .01f);
+    processor.setParameterValue("input_gain", 0);
+    CHECK(largestStep(previous) < .01f);
+    CHECK(previous == Catch::Approx(.4).margin(.00001));
+    CHECK(processor.failures.load() == 0);
+}
+
 TEST_CASE("Host bypass parameter is the functional APVTS bypass object", "[tensor-host][product]")
 {
     juce::ScopedJuceInitialiser_GUI gui;

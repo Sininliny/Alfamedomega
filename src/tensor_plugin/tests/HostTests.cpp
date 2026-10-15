@@ -182,6 +182,8 @@ TEST_CASE("Host imports a genuine runtime GRU compiler and refuses incompatible 
     const auto model = juce::File(juce::String(ALFA_SOURCE_DIR) + "/training/aom/testdata/runtime_gru.json")
                            .loadFileAsString();
     data["runtimeModel"] = nlohmann::json::parse(model.toStdString());
+    data["performance"] =
+        nlohmann::json{{"midi_layout", "voice_indexed"}, {"voice_capacity", 1}, {"release_seconds", 0.0}};
     juce::String error;
     REQUIRE(p.loadJSON(data.dump(), error));
     CHECK(p.inspection().contains("GRU compiler model loaded"));
