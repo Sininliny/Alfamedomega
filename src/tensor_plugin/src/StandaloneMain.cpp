@@ -51,7 +51,8 @@ public:
                 {
                     if (auto* console = dynamic_cast<Editor*>(editor.get()))
                         console->snapshotView(
-                            juce::SystemStats::getEnvironmentVariable("ALFA_UI_VIEW", "0").getIntValue());
+                            juce::SystemStats::getEnvironmentVariable("ALFA_UI_VIEW", "0").getIntValue(),
+                            juce::SystemStats::getEnvironmentVariable("ALFA_UI_ROW", "0").getIntValue());
                     if (juce::SystemStats::getEnvironmentVariable("ALFA_UI_SMALL", "0") == "1")
                         editor->setSize(1040, 700);
                     else if (const auto size = juce::SystemStats::getEnvironmentVariable("ALFA_UI_SIZE", {});

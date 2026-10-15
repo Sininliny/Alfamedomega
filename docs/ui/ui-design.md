@@ -1,7 +1,7 @@
 # Alfamedomega interface and AOM Centre design
 
 - **Status:** Implemented in the tensor product editor (`src/tensor_plugin`) and AOM Centre (`apps/control-center`)
-- **Date:** 2026-10-01, Play and Controls redesigned 2026-10-14
+- **Date:** 2026-10-01, Play and Controls redesigned 2026-10-14, visual style and heading 2026-10-15
 - **Supersedes:** the 2026-09-29 method-first draft (Perform / Signal flow / Sound design / Customize,
   Musician / Student / Developer levels, 32 method knobs). It is in git history.
 - **Requirements:** [mission](../audio-tensor-space/mission.md), "User interaction and migration".
@@ -11,7 +11,10 @@
   individual sound elements so they are easier to shape, and project the control vector space to a
   low-dimensional view. Do not try to draw the whole wiring ("this tangle can never be read
   clearly"). Knobs and faders should look like instruments, not VB6 controls; colours soft and
-  readable.
+  readable. Sinin's 2026-10-15 style notes: flat like Massive X and Pigments 7 but not purely flat,
+  with subtle raised and recessed edges; restrained but beautiful, tight spacing; visualisations may
+  be rich, so the user feels the overall direction the whole sound is changing in, not one filter.
+  Mockup v4 was approved ("没毛病").
 
 ## Principles
 
@@ -32,11 +35,24 @@
 
 | Area | Contents |
 |---|---|
-| Header | Brand; Play / Controls / Instances / Tensor, each with its own colour dot; input mode Instrument · FX · Hybrid; Bypass; Panic; Settings |
-| Sound bar | Previous / next sound, current name (opens the library), Save as, Open, A / B (Shift-click captures), Capture, Undo, Redo |
+| Header | Brand; Play / Controls / Instances / Tensor as underlined tabs; input mode Instrument · FX · Hybrid as a segmented group; Bypass; Panic; Settings |
+| Sound bar | Previous / next sound and the current name (opens the library) in one recessed field; Save as, Open, A / B (Shift-click captures), Capture, Undo, Redo |
 | Workspace | The selected view |
-| Footer | Input, Mix, Output; input mode and "N X in L layers, M instances"; state, notes, rate and block; meters |
+| Footer | IN, MIX and OUT faders; status; state, notes, rate and block; IN / OUT meters as thin bars |
 | Keyboard | Optional, toggled in Settings; the full MIDI range fills the width |
+
+### Visual language
+
+- **Surfaces.** Panels are raised: a flat fill, a one-pixel top highlight and a soft shadow, 12 px
+  radius. Screens (every plot, the sound field, segment groups, fields) are recessed: a darker fill
+  with an inner top shadow and a bottom edge light, 8 px radius. Buttons are small raised plates;
+  choices inside a group are segments. 10 px gaps everywhere. No metal, no bevels.
+- **Tokens.** Graphite: background `#111317`, panel `#1B1E24`, line `#2A2E36`, text `#EBE9E4`,
+  secondary `#8B9099`, accent amber `#F2A35E`, blue `#6AA2F5`, warning `#E27B62`. Paper: `#E9E7E2`,
+  `#F4F3EF`, `#DDDAD3`, `#23252A`, `#6B6E75`, `#D9822F`, `#3B78D8`, `#C0502F`.
+- **Now and heading.** One grammar on every picture: a neutral solid line is the sound now; a dashed
+  line is where the current movement takes it; the band between them is amber where the heading is
+  higher and blue where it is lower. Module hues appear only as the small dot in a panel's title.
 
 ### Identity colours
 
@@ -68,7 +84,18 @@ The default view is about the sound, not the graph.
   velocity show), and the authored value where nothing reaches. Dragging a handle edits the
   authored value of every instance in the card at once, as one undoable change. Double-click opens
   the instance in the Instances view. Other primitives have no card; they are reached from Instances.
-- **Output:** waveform and spectrum in the same grid.
+- **Sound** (top left). The whole output: its spectrum now (120 log bands, 30 Hz to 16 kHz) and,
+  dashed, where its measured change is heading: the difference between a fast and a half-second
+  average carried on for as long again. Beside it, the measured change of level, centroid, lows
+  (< 250 Hz), mids and highs (> 4 kHz) over that half second. Everything here is measured output,
+  never predicted.
+- **Heading.** The heading is a step of 0.35 half-ranges along the direction the projected layer's
+  controls moved in the last 1.5 s (by hand, automation or the sound space), or, with no recent
+  movement, along the strongest direction `v1`. The step is clamped to the control ranges, mapped
+  linearly through `J Dx` and clamped to the parameter ranges, starting from the live parameters.
+  Element cards draw it as their dashed curve; the **Heading** panel lists, per primitive group, the
+  parameter that moves most as a signed fraction of its range; the sound space draws it as a dashed
+  amber arrow from the current point.
 - **Sound space** (right). The selected X layer projected onto the two directions that change the
   sound most. With `J = M_K ⋯ M_l` the composed authored matrices (parameters × controls; clamps
   between layers are not modelled), `Dp` the parameter range widths and `Dx` the control half ranges,
@@ -80,21 +107,36 @@ The default view is about the sound, not the graph.
   move the sound. Dragging the dot moves `u` by `V Δp`, the smallest control change with that
   projection, clamped to the ranges; host-automatable controls are written with host gestures,
   deeper ones as one undoable change on release. A short trail and the A / B snapshots are drawn.
+  The amber shading is how much one small step changes the sound at each point of the plane, from
+  the current point with control and parameter clamps applied (finite differences of `Dp⁻¹ Δp`), so
+  it fades where controls or parameters run out of range.
 - **Controls** (bottom): the first page of the selected layer's knobs, with user names and the
-  learned order, as before.
+  learned order. Under each knob, one small square per primitive group (up to 12) shows what a
+  positive turn of that control alone does to the group's most affected parameter, amber up, blue
+  down, brighter for more (`Dp⁻¹ J Dx`, normalised over the page).
 
 ### Controls
 
-The deep control surface: the layer's knobs on top, then **Influence** (what the focused control
-reaches, as before), **Layer state** (every layer's live values as bars, the page outlined; click a
-bar to focus that control) and **XY** (two explicit axes). User names, learned order and influence
-are unchanged from the 2026-10-01 design.
+The deep control surface: the layer's knobs on top (with the same per-group squares as Play), then
+**Influence**, **Layer state** (every layer's live values as slim bars, the page marked; click a bar
+to focus that control) and **XY** (two explicit axes).
+
+**Influence** shows what the focused control reaches as controls a person can hold (Sinin,
+2026-10-15: the old list of 58 "Voice n partial k frequency offset" rows was too engineering).
+Parameter names are split into a pattern, a voice and an index ("Voice 3 partial 5 frequency
+offset" is voice 3, index 5 of "Partial frequency offset"). Parameters that differ only by voice
+share one row; rows that differ only by an index share one profile drawn as bars over that index.
+A row is a bipolar fader, a profile is drawn by dragging across it, and a double-click removes what
+the control does to that row. Every voice moves by the same amount, so voices keep their offsets.
+An edit to the composed weight `w_d` changes the last matrix by the smallest amount that gives the
+new weight: row `d` moves by `Δw · v / |v|²`, where `v` is the vector that reaches the last matrix
+from the focused control (for a control in the last layer, exactly its own coefficient).
 
 ### Knobs, faders and values
 
-Rotary controls are a lit dome with a soft shadow, a thin track and a glowing value arc that starts
-from zero on bipolar ranges. Linear sliders are a 4 px track with a filled run from zero and a lit
-disc thumb. Values are quiet monospaced text under the control rather than boxed fields; double-click
+Rotary controls are a recessed well with a raised cap and a 2 px pointer, a thin track and a value
+arc that starts from zero on bipolar ranges (amber up, blue down). Linear sliders are a recessed
+4 px groove with a neutral run (amber or blue from zero when bipolar) and a small raised cap. Values are quiet monospaced text under the control rather than boxed fields; double-click
 to type. Parameter rows draw the authored value and, when the runtime is using a different value,
 a band from authored to live in the colour of the strongest source reaching it.
 
@@ -106,12 +148,15 @@ The editor uses them only while blocks keep arriving; otherwise it shows authore
 
 ### Instances
 
-- **Instances:** one card per instance with its family stripe, title, primitive, activation and a
-  live output level.
-- **Parameters:** the selected instance's parameters. Time and frequency sliders are logarithmic,
-  so short attacks and low frequencies are reachable (the minimum stays the authored minimum).
-- **Relationships:** routing and modulation entries that target the selected instance, each with its
-  source colour, a diverging weight bar and an editable coefficient. "Add relationship" opens the form only when
+- **Instances:** one card per primitive with its voices together ("Partials ×8"): family stripe,
+  title, primitive, activation and one live level per voice. "All parameters" keeps the raw list.
+- **Parameters:** one row per parameter of the selected primitive, named without the voice. A row
+  moves every voice by the same amount (clamped to the range), so voices keep their offsets; rows
+  whose voices differ say so. Time and frequency sliders are logarithmic, so short attacks and low
+  frequencies are reachable (the minimum stays the authored minimum).
+- **Relationships:** routing and modulation entries that target the selected primitive. Entries
+  that differ only by voice share one row ("Pitch Hz > Partial 3 frequency offset ×8"), each with its
+  source colour, a diverging weight bar and an editable coefficient that moves all of them together. "Add relationship" opens the form only when
   asked, so it no longer overlaps the list.
 
 ### Tensor

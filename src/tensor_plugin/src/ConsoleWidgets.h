@@ -11,6 +11,7 @@
 #include <cmath>
 #include <functional>
 #include <limits>
+#include <map>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <stdexcept>
@@ -96,6 +97,49 @@ inline void surface(juce::Graphics& g, const alfa::ui::Theme& t, juce::Rectangle
 {
     alfa::ui::visuals::panel(g, t, r, title, subtitle);
 }
+// Parameter names of instances that share a primitive follow one pattern: "Voice 3 partial 5 frequency offset"
+// is voice 3, index 5 of "Partial frequency offset". Names without a voice or an index keep them at -1.
+struct NamePattern
+{
+    juce::String key, display, withoutVoice;
+    int voice = -1, index = -1;
+};
+inline NamePattern namePattern(const juce::String& name)
+{
+    NamePattern result;
+    auto rest = name.trim();
+    if (rest.startsWithIgnoreCase("voice "))
+    {
+        const auto after = rest.substring(6).trimStart();
+        const auto digits = after.initialSectionContainingOnly("0123456789");
+        if (digits.isNotEmpty())
+        {
+            result.voice = digits.getIntValue();
+            rest = after.substring(digits.length()).trimStart();
+        }
+    }
+    if (rest.isEmpty())
+        rest = "value";
+    result.withoutVoice = rest;
+    juce::StringArray words;
+    words.addTokens(rest, " ", "");
+    juce::StringArray keyWords, displayWords;
+    for (const auto& word : words)
+        if (result.index < 0 && word.isNotEmpty() && word.containsOnly("0123456789"))
+        {
+            result.index = word.getIntValue();
+            keyWords.add("#");
+        }
+        else
+        {
+            keyWords.add(word);
+            displayWords.add(word);
+        }
+    result.key = keyWords.joinIntoString(" ");
+    const auto display = displayWords.joinIntoString(" ");
+    result.display = display.substring(0, 1).toUpperCase() + display.substring(1);
+    return result;
+}
 // Double-click a control's title to rename it. `raw` is the editable name without decorations such
 // as the rank; an empty entry restores the X[layer,index] default.
 inline void allowRename(juce::Label& label, const juce::String& raw,
@@ -119,15 +163,27 @@ inline void allowRename(juce::Label& label, const juce::String& raw,
 class ParameterKnob final : public juce::Component
 {
 public:
-    ParameterKnob(Processor& p, const juce::String& id, const juce::String& label, bool percent = false)
+    // A fader is a short horizontal slider with its name on the left and its value on the right.
+    ParameterKnob(Processor& p, const juce::String& id, const juce::String& label, bool percent = false,
+                  bool fader = false)
         : parameterId(id)
+        , fader_(fader)
     {
         name.setText(label, juce::dontSendNotification);
-        name.setJustificationType(juce::Justification::centred);
+        name.setJustificationType(fader ? juce::Justification::centredLeft : juce::Justification::centred);
+        name.setFont(alfa::ui::AlfaLookAndFeel::labelFont(fader ? 11.0f : 12.0f, true));
         addAndMakeVisible(name);
-        alfa::ui::visuals::rotaryGesture(slider,
-                                         p.uiSettings().getProperty("knob_gesture", "vertical").toString());
-        slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 86, 16);
+        if (fader)
+        {
+            slider.setSliderStyle(juce::Slider::LinearHorizontal);
+            slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 58, 18);
+        }
+        else
+        {
+            alfa::ui::visuals::rotaryGesture(slider,
+                                             p.uiSettings().getProperty("knob_gesture", "vertical").toString());
+            slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 86, 16);
+        }
         addAndMakeVisible(slider);
         slider.setWantsKeyboardFocus(true);
         if (percent)
@@ -156,7 +212,15 @@ public:
         attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(p.parameters(),
                                                                                             id, slider);
         // The attachment installs the parameter's own seven-decimal text; X controls read better compact.
-        if (!percent && !id.contains("gain"))
+        if (percent)
+        {
+            slider.textFromValueFunction = [](double v)
+            {
+                return juce::String(juce::roundToInt(v * 100)) + " %";
+            };
+            slider.updateText();
+        }
+        else if (!id.contains("gain"))
         {
             slider.textFromValueFunction = [](double v)
             {
@@ -167,13 +231,17 @@ public:
     }
     void resized() override
     {
-        // Name under the knob, value as quiet text between them.
+        // Name under the knob, value as quiet text between them; a fader reads left to right.
         auto r = getLocalBounds();
-        name.setBounds(r.removeFromBottom(18));
+        if (fader_)
+            name.setBounds(r.removeFromLeft(34));
+        else
+            name.setBounds(r.removeFromBottom(18));
         slider.setBounds(r);
     }
     // Built before it joins the editor, so it takes the editor's look (value text, fonts) only now.
     void parentHierarchyChanged() override { sendLookAndFeelChange(); }
+    bool isFader() const noexcept { return fader_; }
     juce::Slider& control() { return slider; }
     juce::Label& title() { return name; }
     std::function<void()> onTouched;
@@ -185,6 +253,7 @@ public:
 
 private:
     juce::String parameterId;
+    bool fader_ = false;
     juce::Label name;
     juce::Slider slider;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
@@ -391,44 +460,186 @@ private:
     juce::Slider slider;
     juce::ToggleButton lock;
 };
+// The whole sound at a glance: the output spectrum now (solid) and where its recent change is taking it
+// (dashed: the measured change of the last half second carried on for as long again), amber where it
+// rises and blue where it falls, with the measured change of a few broad properties beside it.
 class LiveScope final : public juce::Component
 {
 public:
+    static constexpr size_t bandCount = 120;
+    static constexpr float lowest = 30.0f, highest = 16000.0f, floorDb = -72.0f;
     LiveScope(Processor& p, alfa::ui::AlfaLookAndFeel& l)
         : processor(p)
         , look(l)
     {
-        bands.fill(-90);
+        fast.fill(floorDb);
+        slow.fill(floorDb);
     }
-    void paint(juce::Graphics& g) override
+    // Analyse the latest output; called at the editor's timer rate.
+    void tick()
     {
-        const auto& t = look.theme();
-        surface(g, t, getLocalBounds(), "OUTPUT");
-        alfa::ui::visuals::badge(g, juce::Rectangle<float>(static_cast<float>(getWidth() - 132), 5, 120, 18),
-                                 "CH 1 / FFT 2048", t.mod);
-        auto area = getLocalBounds().reduced(16, 12).withTrimmedTop(24);
-        auto spectrumArea = area.removeFromBottom(area.getHeight() / 3);
         std::array<float, 2048> samples{};
-        const auto captureCursor = processor.waveformCursor.load(std::memory_order_relaxed) % samples.size();
+        const auto start = processor.waveformCursor.load(std::memory_order_relaxed) % samples.size();
         for (size_t i = 0; i < samples.size(); ++i)
-            samples[i] = processor.waveformSnapshot[(captureCursor + i) % samples.size()].load(
-                std::memory_order_relaxed);
-        alfa::ui::visuals::waveform(g, area.toFloat(), t, samples, t.mod, false);
+            samples[i] = processor.waveformSnapshot[(start + i) % samples.size()].load(std::memory_order_relaxed);
         std::array<float, 4096> data{};
         std::copy(samples.begin(), samples.end(), data.begin());
         window.multiplyWithWindowingTable(data.data(), 2048);
         fft.performFrequencyOnlyForwardTransform(data.data());
-        alfa::ui::visuals::logSpectrum(data, 2048, static_cast<float>(processor.getSampleRate()), bands);
-        alfa::ui::visuals::spectrum(g, spectrumArea.reduced(0, 3).toFloat(), t, bands);
+        rate = static_cast<float>(processor.getSampleRate() > 0 ? processor.getSampleRate() : 48000.0);
+        const auto seed = !seeded;
+        seeded = true;
+        const auto bin = rate / 2048.0f;
+        for (size_t k = 0; k < bandCount; ++k)
+        {
+            const auto low = frequency(static_cast<float>(k)), high = frequency(static_cast<float>(k) + 1.0f);
+            float peak = 0;
+            if (high - low < bin)
+            {
+                // Narrower than one bin: interpolate between the two nearest bins.
+                const auto position = juce::jlimit(1.0f, 1022.0f, 0.5f * (low + high) / bin);
+                const auto i = static_cast<size_t>(position);
+                const auto f = position - static_cast<float>(i);
+                peak = data[i] * (1 - f) + data[i + 1] * f;
+            }
+            else
+                for (auto i = static_cast<size_t>(std::ceil(low / bin)); i <= static_cast<size_t>(high / bin) && i < 1024; ++i)
+                    peak = juce::jmax(peak, data[i]);
+            const auto db = juce::jmax(floorDb, juce::Decibels::gainToDecibels(peak / 512.0f, floorDb));
+            fast[k] = seed ? db : fast[k] + 0.5f * (db - fast[k]);
+            slow[k] = seed ? db : slow[k] + 0.07f * (db - slow[k]);
+        }
+        repaint();
+    }
+    void paint(juce::Graphics& g) override
+    {
+        const auto& t = look.theme();
+        alfa::ui::visuals::panel(g, t, getLocalBounds(), "Sound",
+                                 "output spectrum, and where its recent change is heading", t.accent);
+        auto inner = getLocalBounds().reduced(10).withTrimmedTop(26);
+        const auto listWidth = inner.getWidth() > 520 ? 168 : 0;
+        auto list = inner.removeFromRight(listWidth);
+        if (listWidth)
+            inner.removeFromRight(8);
+        const auto screen = inner.toFloat();
+        alfa::ui::visuals::recessed(g, t, screen, 8);
+        auto plot = screen.reduced(30, 10).withTrimmedBottom(14).withTrimmedRight(-20);
+        const auto x = [&](float hz)
+        {
+            return plot.getX() + plot.getWidth() * std::log(hz / lowest) / std::log(highest / lowest);
+        };
+        const auto y = [&](float db)
+        {
+            return plot.getY() + plot.getHeight() * juce::jlimit(0.0f, 1.0f, db / floorDb);
+        };
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(9.5f));
+        for (const auto db : {0.0f, -24.0f, -48.0f})
+        {
+            g.setColour(alfa::ui::visuals::gridColour(t));
+            g.drawHorizontalLine(static_cast<int>(y(db)), plot.getX(), plot.getRight());
+            g.setColour(t.text2.withAlpha(0.7f));
+            g.drawText(juce::String(static_cast<int>(db)), juce::Rectangle<float>(screen.getX() + 2, y(db) - 6, 24, 12),
+                       juce::Justification::centredRight);
+        }
+        for (const auto& [hz, label] : std::initializer_list<std::pair<float, const char*>>{
+                 {50, "50"}, {100, "100"}, {200, "200"}, {500, "500"}, {1000, "1k"}, {2000, "2k"},
+                 {5000, "5k"}, {10000, "10k"}})
+        {
+            g.setColour(alfa::ui::visuals::gridColour(t));
+            g.drawVerticalLine(static_cast<int>(x(hz)), plot.getY(), plot.getBottom());
+            g.setColour(t.text2.withAlpha(0.7f));
+            g.drawText(label, juce::Rectangle<float>(x(hz) - 16, plot.getBottom() + 3, 32, 11),
+                       juce::Justification::centred);
+        }
+        std::vector<juce::Point<float>> now, next;
+        float level = floorDb;
+        for (size_t k = 0; k < bandCount; ++k)
+            level = juce::jmax(level, fast[k]);
+        const auto sounding = level > floorDb + 6;
+        for (size_t k = 0; k < bandCount; ++k)
+        {
+            const auto hz = frequency(static_cast<float>(k) + 0.5f);
+            now.push_back({x(hz), y(fast[k])});
+            next.push_back({x(hz), y(juce::jlimit(floorDb, 0.0f, fast[k] + (fast[k] - slow[k])))});
+        }
+        alfa::ui::visuals::deltaCurves(g, t, now, sounding ? next : std::vector<juce::Point<float>>{},
+                                       plot.getBottom());
+        if (!listWidth)
+            return;
+        // Broad properties of the output, now against half a second ago.
+        auto rows = list.toFloat().reduced(4, 2);
+        g.setColour(t.text2);
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(9.5f, true));
+        g.drawText("MEASURED CHANGE", rows.removeFromTop(16), juce::Justification::centredLeft);
+        rows.removeFromTop(2);
+        const auto measured = measure();
+        const auto rowHeight = juce::jmin(20.0f, rows.getHeight() / static_cast<float>(measured.size()));
+        for (const auto& [name, change, unit, digits] : measured)
+        {
+            auto row = rows.removeFromTop(rowHeight);
+            g.setColour(t.text2);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11));
+            g.drawText(name, row, juce::Justification::centredLeft);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11.5f, true));
+            const auto quiet = !sounding || std::abs(change) < std::pow(10.0, -digits) * 0.5;
+            g.setColour(quiet ? t.text2 : change > 0 ? t.accent : t.mod);
+            g.drawText(!sounding ? juce::String("-")
+                                 : (change > 0 && !quiet ? "+" : "") +
+                                       (digits == 0 ? juce::String(quiet ? 0 : juce::roundToInt(change))
+                                                    : juce::String(quiet ? 0.0 : change, digits)) +
+                                       " " + unit,
+                       row, juce::Justification::centredRight);
+        }
     }
 
 private:
+    struct Property
+    {
+        juce::String name;
+        double change;
+        juce::String unit;
+        int digits;
+    };
     Processor& processor;
     alfa::ui::AlfaLookAndFeel& look;
-    std::array<float, 64> bands{};
+    std::array<float, bandCount> fast{}, slow{};
+    float rate = 48000;
+    bool seeded = false;
     juce::dsp::FFT fft{11};
     juce::dsp::WindowingFunction<float> window{2048, juce::dsp::WindowingFunction<float>::hann};
+    static float frequency(float band)
+    {
+        return lowest * std::pow(highest / lowest, band / static_cast<float>(bandCount));
+    }
+    std::vector<Property> measure() const
+    {
+        const auto summary = [&](const std::array<float, bandCount>& bands)
+        {
+            // Power in the whole spectrum and in three regions, and the power-weighted centre frequency.
+            std::array<double, 5> result{};
+            double weighted = 0;
+            for (size_t k = 0; k < bandCount; ++k)
+            {
+                const auto hz = frequency(static_cast<float>(k) + 0.5f);
+                const auto power = std::pow(10.0, bands[k] / 10.0);
+                result[0] += power;
+                result[hz < 250 ? 1 : hz < 4000 ? 2 : 3] += power;
+                weighted += power * hz;
+            }
+            result[4] = result[0] > 0 ? weighted / result[0] : 0;
+            for (size_t i = 0; i < 4; ++i)
+                result[i] = 10 * std::log10(juce::jmax(1e-12, result[i]));
+            return result;
+        };
+        const auto a = summary(fast), b = summary(slow);
+        return {{"Level", a[0] - b[0], "dB", 1},
+                {"Centroid", a[4] - b[4], "Hz", 0},
+                {"Lows < 250 Hz", a[1] - b[1], "dB", 1},
+                {"Mids", a[2] - b[2], "dB", 1},
+                {"Highs > 4 kHz", a[3] - b[3], "dB", 1}};
+    }
 };
+// Input and output peaks as two thin horizontal bars, left over right channel.
 class StereoMeter final : public juce::Component
 {
 public:
@@ -440,21 +651,83 @@ public:
     void paint(juce::Graphics& g) override
     {
         const auto& t = look.theme();
-        auto area = getLocalBounds().reduced(8);
-        g.setFont(alfa::ui::AlfaLookAndFeel::monoFont(10));
+        auto area = getLocalBounds().toFloat();
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(9.5f, true));
+        const auto rowHeight = area.getHeight() / 2;
         for (int pair = 0; pair < 2; ++pair)
         {
-            auto bar = area.removeFromLeft(area.getWidth() / (2 - pair)).reduced(4, 0);
+            auto row = area.removeFromTop(rowHeight);
             g.setColour(t.text2);
-            g.drawText(pair == 0 ? "IN" : "OUT", bar.removeFromTop(16), juce::Justification::centred);
+            g.drawText(pair == 0 ? "IN" : "OUT", row.removeFromLeft(26), juce::Justification::centredLeft);
             const auto& peaks = pair == 0 ? processor.inputPeak : processor.outputPeak;
-            alfa::ui::visuals::meter(g, bar.toFloat(), t, peaks[0].load(), peaks[1].load(),
-                                     pair == 0 ? t.mod : t.accent);
+            for (int channel = 0; channel < 2; ++channel)
+            {
+                const auto bar = row.withHeight(3).withY(row.getCentreY() - 3.5f + 4.0f * static_cast<float>(channel));
+                g.setColour(alfa::ui::visuals::screenColour(t));
+                g.fillRoundedRectangle(bar, 1.5f);
+                const auto peak = peaks[static_cast<size_t>(channel)].load();
+                const auto fraction = levelFraction(peak);
+                g.setColour(juce::Decibels::gainToDecibels(peak, -60.0f) > -1 ? t.warn
+                                                                                 : alfa::ui::visuals::nowColour(t));
+                g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * fraction), 1.5f);
+            }
         }
     }
 
 private:
     Processor& processor;
+    alfa::ui::AlfaLookAndFeel& look;
+};
+// The on-screen keyboard: soft ivory and graphite keys, played keys in the accent.
+class KeyboardView final : public juce::MidiKeyboardComponent
+{
+public:
+    KeyboardView(juce::MidiKeyboardState& keys, alfa::ui::AlfaLookAndFeel& l)
+        : juce::MidiKeyboardComponent(keys, horizontalKeyboard)
+        , look(l)
+    {
+        setScrollButtonsVisible(false);
+    }
+    void paint(juce::Graphics& g) override
+    {
+        const auto& t = look.theme();
+        g.setColour(alfa::ui::visuals::screenColour(t));
+        g.fillRoundedRectangle(getLocalBounds().toFloat(), 6);
+        juce::MidiKeyboardComponent::paint(g);
+    }
+    void drawWhiteNote(int, juce::Graphics& g, juce::Rectangle<float> area, bool isDown, bool isOver,
+                       juce::Colour, juce::Colour) override
+    {
+        const auto& t = look.theme();
+        const auto light = alfa::ui::visuals::isLight(t);
+        auto key = area.reduced(0.75f, 0).withTrimmedTop(1);
+        auto colour = isDown ? t.accent : light ? juce::Colour(0xfffdfcfa) : juce::Colour(0xffe6e2d9);
+        if (isOver && !isDown)
+            colour = colour.darker(0.06f);
+        g.setGradientFill(juce::ColourGradient(colour, key.getX(), key.getY(), colour.darker(0.07f), key.getX(),
+                                               key.getBottom(), false));
+        g.fillRoundedRectangle(key, 3);
+        g.setColour(juce::Colours::black.withAlpha(light ? 0.16f : 0.25f));
+        g.drawRoundedRectangle(key, 3, 0.75f);
+    }
+    void drawBlackNote(int, juce::Graphics& g, juce::Rectangle<float> area, bool isDown, bool isOver,
+                       juce::Colour) override
+    {
+        const auto& t = look.theme();
+        auto key = area.withTrimmedTop(1).reduced(0.5f, 0);
+        auto colour = isDown ? t.accent.darker(0.15f) : juce::Colour(0xff1d1f24);
+        if (isOver && !isDown)
+            colour = colour.brighter(0.15f);
+        g.setColour(juce::Colours::black.withAlpha(0.3f));
+        g.fillRoundedRectangle(key.translated(0, 1.5f), 2.5f);
+        g.setGradientFill(juce::ColourGradient(colour.brighter(0.25f), key.getX(), key.getY(), colour, key.getX(),
+                                               key.getBottom(), false));
+        g.fillRoundedRectangle(key, 2.5f);
+        g.setColour(juce::Colours::white.withAlpha(isDown ? 0.2f : 0.08f));
+        g.fillRoundedRectangle(key.reduced(2.0f, 0).removeFromBottom(4).translated(0, -2), 1.5f);
+    }
+
+private:
     alfa::ui::AlfaLookAndFeel& look;
 };
 class ExplorationPad final : public juce::Component
@@ -533,77 +806,280 @@ private:
     alfa::ui::AlfaLookAndFeel& look;
 };
 // Ranked, signed list: which bottom parameters one control reaches and how strongly.
-class InfluenceView final : public juce::Component
+// What the focused control reaches, as controls a person can hold: parameters that differ only by voice
+// share one row, and rows that differ only by an index (partial 1, 2, 3 ...) share one profile drawn as
+// bars over that index. A row is a bipolar fader; a profile is drawn by dragging across it. Weights are
+// the linear sensitivity through the authored matrices (parameter units per unit of the control).
+class InfluenceView final : public juce::Component, public juce::SettableTooltipClient
 {
 public:
-    struct Entry
+    struct Member
     {
-        juce::String label;
+        size_t parameter = 0;
         double weight = 0;
         bool locked = false;
+    };
+    struct Group
+    {
+        juce::String name, unit;
+        int voices = 1;
+        std::vector<int> indices;                 // one per column; -1 when the row has no index
+        std::vector<std::vector<Member>> columns; // the parameters of each column, one per voice
     };
     explicit InfluenceView(alfa::ui::AlfaLookAndFeel& l)
         : look(l)
     {
+        setTooltip("Drag a fader, or draw across a profile, to change how strongly this control moves "
+                   "those parameters. Every voice moves together and keeps its own offset.");
     }
-    void setEntries(juce::String heading, std::vector<Entry> list, int reached)
+    void setGroups(juce::String control, std::vector<Group> list, int reached)
     {
-        title = std::move(heading);
-        entries = std::move(list);
+        if (dragging >= 0)
+            return;
+        title = std::move(control);
+        groups = std::move(list);
         reachedCount = reached;
+        limits.clear();
+        for (const auto& group : groups)
+        {
+            double largest = 0;
+            for (size_t c = 0; c < group.columns.size(); ++c)
+                largest = juce::jmax(largest, std::abs(mean(group, c)));
+            limits.push_back(niceCeiling(juce::jmax(1e-9, largest * 1.5)));
+        }
+        scroll = juce::jlimit(0, juce::jmax(0, static_cast<int>(groups.size()) - 1), scroll);
         repaint();
     }
+    // Final edits as (parameter, new weight) pairs, sent when a drag ends.
+    std::function<void(const std::vector<std::pair<size_t, double>>&)> onEdit;
+
     void paint(juce::Graphics& g) override
     {
         const auto& t = look.theme();
-        auto r = getLocalBounds();
+        auto r = getLocalBounds().toFloat();
+        rowAreas.clear();
+        auto head = r.removeFromTop(22);
         g.setColour(t.text);
         g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(13, true));
-        g.drawText(title, r.removeFromTop(22), juce::Justification::centredLeft);
+        const auto titleWidth = juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), title) + 12;
+        g.drawText(title, head.removeFromLeft(titleWidth), juce::Justification::centredLeft);
         g.setColour(t.text2);
         g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11));
-        g.drawText(entries.empty() ? juce::String("No mapped parameters: this control reaches nothing yet.")
-                                   : "Reaches " + juce::String(reachedCount) +
-                                         " parameters. Linear weight through the authored matrices, "
-                                         "before range clamps. Amber +, blue -.",
-                   r.removeFromTop(18), juce::Justification::centredLeft);
-        r.removeFromTop(6);
-        double scale = 1e-12;
-        for (const auto& e : entries)
-            scale = juce::jmax(scale, std::abs(e.weight));
-        const auto rowHeight = 20;
-        for (const auto& e : entries)
+        g.drawText(groups.empty() ? juce::String("reaches nothing yet")
+                                  : "reaches " + juce::String(reachedCount) + " parameters in " +
+                                        juce::String(static_cast<int>(groups.size())) +
+                                        (groups.size() == 1 ? " group" : " groups"),
+                   head, juce::Justification::centredLeft, true);
+        r.removeFromTop(8);
+        for (size_t i = static_cast<size_t>(scroll); i < groups.size(); ++i)
         {
-            if (r.getHeight() < rowHeight)
+            const auto height = groups[i].columns.size() > 1 ? 64.0f : 34.0f;
+            if (r.getHeight() < height)
                 break;
-            auto row = r.removeFromTop(rowHeight);
-            auto labelArea = row.removeFromLeft(juce::jmin(260, row.getWidth() * 2 / 5));
-            auto valueArea = row.removeFromRight(70);
-            g.setColour(e.locked ? t.text2.withAlpha(0.6f) : t.text);
-            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(12));
-            g.drawText((e.locked ? "[locked] " : "") + e.label, labelArea.reduced(2, 0),
-                       juce::Justification::centredLeft, true);
-            auto bar = row.reduced(8, 6).toFloat();
-            g.setColour(t.line);
-            g.fillRect(bar.getCentreX() - 0.5f, bar.getY() - 3, 1.0f, bar.getHeight() + 6);
-            const auto half = bar.getWidth() * 0.5f * static_cast<float>(std::abs(e.weight) / scale);
-            g.setColour(weightColour(t, e.weight).withAlpha(e.locked ? 0.35f : 0.9f));
-            g.fillRoundedRectangle(
-                e.weight < 0
-                    ? juce::Rectangle<float>(bar.getCentreX() - half, bar.getY(), half, bar.getHeight())
-                    : juce::Rectangle<float>(bar.getCentreX(), bar.getY(), half, bar.getHeight()),
-                2);
-            g.setColour(t.text2);
-            g.setFont(alfa::ui::AlfaLookAndFeel::monoFont(11));
-            g.drawText(compactText(e.weight), valueArea, juce::Justification::centredRight);
+            auto row = r.removeFromTop(height);
+            rowAreas.push_back({i, row});
+            paintGroup(g, t, i, row.reduced(0, 3));
         }
+        if (scroll > 0 || rowAreas.size() < groups.size() - static_cast<size_t>(scroll))
+        {
+            g.setColour(t.text2);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(10));
+            g.drawText(juce::String(scroll + 1) + "-" + juce::String(scroll + static_cast<int>(rowAreas.size())) +
+                           " of " + juce::String(static_cast<int>(groups.size())) + ", scroll for more",
+                       getLocalBounds().toFloat().removeFromBottom(14), juce::Justification::centredRight);
+        }
+    }
+    void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& wheel) override
+    {
+        scroll = juce::jlimit(0, juce::jmax(0, static_cast<int>(groups.size()) - 1),
+                              scroll + (wheel.deltaY < 0 ? 1 : -1));
+        repaint();
+    }
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        dragging = -1;
+        for (const auto& [index, area] : rowAreas)
+            if (control(index, area).expanded(0, 4).contains(e.position))
+                dragging = static_cast<int>(index);
+        pending.clear();
+        if (dragging >= 0)
+            mouseDrag(e);
+    }
+    void mouseDrag(const juce::MouseEvent& e) override
+    {
+        if (dragging < 0)
+            return;
+        const auto index = static_cast<size_t>(dragging);
+        juce::Rectangle<float> area;
+        for (const auto& [i, row] : rowAreas)
+            if (i == index)
+                area = control(i, row);
+        const auto& group = groups[index];
+        const auto limit = limits[index];
+        if (group.columns.size() > 1)
+        {
+            // Draw across the profile: the column under the mouse takes the height of the mouse.
+            const auto width = area.getWidth() / static_cast<float>(group.columns.size());
+            const auto column = juce::jlimit(0, static_cast<int>(group.columns.size()) - 1,
+                                             static_cast<int>((e.position.x - area.getX()) / width));
+            const auto value = juce::jlimit(-1.0f, 1.0f, (area.getCentreY() - e.position.y) / (area.getHeight() * 0.5f));
+            pending[static_cast<size_t>(column)] = snap(value * limit, limit);
+        }
+        else
+        {
+            const auto value = juce::jlimit(-1.0f, 1.0f, (e.position.x - area.getCentreX()) / (area.getWidth() * 0.5f));
+            pending[0] = snap(value * limit, limit);
+        }
+        repaint();
+    }
+    void mouseUp(const juce::MouseEvent&) override
+    {
+        if (dragging < 0)
+            return;
+        const auto& group = groups[static_cast<size_t>(dragging)];
+        std::vector<std::pair<size_t, double>> edits;
+        for (const auto& [column, value] : pending)
+        {
+            // Every voice moves by the same amount, so voices keep their offsets from each other.
+            const auto shift = value - mean(group, column);
+            for (const auto& member : group.columns[column])
+                edits.push_back({member.parameter, member.weight + shift});
+        }
+        dragging = -1;
+        pending.clear();
+        if (!edits.empty() && onEdit)
+            onEdit(edits);
+        repaint();
+    }
+    void mouseDoubleClick(const juce::MouseEvent& e) override
+    {
+        // Double-click a row to remove what this control does to it.
+        for (const auto& [index, area] : rowAreas)
+            if (area.contains(e.position) && onEdit)
+            {
+                std::vector<std::pair<size_t, double>> edits;
+                for (const auto& column : groups[index].columns)
+                    for (const auto& member : column)
+                        edits.push_back({member.parameter, 0.0});
+                dragging = -1;
+                pending.clear();
+                onEdit(edits);
+                return;
+            }
     }
 
 private:
     alfa::ui::AlfaLookAndFeel& look;
     juce::String title;
-    std::vector<Entry> entries;
-    int reachedCount = 0;
+    std::vector<Group> groups;
+    std::vector<double> limits;
+    std::vector<std::pair<size_t, juce::Rectangle<float>>> rowAreas;
+    std::map<size_t, double> pending;
+    int reachedCount = 0, scroll = 0, dragging = -1;
+
+    static double mean(const Group& group, size_t column)
+    {
+        double sum = 0;
+        for (const auto& member : group.columns[column])
+            sum += member.weight;
+        return group.columns[column].empty() ? 0.0 : sum / static_cast<double>(group.columns[column].size());
+    }
+    static double niceCeiling(double value)
+    {
+        const auto power = std::pow(10.0, std::floor(std::log10(value)));
+        for (const auto step : {1.0, 2.0, 5.0, 10.0})
+            if (value <= step * power)
+                return step * power;
+        return 10 * power;
+    }
+    // Values snap to a hundredth of the fader's reach, and to zero near the centre.
+    static double snap(double value, double limit)
+    {
+        const auto step = limit / 100.0;
+        const auto snapped = std::round(value / step) * step;
+        return std::abs(snapped) < step * 1.5 ? 0.0 : snapped;
+    }
+    double shown(size_t index, size_t column) const
+    {
+        if (dragging == static_cast<int>(index))
+            if (const auto it = pending.find(column); it != pending.end())
+                return it->second;
+        return mean(groups[index], column);
+    }
+    static juce::Rectangle<float> control(size_t, juce::Rectangle<float> row)
+    {
+        return row.reduced(0, 3).withTrimmedLeft(row.getWidth() * 0.36f).withTrimmedRight(70);
+    }
+    void paintGroup(juce::Graphics& g, const alfa::ui::Theme& t, size_t index, juce::Rectangle<float> row)
+    {
+        const auto& group = groups[index];
+        const auto limit = limits[index];
+        const auto profile = group.columns.size() > 1;
+        bool locked = true;
+        for (const auto& column : group.columns)
+            for (const auto& member : column)
+                locked = locked && member.locked;
+        auto label = row.withWidth(row.getWidth() * 0.36f).reduced(2, 0);
+        auto lines = profile ? label.withHeight(34.0f) : label;
+        g.setColour(locked ? t.text2 : t.text);
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(12, true));
+        g.drawText(group.name, lines.removeFromTop(lines.getHeight() * 0.55f), juce::Justification::bottomLeft, true);
+        juce::StringArray detail;
+        if (group.voices > 1)
+            detail.add(juce::String(group.voices) + " voices");
+        if (profile)
+            detail.add("index " + juce::String(group.indices.front()) + juce::String(juce::CharPointer_UTF8("\xe2\x80\x93")) +
+                       juce::String(group.indices.back()));
+        if (group.unit.isNotEmpty() && group.unit != "linear")
+            detail.add(group.unit);
+        if (locked)
+            detail.add("locked");
+        g.setColour(t.text2);
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(10.5f));
+        g.drawText(detail.joinIntoString("  ·  "), lines, juce::Justification::topLeft, true);
+        const auto area = control(index, row.expanded(0, 3));
+        // Value: the single weight, or the strongest of the profile.
+        double value = 0;
+        for (size_t c = 0; c < group.columns.size(); ++c)
+            if (std::abs(shown(index, c)) > std::abs(value))
+                value = shown(index, c);
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11.5f, true));
+        g.setColour(std::abs(value) < 1e-12 ? t.text2 : weightColour(t, value));
+        g.drawText((value > 0 ? "+" : "") + compactText(value),
+                   juce::Rectangle<float>(area.getRight() + 6, area.getY(), 64, area.getHeight()),
+                   juce::Justification::centredRight);
+        const auto alpha = locked ? 0.35f : 0.95f;
+        if (!profile)
+        {
+            const auto groove = area.withSizeKeepingCentre(area.getWidth(), 4);
+            alfa::ui::visuals::recessed(g, t, groove, 2);
+            g.setColour(t.text2.withAlpha(0.5f));
+            g.fillRect(juce::Rectangle<float>(1, 10).withCentre(groove.getCentre()));
+            const auto x = groove.getCentreX() + static_cast<float>(value / limit) * groove.getWidth() * 0.5f;
+            g.setColour(weightColour(t, value).withAlpha(alpha));
+            g.fillRoundedRectangle(juce::Rectangle<float>(juce::jmin(x, groove.getCentreX()), groove.getY(),
+                                                          std::abs(x - groove.getCentreX()), 4),
+                                   2);
+            alfa::ui::visuals::raised(g, t, juce::Rectangle<float>(12, 12).withCentre({x, groove.getCentreY()}), 6);
+            return;
+        }
+        alfa::ui::visuals::recessed(g, t, area, 5);
+        g.setColour(alfa::ui::visuals::gridColour(t).withMultipliedAlpha(2.5f));
+        g.drawHorizontalLine(static_cast<int>(area.getCentreY()), area.getX() + 4, area.getRight() - 4);
+        const auto width = area.getWidth() / static_cast<float>(group.columns.size());
+        for (size_t c = 0; c < group.columns.size(); ++c)
+        {
+            const auto v = static_cast<float>(shown(index, c) / limit);
+            const auto bar = juce::Rectangle<float>(area.getX() + width * static_cast<float>(c), area.getY(), width,
+                                                    area.getHeight())
+                                 .reduced(juce::jmin(3.0f, width * 0.2f), 4);
+            const auto height = bar.getHeight() * 0.5f * std::abs(v);
+            g.setColour(weightColour(t, v).withAlpha(std::abs(v) < 1e-6f ? 0.0f : alpha));
+            g.fillRoundedRectangle(v > 0 ? bar.withTop(bar.getCentreY() - height).withBottom(bar.getCentreY())
+                                         : bar.withTop(bar.getCentreY()).withHeight(height),
+                                   1.5f);
+        }
+    }
 };
 // Heat map of one control layer matrix: destinations as rows, sources as columns.
 class MatrixView final : public juce::Component, public juce::SettableTooltipClient
@@ -864,17 +1340,18 @@ public:
             g.drawText("LAYER " + juce::String(static_cast<int>(l)) + "   " +
                            juce::String(static_cast<int>(layer.values.size())) + " controls",
                        row.removeFromTop(16), juce::Justification::centredLeft, false);
-            auto bars = row.reduced(0, 4).toFloat();
+            auto bars = row.reduced(0, 4).withTrimmedBottom(6).toFloat();
             const auto count = std::max<size_t>(1, layer.values.size());
-            const auto w = bars.getWidth() / static_cast<float>(count);
+            // Slim wells, at most 22 px apart, so a short layer does not turn into empty boxes.
+            const auto w = juce::jmin(22.0f, bars.getWidth() / static_cast<float>(count));
             for (size_t i = 0; i < layer.values.size(); ++i)
             {
                 auto box = juce::Rectangle<float>(bars.getX() + w * static_cast<float>(i), bars.getY(), w,
                                                   bars.getHeight())
-                               .reduced(juce::jmin(2.0f, w * 0.15f), 0);
+                               .reduced(juce::jmax(1.0f, w * 0.25f), 0);
                 const auto onPage = static_cast<int>(l) == pageLayer && static_cast<int>(i) >= pageBegin &&
                                     static_cast<int>(i) < pageEnd;
-                g.setColour(onPage ? t.accent.withAlpha(0.10f) : t.bg);
+                g.setColour(alfa::ui::visuals::screenColour(t));
                 g.fillRoundedRectangle(box, 2);
                 const auto low = i < layer.ranges.size() ? layer.ranges[i][0] : -1.0;
                 const auto high = i < layer.ranges.size() ? layer.ranges[i][1] : 1.0;
@@ -895,8 +1372,8 @@ public:
                 }
                 if (onPage)
                 {
-                    g.setColour(t.accent.withAlpha(0.6f));
-                    g.drawRoundedRectangle(box, 2, 1);
+                    g.setColour(t.accent.withAlpha(0.8f));
+                    g.fillRoundedRectangle(box.withY(box.getBottom() + 3).withHeight(2), 1);
                 }
             }
         }
@@ -932,7 +1409,9 @@ private:
         const auto count = static_cast<int>(layers[static_cast<size_t>(l)].values.size());
         if (count == 0 || getWidth() <= 0)
             return {-1, -1};
-        return {l, juce::jlimit(0, count - 1, p.x * count / getWidth())};
+        const auto w = juce::jmin(22.0f, static_cast<float>(getWidth()) / static_cast<float>(count));
+        const auto index = static_cast<int>(static_cast<float>(p.x) / w);
+        return index < count ? std::pair<int, int>{l, index} : std::pair<int, int>{-1, -1};
     }
 };
 // Used / budget per resource of the compiled sound, as bars. Budgets come from the sound (or its
@@ -988,6 +1467,35 @@ public:
             g.setColour(t.text2);
             g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(12));
             g.drawFittedText("No capacity report for this sound", r, juce::Justification::topLeft, 2);
+            return;
+        }
+        // When the budget is exactly what the loaded sound uses, bars would always be full: show counts.
+        const auto exact = std::all_of(entries.begin(), entries.end(), [](const Entry& e)
+                                       { return std::abs(e.used - e.budget) < 0.5; });
+        if (exact)
+        {
+            const auto columns = r.getWidth() > 300 ? 3 : 2;
+            const auto cellWidth = r.getWidth() / columns;
+            for (size_t i = 0; i < entries.size(); ++i)
+            {
+                const auto cell = juce::Rectangle<int>(r.getX() + static_cast<int>(i % static_cast<size_t>(columns)) * cellWidth,
+                                                       r.getY() + static_cast<int>(i / static_cast<size_t>(columns)) * 54,
+                                                       cellWidth - 8, 46)
+                                      .toFloat();
+                alfa::ui::visuals::recessed(g, t, cell, 6);
+                g.setColour(t.text);
+                g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(17, true));
+                g.drawText(compactText(entries[i].used), cell.reduced(10, 4).withTrimmedBottom(16),
+                           juce::Justification::bottomLeft);
+                g.setColour(t.text2);
+                g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(10.5f));
+                g.drawText(entries[i].name, cell.reduced(10, 5).withTrimmedTop(24), juce::Justification::topLeft);
+            }
+            r.removeFromTop(static_cast<int>((entries.size() + static_cast<size_t>(columns) - 1) / static_cast<size_t>(columns)) * 54);
+            g.setColour(t.text2);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11.5f));
+            g.drawFittedText(caption + " The sound uses exactly its budget.", r.withTrimmedTop(6),
+                             juce::Justification::topLeft, 3);
             return;
         }
         const auto rowHeight = juce::jlimit(20, 26, (r.getHeight() - 40) / static_cast<int>(entries.size()));

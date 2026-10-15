@@ -28,6 +28,8 @@ public:
     //   "dimmed" (bool): control needs a bigger model than the one loaded
     static inline const juce::Identifier modDepthProperty{"modDepth"};
     static inline const juce::Identifier dimmedProperty{"dimmed"};
+    //   "look" (String): "tab", "segment" or empty for a raised button
+    static inline const juce::Identifier lookProperty{"look"};
 
     void drawRotarySlider(juce::Graphics&, int x, int y, int width, int height, float sliderPos,
                           float rotaryStartAngle, float rotaryEndAngle, juce::Slider&) override;

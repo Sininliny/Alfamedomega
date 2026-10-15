@@ -43,6 +43,9 @@ public:
     void setBase(const std::vector<double>& parameters);
     // Parameters the runtime used (empty when not known yet) and instance output peaks.
     void setLive(const std::vector<float>& parameters, const std::vector<float>& levels, double sampleRate);
+    // Parameters where the current movement is taking the sound (empty: no heading). Drawn dashed, with
+    // the band between now and the heading amber where it rises and blue where it falls.
+    void setHeading(const std::vector<double>& parameters);
     // Called once per finished drag with (local parameter, new authored value) pairs.
     std::function<void(const std::vector<std::pair<size_t, double>>&)> onEdit;
     std::function<void()> onOpen;
@@ -60,12 +63,14 @@ private:
     std::vector<Instance> instances_;
     std::vector<std::array<double, 2>> ranges_;
     std::vector<juce::String> names_;
-    std::vector<std::vector<double>> base_, live_;
+    std::vector<std::vector<double>> base_, live_, next_;
     std::vector<float> levels_;
     double sampleRate_ = 48000;
     std::vector<std::pair<size_t, double>> pending_; // drag preview
-    int handle_ = -1;
+    int handle_ = -1, hover_ = -1;
     juce::Rectangle<float> plot() const;
+    juce::Rectangle<float> curveArea() const;
+    double nextValue(size_t instance, size_t parameter) const;
     double value(size_t instance, size_t parameter, bool authored = false) const;
     double clampParameter(size_t parameter, double v) const;
     std::vector<juce::Point<float>> handles() const;
@@ -92,7 +97,16 @@ struct ControlProjection
     double firstShare = 0, secondShare = 0;
     // The parameters each direction moves most, signed, strongest first.
     std::vector<std::pair<juce::String, double>> firstMoves, secondMoves;
+    // J Dx: parameter change per unit of u, rows are parameters. rowScale is Dp^-1 (0 for locked or
+    // unbounded parameters), so rowScale * perUnit is J~.
+    std::vector<std::vector<double>> perUnit;
+    std::vector<double> rowScale;
 };
+// Parameters after a step du (in units of each control's half range) from `parameters`, linear through
+// the authored matrices and clamped to each parameter's range.
+std::vector<double> stepParameters(const ControlProjection&, const std::vector<double>& parameters,
+                                   const std::vector<double>& du,
+                                   const std::vector<std::array<double, 2>>& ranges);
 ControlProjection projectControls(const nlohmann::json& sound, size_t layer,
                                   const std::function<juce::String(size_t)>& parameterName);
 
@@ -104,11 +118,16 @@ public:
     const ControlProjection& projection() const noexcept { return projection_; }
     // Current control values of the projected layer; adds to the trail when it moved.
     void setValues(const std::vector<double>& values);
+    // Parameters at the current values (live when known) and their ranges, for the sensitivity shading.
+    void setParameters(const std::vector<double>& parameters, std::vector<std::array<double, 2>> ranges);
+    // The current step in control units (half ranges), drawn as an arrow from the current point.
+    void setHeading(std::vector<double> du);
     void setMarkers(std::vector<std::pair<juce::String, std::vector<double>>> markers);
     // New layer values while dragging (final = mouse released).
     std::function<void(const std::vector<double>&, bool final)> onMove;
     juce::Point<float> positionOf(const std::vector<double>& values) const;
     void paint(juce::Graphics&) override;
+    void resized() override;
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;
@@ -117,14 +136,44 @@ private:
     alfa::ui::AlfaLookAndFeel& look_;
     ControlProjection projection_;
     juce::StringArray names_;
-    std::vector<double> values_, dragStart_;
+    std::vector<double> values_, dragStart_, parameters_, heading_;
+    std::vector<std::array<double, 2>> ranges_;
     juce::Point<float> dragOrigin_;
     std::vector<juce::Point<float>> trail_;
     std::vector<std::pair<juce::String, std::vector<double>>> markers_;
+    juce::Image field_;
+    juce::Colour fieldColour_;
+    bool fieldDirty_ = true;
     double extentX_ = 1, extentY_ = 1;
     bool dragging_ = false;
     juce::Rectangle<float> pad() const;
     juce::Point<float> toScreen(juce::Point<double>) const;
+    juce::Point<double> planeOf(const std::vector<double>& values) const;
     std::vector<double> valuesAt(juce::Point<float> to) const;
+    void computeField();
+};
+// What the current heading changes, one row per primitive group: the parameter of the group that moves
+// most, as a signed fraction of its range (amber up, blue down).
+class HeadingView final : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    struct Row
+    {
+        juce::String group, parameter;
+        juce::Colour colour;
+        double change = 0; // fraction of the parameter's range
+    };
+    explicit HeadingView(alfa::ui::AlfaLookAndFeel&);
+    void setRows(std::vector<Row> rows, juce::String source);
+    // Height that shows `rows` groups without empty space at this width.
+    static int preferredHeight(size_t rows, int width);
+    void paint(juce::Graphics&) override;
+    void mouseMove(const juce::MouseEvent&) override;
+
+private:
+    alfa::ui::AlfaLookAndFeel& look_;
+    std::vector<Row> rows_;
+    juce::String source_;
+    std::vector<juce::Rectangle<float>> rowAreas_;
 };
 } // namespace alfa::tensorhost
