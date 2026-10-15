@@ -73,7 +73,9 @@ The WAV model has independent original-canonical and rendered-instance heads plu
 presence heads. Regression ignores padding; training-only statistics normalize the
 targets. Validation uses those same statistics and never changes model parameters.
 The runtime learner preserves ordered events, resets neural context at sequence
-boundaries and supports all seven explicitly encoded input categories.
+boundaries and supports all seven explicitly encoded input categories. Its value targets are
+normalised per coordinate over present training entries (scale at least 1), and the
+statistics are folded into the values head after training, so exports stay in raw units.
 
 An optional WAV manifest section adds a **real native DSP reconstruction loss**:
 

@@ -81,7 +81,10 @@ def train_runtime_sequences(model: RuntimeTensorModel, sequences, *, ontology: s
 
     Each sequence contains (seven-category feature dict, Representation) pairs.
     Epochs begin with zero neural context and backpropagate through all events;
-    DSP execution is never part of this learned recurrence.
+    DSP execution is never part of this learned recurrence. Value targets are
+    normalised per coordinate (present entries of the training sequences, scale
+    at least 1) and the reported losses are in those units; the returned model
+    has the normalisation folded into its values head, so it predicts raw units.
     """
     if not sequences or any(not seq for seq in sequences) or steps <= 0 or not math.isfinite(learning_rate) or not learning_rate > 0 or not math.isfinite(mask_weight) or not mask_weight > 0:
         raise ValueError("Nonempty sequences and explicit positive training settings required")
@@ -110,6 +113,19 @@ def train_runtime_sequences(model: RuntimeTensorModel, sequences, *, ontology: s
     ModelBudget(estimate, available_ram_bytes, 0, 0)
     data = prepare(sequences)
     held = prepare(validation) if validation else None
+    # Per-coordinate target normalisation over present training targets, as learner.py does:
+    # parameters in large units (Hz, ms) would otherwise dominate the loss and small ones (gains)
+    # barely train. Training regresses normalised targets; afterwards mean and scale are folded
+    # into the values head, so inference and the exported weights produce raw tensor units.
+    values = torch.cat([target for sequence in data for _, target, _ in sequence])
+    masks = torch.cat([mask for sequence in data for _, _, mask in sequence])
+    present = masks.sum(dim=0).clamp_min(1)
+    mean = (values * masks).sum(dim=0) / present
+    scale = (((values - mean).square() * masks).sum(dim=0) / present).sqrt().clamp_min(1)
+    def normalise(source):
+        return [[(encoded, (target - mean) / scale, mask) for encoded, target, mask in sequence] for sequence in source]
+    data = normalise(data)
+    held = normalise(held) if held else None
     def objective(source, selected):
         loss = torch.tensor(0., device=selected)
         for sequence in source:
@@ -131,7 +147,11 @@ def train_runtime_sequences(model: RuntimeTensorModel, sequences, *, ontology: s
                       estimate=estimate, identity=contract, session=session, device=device,
                       available_vram_bytes=available_vram_bytes, gradient_clip=gradient_clip,
                       validation=(lambda selected: objective(held, selected)) if held else None)
+    with torch.no_grad():
+        model.values.weight.mul_(scale[:, None])
+        model.values.bias.mul_(scale).add_(mean)
     report["ontology"] = ontology
+    report["target_normalization"] = {"mean": mean.tolist(), "scale": scale.tolist(), "folded_into": "values"}
     return report
 
 

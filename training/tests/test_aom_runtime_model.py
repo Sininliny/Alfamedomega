@@ -38,6 +38,30 @@ class RuntimeModelTests(unittest.TestCase):
             self.assertEqual(len(document["golden"]), 2)
             self.assertAlmostEqual(document["golden"][0]["values"][0], .2, delta=.04)
 
+    def test_large_unit_targets_do_not_drown_small_ones(self):
+        # A frequency in Hz next to a gain: without target normalisation the Hz error dominates
+        # the loss and the gain is barely learned.
+        torch.manual_seed(5)
+        torch.set_num_threads(1)
+        widths = {name: 0 for name in INPUT_CATEGORIES}
+        widths["midi"] = 1
+        schemas = {"parameters": TensorSchema(("parameter",), (2,))}
+        model = RuntimeTensorModel(widths, 8, schemas)
+        def event(value):
+            inputs = {name: [] for name in INPUT_CATEGORIES}
+            inputs["midi"] = [value]
+            target = Representation("test", (("parameters", Tensor(("parameter",), (2,), (2000. + 1000. * value, value)),),))
+            return inputs, target
+        sequences = [[event(.2), event(.8), event(.2)], [event(.8), event(.2)]]
+        result = train_runtime_sequences(model, sequences, ontology="test", steps=150,
+                                         learning_rate=.03, mask_weight=.1, available_ram_bytes=10000000)
+        self.assertEqual(result["target_normalization"]["folded_into"], "values")
+        for value in (.2, .8):
+            prediction, _ = model.infer(event(value)[0], torch.zeros(1, 8), mask_threshold=.5)
+            hz, gain = prediction["parameters"]["values"]
+            self.assertAlmostEqual(hz, 2000. + 1000. * value, delta=60.)
+            self.assertAlmostEqual(gain, value, delta=.06)
+
 
 if __name__ == "__main__":
     unittest.main()
