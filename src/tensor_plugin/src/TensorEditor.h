@@ -17,9 +17,11 @@ public:
     void paintOverChildren(juce::Graphics&) override;
     void resized() override;
     void reportDeviceStatus(const juce::String& text, bool error) { showStatus(text, error); }
-    void snapshotView(int index)
+    void snapshotView(int index, int row = 0)
     {
         chooseView(index);
+        if (row > 0)
+            primitives_.selectRow(row);
         timerCallback();
     }
 
@@ -91,7 +93,7 @@ private:
     bool refreshing_ = false, routeFormOpen_ = false, expertOpen_ = false, indexOrder_ = false,
          ranked_ = false;
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> settingsLabels_;
-    juce::Rectangle<int> workspace_, highArea_, influenceArea_, xyArea_, scopeArea_, primitiveArea_,
+    juce::Rectangle<int> flowArea_, workspace_, highArea_, influenceArea_, xyArea_, scopeArea_, primitiveArea_,
         parameterArea_, routingArea_, layerArea_, tensorArea_, selectionArea_, capacityArea_, settingsArea_,
         footer_, elementsArea_, spaceArea_, layerStateArea_, headingArea_, modesArea_, snapshotArea_,
         presetArea_, brandArea_;
@@ -112,6 +114,7 @@ private:
     double motionTime_ = -1e9;
     void updateHeading(const std::vector<double>& parameters);
     void paintFingerprints(juce::Graphics&);
+    void rebuildGroupParameters(const Group&, const std::map<size_t, std::pair<double, juce::String>>& strongest);
     void timerCallback() override;
     int getNumRows() override;
     void paintListBoxItem(int, juce::Graphics&, int, int, bool) override;
@@ -129,6 +132,9 @@ private:
     std::vector<size_t> controlOrder() const;
     void focusControl(int index);
     void refreshInfluence();
+    void applyInfluence(const std::vector<std::pair<size_t, double>>& edits);
+    // Vector entering the last matrix from the focused control, and the focused control's composed weights.
+    std::vector<double> influenceInput_, influenceWeights_;
     void selectMatrixCell(int source, int destination);
     void stepSound(int direction);
     void syncMode();

@@ -117,10 +117,20 @@ The default view is about the sound, not the graph.
 
 ### Controls
 
-The deep control surface: the layer's knobs on top, then **Influence** (what the focused control
-reaches, as before), **Layer state** (every layer's live values as bars, the page outlined; click a
-bar to focus that control) and **XY** (two explicit axes). User names, learned order and influence
-are unchanged from the 2026-10-01 design.
+The deep control surface: the layer's knobs on top (with the same per-group squares as Play), then
+**Influence**, **Layer state** (every layer's live values as slim bars, the page marked; click a bar
+to focus that control) and **XY** (two explicit axes).
+
+**Influence** shows what the focused control reaches as controls a person can hold (Sinin,
+2026-10-15: the old list of 58 "Voice n partial k frequency offset" rows was too engineering).
+Parameter names are split into a pattern, a voice and an index ("Voice 3 partial 5 frequency
+offset" is voice 3, index 5 of "Partial frequency offset"). Parameters that differ only by voice
+share one row; rows that differ only by an index share one profile drawn as bars over that index.
+A row is a bipolar fader, a profile is drawn by dragging across it, and a double-click removes what
+the control does to that row. Every voice moves by the same amount, so voices keep their offsets.
+An edit to the composed weight `w_d` changes the last matrix by the smallest amount that gives the
+new weight: row `d` moves by `Δw · v / |v|²`, where `v` is the vector that reaches the last matrix
+from the focused control (for a control in the last layer, exactly its own coefficient).
 
 ### Knobs, faders and values
 
@@ -138,12 +148,15 @@ The editor uses them only while blocks keep arriving; otherwise it shows authore
 
 ### Instances
 
-- **Instances:** one card per instance with its family stripe, title, primitive, activation and a
-  live output level.
-- **Parameters:** the selected instance's parameters. Time and frequency sliders are logarithmic,
-  so short attacks and low frequencies are reachable (the minimum stays the authored minimum).
-- **Relationships:** routing and modulation entries that target the selected instance, each with its
-  source colour, a diverging weight bar and an editable coefficient. "Add relationship" opens the form only when
+- **Instances:** one card per primitive with its voices together ("Partials ×8"): family stripe,
+  title, primitive, activation and one live level per voice. "All parameters" keeps the raw list.
+- **Parameters:** one row per parameter of the selected primitive, named without the voice. A row
+  moves every voice by the same amount (clamped to the range), so voices keep their offsets; rows
+  whose voices differ say so. Time and frequency sliders are logarithmic, so short attacks and low
+  frequencies are reachable (the minimum stays the authored minimum).
+- **Relationships:** routing and modulation entries that target the selected primitive. Entries
+  that differ only by voice share one row ("Pitch Hz > Partial 3 frequency offset ×8"), each with its
+  source colour, a diverging weight bar and an editable coefficient that moves all of them together. "Add relationship" opens the form only when
   asked, so it no longer overlaps the list.
 
 ### Tensor

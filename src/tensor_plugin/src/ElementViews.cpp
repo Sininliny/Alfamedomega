@@ -1186,7 +1186,30 @@ void SoundSpace::paint(juce::Graphics& g)
         return std::hypot(projection_.first[i] / extentX_, projection_.second[i] / extentY_);
     };
     std::sort(strongest.begin(), strongest.end(), [&](size_t a, size_t b) { return length(a) > length(b); });
+    // The current point and the heading arrow keep their space free of names.
     std::vector<juce::Rectangle<float>> placed;
+    juce::Point<float> headingTip, headingStart;
+    bool hasHeading = false;
+    if (values_.size() == projection_.first.size())
+    {
+        const auto p = positionOf(values_);
+        placed.push_back(juce::Rectangle<float>(28, 28).withCentre(p));
+        juce::Point<double> h;
+        for (size_t i = 0; i < heading_.size() && i < projection_.first.size(); ++i)
+        {
+            h.x += projection_.first[i] * heading_[i];
+            h.y += projection_.second[i] * heading_[i];
+        }
+        const auto direction = toScreen(planeOf(values_) + h) - p;
+        if (const auto distance = direction.getDistanceFromOrigin(); distance > 0.5f)
+        {
+            hasHeading = true;
+            headingStart = p + direction / distance * 9.0f;
+            headingTip = p + direction / distance * 38.0f;
+            for (float f = 0.3f; f <= 1.0f; f += 0.35f)
+                placed.push_back(juce::Rectangle<float>(14, 14).withCentre(p + (headingTip - p) * f));
+        }
+    }
     for (size_t k = 0; k < strongest.size() && k < 8; ++k)
     {
         const auto i = strongest[k];
@@ -1236,27 +1259,20 @@ void SoundSpace::paint(juce::Graphics& g)
     {
         const auto p = positionOf(values_);
         // Where the sound is heading: the current step, shown as a direction in the plane.
-        juce::Point<double> h;
-        for (size_t i = 0; i < heading_.size() && i < projection_.first.size(); ++i)
+        if (hasHeading)
         {
-            h.x += projection_.first[i] * heading_[i];
-            h.y += projection_.second[i] * heading_[i];
-        }
-        const auto direction = toScreen(planeOf(values_) + h) - p;
-        if (const auto distance = direction.getDistanceFromOrigin(); distance > 0.5f)
-        {
-            const auto tip = p + direction / distance * 38.0f;
+            const auto unit = (headingTip - p) / headingTip.getDistanceFrom(p);
+            const auto across = juce::Point<float>(-unit.y, unit.x);
             juce::Path dashed;
             const float pattern[] = {3.0f, 3.0f};
             juce::Path line;
-            line.startNewSubPath(p + direction / distance * 9.0f);
-            line.lineTo(tip - direction / distance * 6.0f);
+            line.startNewSubPath(headingStart);
+            line.lineTo(headingTip - unit * 6.0f);
             juce::PathStrokeType(1.5f).createDashedStroke(dashed, line, pattern, 2);
             g.setColour(t.accent);
             g.fillPath(dashed);
             juce::Path head;
-            head.addTriangle(tip, tip - direction / distance * 8.0f + direction.rotatedAboutOrigin(1.5708f) / distance * 4.0f,
-                             tip - direction / distance * 8.0f - direction.rotatedAboutOrigin(1.5708f) / distance * 4.0f);
+            head.addTriangle(headingTip, headingTip - unit * 8.0f + across * 4.0f, headingTip - unit * 8.0f - across * 4.0f);
             g.fillPath(head);
         }
         g.setColour(now.withAlpha(0.1f));
@@ -1332,7 +1348,7 @@ void HeadingView::paint(juce::Graphics& g)
     const auto& t = look_.theme();
     alfa::ui::visuals::panel(g, t, getLocalBounds(), "Heading", source_, t.accent);
     rowAreas_.clear();
-    auto area = getLocalBounds().toFloat().reduced(14, 0).withTrimmedTop(36).withTrimmedBottom(10);
+    auto area = getLocalBounds().toFloat().reduced(14, 0).withTrimmedTop(34).withTrimmedBottom(8);
     if (rows_.empty())
     {
         g.setColour(t.text2);
@@ -1341,9 +1357,9 @@ void HeadingView::paint(juce::Graphics& g)
                          juce::Justification::centred, 2);
         return;
     }
-    const auto columns = rows_.size() > 6 && area.getWidth() > 300 ? 2 : 1;
+    const auto columns = rows_.size() > 6 && area.getWidth() > 520 ? 2 : 1;
     const auto perColumn = static_cast<int>((rows_.size() + static_cast<size_t>(columns) - 1) / static_cast<size_t>(columns));
-    const auto rowHeight = juce::jmin(18.0f, area.getHeight() / static_cast<float>(juce::jmax(1, perColumn)));
+    const auto rowHeight = juce::jmin(22.0f, area.getHeight() / static_cast<float>(juce::jmax(1, perColumn)));
     double largest = 0.05;
     for (const auto& row : rows_)
         largest = juce::jmax(largest, std::abs(row.change));
@@ -1357,12 +1373,20 @@ void HeadingView::paint(juce::Graphics& g)
             continue;
         rowAreas_.push_back(r);
         const auto& row = rows_[i];
-        auto label = r.removeFromLeft(r.getWidth() * 0.38f);
+        auto label = r.removeFromLeft(r.getWidth() * 0.5f);
         g.setColour(row.colour);
-        g.fillEllipse(juce::Rectangle<float>(4, 4).withCentre({label.getX() + 2, label.getCentreY()}));
+        g.fillEllipse(juce::Rectangle<float>(5, 5).withCentre({label.getX() + 2.5f, label.getCentreY()}));
+        label.removeFromLeft(11);
+        // The group, then the parameter of the group that moves most.
+        const auto groupFont = alfa::ui::AlfaLookAndFeel::labelFont(11.5f, true);
+        const auto groupWidth = juce::jmin(label.getWidth(), juce::GlyphArrangement::getStringWidth(groupFont, row.group) + 8);
+        g.setColour(t.text);
+        g.setFont(groupFont);
+        g.drawText(row.group, label.removeFromLeft(groupWidth), juce::Justification::centredLeft, true);
         g.setColour(t.text2);
-        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11));
-        g.drawText(row.group, label.withTrimmedLeft(9), juce::Justification::centredLeft, true);
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(10.5f));
+        g.drawText(std::abs(row.change) < 0.005 ? juce::String("unchanged") : namePattern(row.parameter).withoutVoice,
+                   label, juce::Justification::centredLeft, true);
         auto value = r.removeFromRight(42);
         const auto quiet = std::abs(row.change) < 0.005;
         g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11, true));
@@ -1383,6 +1407,14 @@ void HeadingView::paint(juce::Graphics& g)
             g.fillRoundedRectangle(bar, 2);
         }
     }
+}
+
+int HeadingView::preferredHeight(size_t rows, int width)
+{
+    const auto shown = juce::jlimit<size_t>(1, 12, rows);
+    const auto columns = shown > 6 && width - 28 > 520 ? 2 : 1;
+    const auto perColumn = static_cast<int>((shown + static_cast<size_t>(columns) - 1) / static_cast<size_t>(columns));
+    return 34 + perColumn * 22 + 10;
 }
 
 void HeadingView::mouseMove(const juce::MouseEvent& event)

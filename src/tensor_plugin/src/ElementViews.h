@@ -165,6 +165,8 @@ public:
     };
     explicit HeadingView(alfa::ui::AlfaLookAndFeel&);
     void setRows(std::vector<Row> rows, juce::String source);
+    // Height that shows `rows` groups without empty space at this width.
+    static int preferredHeight(size_t rows, int width);
     void paint(juce::Graphics&) override;
     void mouseMove(const juce::MouseEvent&) override;
 
