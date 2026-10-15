@@ -592,3 +592,101 @@ TEST_CASE("Tensor kernels reject an unrepresentable clock interval without state
     REQUIRE(oscillator.scalar(parameters) == 0);
     REQUIRE(oscillator.state[0] == 0.25f);
 }
+
+TEST_CASE("Tensor additive partials at or above Nyquist are muted instead of aliasing", "[tensor][universe]")
+{
+    // 30 kHz at 48 kHz would fold back to an inharmonic 18 kHz; it must not sound at all.
+    Harness above("osc.additive", 1);
+    const std::array<float, 2> ultrasonic{30000, 1};
+    double energy = 0;
+    for (int i = 0; i < 480; ++i)
+        energy += std::abs(above.scalar(ultrasonic));
+    REQUIRE(energy == 0);
+    // Exactly at Nyquist is muted too; a negative frequency is judged by its magnitude.
+    Harness edge("osc.additive", 2);
+    const std::array<float, 4> limits{24000, 1, -30000, 1};
+    for (int i = 0; i < 16; ++i)
+        REQUIRE(edge.scalar(limits) == 0);
+    // Inside the top tenth of the band a partial fades: halfway through it is at half gain.
+    Harness fade("osc.additive", 1);
+    const std::array<float, 2> nearLimit{22800, 1};
+    fade.state[0] = 0.25f;
+    REQUIRE(fade.scalar(nearLimit) == Catch::Approx(0.5).margin(0.0001));
+    // Partials below 0.45 of the update rate are untouched.
+    Harness audible("osc.additive", 1);
+    const std::array<float, 2> tone{21000, 1};
+    audible.state[0] = 0.25f;
+    REQUIRE(audible.scalar(tone) == Catch::Approx(1).margin(0.00001));
+    // The limit follows the primitive's own clock, not the host rate: 2 kHz is above the
+    // Nyquist of a 1 kHz update rate.
+    Harness slow("osc.additive", 1, 1000);
+    const std::array<float, 2> fast{2000, 1};
+    slow.state[0] = 0.25f;
+    REQUIRE(slow.scalar(fast) == 0);
+}
+
+TEST_CASE("Tensor additive sine stays within float resolution of the exact sine", "[tensor][universe]")
+{
+    // Float runtimes evaluate partials with a polynomial instead of libm; it must match sin(2 pi x)
+    // across the whole cycle, including both quarter-cycle folds.
+    Harness additive("osc.additive", 1);
+    const std::array<float, 2> partial{0, 1};
+    double worst = 0;
+    for (int i = 0; i < 4096; ++i)
+    {
+        const float phase = static_cast<float>(i) / 4096.0f;
+        additive.state[0] = phase;
+        const double exact = std::sin(2 * std::numbers::pi * static_cast<double>(phase));
+        worst = std::max(worst, std::abs(additive.scalar(partial) - exact));
+    }
+    REQUIRE(worst < 2e-7);
+}
+
+TEST_CASE("Tensor fused advance equals readout followed by transition", "[tensor][universe]")
+{
+    // The runtime calls advance(), validated once; the separate callbacks stay the reference.
+    struct Case
+    {
+        const char* id;
+        std::size_t count;
+        std::vector<float> parameters;
+        std::vector<float> asset;
+    };
+    const std::vector<Case> cases{
+        {"osc.additive", 3, {220, 0.5f, 660, 0.25f, 23000, 1}, {}},
+        {"time.modulated_delay", 64, {0.0006f, 0.0002f, 0.7f, 0.5f, 0.4f}, {}},
+        {"time.fdn_reverb", 8, {0.5f}, {3, 5}},
+        {"time.diffusion_allpass", 5, {0.5f}, {}},
+        {"time.convolution_fir", 3, {}, {1, 0.5f, -0.25f, 0.125f}},
+        {"filter.biquad_lowpass", 4, {1200, 0.7f}, {}},
+    };
+    for (const auto& c : cases)
+    {
+        CAPTURE(c.id);
+        Harness reference(c.id, c.count), fused(c.id, c.count);
+        if (!c.asset.empty())
+        {
+            reference.setAssets({c.asset});
+            fused.setAssets({c.asset});
+        }
+        REQUIRE(fused.primitive.advance != nullptr);
+        for (int i = 0; i < 200; ++i)
+        {
+            const std::array<float, 1> input{static_cast<float>(std::sin(0.37 * i))};
+            const auto expected = reference.tick(c.parameters, input);
+            Step s;
+            s.sampleRate = fused.rate;
+            s.clock = {1, 0};
+            s.activation = 1;
+            s.localState = fused.state;
+            s.parameters = c.parameters;
+            s.inputs.audio.values = input;
+            s.assets = fused.assets;
+            s.finiteVerified = true;
+            fused.primitive.advance(s, fused.output, fused.next);
+            fused.state.swap(fused.next);
+            REQUIRE(std::equal(expected.begin(), expected.end(), fused.output.begin()));
+            REQUIRE(reference.state == fused.state);
+        }
+    }
+}

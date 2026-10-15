@@ -330,6 +330,8 @@ TEST_CASE("Compatible parameter edits with a runtime compiler retain held notes 
                                             .getChildFile("training/aom/testdata/runtime_gru.json")
                                             .loadFileAsString()
                                             .toStdString());
+    sound["performance"] =
+        nlohmann::json{{"midi_layout", "voice_indexed"}, {"voice_capacity", 1}, {"release_seconds", 0.0}};
     Processor edited, reference;
     edited.prepareToPlay(48000, 32);
     reference.prepareToPlay(48000, 32);

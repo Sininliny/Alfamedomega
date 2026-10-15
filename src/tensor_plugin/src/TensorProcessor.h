@@ -115,7 +115,10 @@ private:
     std::array<uint64_t, 128> releaseSamples_{};
     void clearPerformance() noexcept;
     bool indexedEvent(const juce::MidiMessage&) noexcept;
-    float gainCurrent_ = 1;
+    // Per-sample smoothed copies of the host controls, so automation and bypass do not click.
+    // The first block after prepareToPlay snaps them to their targets instead of ramping.
+    float gainCurrent_ = 1, inputGainCurrent_ = 1, mixCurrent_ = 1, bypassCurrent_ = 0;
+    bool snapControls_ = true;
     std::atomic<float>* inputGain_ = nullptr;
     std::atomic<float>* outputGain_ = nullptr;
     std::atomic<float>* mix_ = nullptr;

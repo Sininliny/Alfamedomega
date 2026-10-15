@@ -1,8 +1,10 @@
 #include "alfa/tensor/Runtime.h"
 
 #include "alfa/tensor/Compiler.h"
+#include "detail/Finite.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <limits>
@@ -53,7 +55,7 @@ bool insertSparseIndex(std::span<Node> nodes, std::size_t& used, std::size_t& ro
 template <typename Scalar>
 bool finite(std::span<const Scalar> values) noexcept
 {
-    return std::all_of(values.begin(), values.end(), [](Scalar value) { return std::isfinite(value); });
+    return detail::allFinite<Scalar>(values);
 }
 
 template <typename Scalar>
@@ -403,12 +405,18 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
     std::copy(committedOutput_.begin(), committedOutput_.end(), candidateOutput_.begin());
     std::copy(configuration_.parameters.values.begin(), configuration_.parameters.values.end(),
               effectiveParameters_.begin());
+    // Every projection and audio binding reads one of eight source views; resolve them once.
+    static_assert(static_cast<std::size_t>(SourceKind::OutputHistory) == 7);
+    std::array<SourceValuesT<Scalar>, 8> sourceTable{};
+    for (std::size_t kind = 0; kind < sourceTable.size(); ++kind)
+        sourceTable[kind] =
+            sourceValues<Scalar>(static_cast<SourceKind>(kind), inputs, state_, committedOutput_);
     for (const auto& projection : configuration_.projections)
     {
         if (!configuration_.parameterLocks.empty() &&
             configuration_.parameterLocks[projection.parameterElement] != 0)
             continue;
-        const auto sources = sourceValues<Scalar>(projection.source, inputs, state_, committedOutput_);
+        const auto& sources = sourceTable[static_cast<std::size_t>(projection.source)];
         if (projection.sourceElement >= sources.values.size() ||
             (!sources.presence.empty() && sources.presence[projection.sourceElement] == 0))
         {
@@ -427,6 +435,17 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
         std::fill(output_.begin(), output_.end(), 0.0f);
         return false;
     }
+    // One step record reused for every due primitive: only the per-instance fields change, so
+    // the input views and weight tensors are not copied once per primitive per sample.
+    StepT<Scalar> step{};
+    step.sample = sample_;
+    step.sampleRate = sampleRate_;
+    step.inputs = inputs;
+    step.sharedState = state_;
+    step.stateAllocation = states_;
+    step.routing = view<Scalar>(configuration_.routing);
+    step.modulation = view<Scalar>(configuration_.modulation);
+    step.finiteVerified = true;
     for (const auto& update : schedule_)
     {
         const auto index = update.instance;
@@ -445,14 +464,14 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
             continue;
         }
         const auto local = states_[index];
-        auto operandInputs = inputs;
+        step.inputs.audio = inputs.audio;
         if (instance.inputChannels > 0)
         {
             auto& operands = audioOperands_[index];
             std::fill(operands.begin(), operands.end(), 0.0f);
             for (const auto& binding : instance.audioBindings)
             {
-                const auto source = sourceValues<Scalar>(binding.source, inputs, state_, committedOutput_);
+                const auto& source = sourceTable[static_cast<std::size_t>(binding.source)];
                 if (binding.sourceElement >= source.values.size() ||
                     (!source.presence.empty() && source.presence[binding.sourceElement] == 0))
                 {
@@ -472,24 +491,19 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
                 std::fill(output_.begin(), output_.end(), 0.0f);
                 return false;
             }
-            operandInputs.audio = {audioAxes_, audioShapes_[index], operands, {}};
+            step.inputs.audio = {audioAxes_, audioShapes_[index], operands, {}};
         }
-        const StepT<Scalar> step{sample_,
-                                 sampleRate_,
-                                 update.clock,
-                                 configuration_.activation.values[instance.activationIndex],
-                                 operandInputs,
-                                 state_,
-                                 std::span<const Scalar>(state_).subspan(local.offset, local.count),
-                                 states_,
-                                 std::span<const Scalar>(effectiveParameters_)
-                                     .subspan(instance.parameters.offset, instance.parameters.count),
-                                 view<Scalar>(configuration_.routing),
-                                 view<Scalar>(configuration_.modulation),
-                                 assets_[index],
-                                 std::span<Scalar>(scratch_).first(instance.primitive->scratchElements)};
+        step.clock = update.clock;
+        step.activation = configuration_.activation.values[instance.activationIndex];
+        step.localState = std::span<const Scalar>(state_).subspan(local.offset, local.count);
+        step.parameters = std::span<const Scalar>(effectiveParameters_)
+                              .subspan(instance.parameters.offset, instance.parameters.count);
+        step.assets = assets_[index];
+        step.scratch = std::span<Scalar>(scratch_).first(instance.primitive->scratchElements);
         std::fill(output.begin(), output.end(), 0.0f);
-        instance.primitive->readout(step, output);
+        const bool fused = instance.primitive->advance && !instance.primitive->sparseTransition;
+        if (!fused)
+            instance.primitive->readout(step, output);
         if (instance.primitive->sparseTransition)
         {
             const auto scratch = journalSlices_[index];
@@ -520,8 +534,13 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
         {
             const auto scratch = denseScratch_[index];
             auto next = std::span<Scalar>(next_).subspan(scratch.offset, scratch.count);
-            std::copy(step.localState.begin(), step.localState.end(), next.begin());
-            instance.primitive->transition(step, next);
+            if (fused) // advance starts by holding S_t in next itself
+                instance.primitive->advance(step, output, next);
+            else
+            {
+                std::copy(step.localState.begin(), step.localState.end(), next.begin());
+                instance.primitive->transition(step, next);
+            }
             if (!finite<Scalar>(next))
             {
                 std::fill(output_.begin(), output_.end(), Scalar{0});

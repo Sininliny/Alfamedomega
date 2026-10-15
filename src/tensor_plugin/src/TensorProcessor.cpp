@@ -260,7 +260,7 @@ void Processor::prepareToPlay(double rate, int)
     clock_ = 0;
     clearPerformance();
     keyRead_.store(keyWrite_.load(std::memory_order_acquire), std::memory_order_release);
-    gainCurrent_ = juce::Decibels::decibelsToGain(outputGain_->load());
+    snapControls_ = true;
     samples.store(0);
     waveformWrite_ = 0;
     waveformCursor.store(0);
@@ -553,7 +553,25 @@ void Processor::processBlockImpl(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     const auto inputGain = juce::Decibels::decibelsToGain(inputGain_->load());
     const auto dryWet = mix_->load();
     const auto bypass = forceBypass || bypass_->load() > 0.5f;
+    const auto bypassTarget = bypass ? 1.0f : 0.0f;
+    if (snapControls_)
+    {
+        gainCurrent_ = targetGain;
+        inputGainCurrent_ = inputGain;
+        mixCurrent_ = dryWet;
+        bypassCurrent_ = bypassTarget;
+        snapControls_ = false;
+    }
+    // 5 ms time constant: fast enough to follow automation, slow enough to remove zipper noise.
     const auto gainSlew = static_cast<float>(1.0 - std::exp(-1.0 / (rate_.load() * 0.005)));
+    // A float one-pole stalls about 7e-6 short of its target; snap within 1e-5 (-100 dB) so a
+    // settled control is exact again.
+    const auto glide = [gainSlew](float& current, float target) noexcept
+    {
+        current += (target - current) * gainSlew;
+        if (std::abs(target - current) <= 1e-5f * std::max(1.0f, std::abs(target)))
+            current = target;
+    };
     std::array<float, 2> inPeak{}, outPeak{};
     for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
     {
@@ -578,7 +596,8 @@ void Processor::processBlockImpl(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
             buffer.setSample(channel, sample, 0);
         alfa::tensor::Inputs input;
-        std::array<float, 2> audio{dry[0] * inputGain, dry[1] * inputGain};
+        glide(inputGainCurrent_, inputGain);
+        std::array<float, 2> audio{dry[0] * inputGainCurrent_, dry[1] * inputGainCurrent_};
         if (selectedMode != 0)
             input.audio = {audioAxes_, stereoShape_, audio, {}};
         auto alignedDry = dry;
@@ -611,13 +630,19 @@ void Processor::processBlockImpl(juce::AudioBuffer<float>& buffer, juce::MidiBuf
             else
                 failures.fetch_add(1, std::memory_order_relaxed);
         }
-        gainCurrent_ += (targetGain - gainCurrent_) * gainSlew;
+        glide(gainCurrent_, targetGain);
+        glide(mixCurrent_, dryWet);
+        glide(bypassCurrent_, bypassTarget);
         for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
         {
             const auto wet = buffer.getSample(channel, sample);
             const auto original =
                 selectedMode == 0 ? 0.0f : alignedDry[static_cast<size_t>(juce::jmin(channel, 1))];
-            auto value = bypass ? original : (dryWet * wet + (1 - dryWet) * original) * gainCurrent_;
+            const auto processed = (mixCurrent_ * wet + (1 - mixCurrent_) * original) * gainCurrent_;
+            // Bypass crossfades to the latency-aligned dry signal instead of switching abruptly.
+            auto value = bypassCurrent_ >= 1   ? original
+                         : bypassCurrent_ <= 0 ? processed
+                                               : bypassCurrent_ * original + (1 - bypassCurrent_) * processed;
             if (!std::isfinite(value))
             {
                 value = 0;
