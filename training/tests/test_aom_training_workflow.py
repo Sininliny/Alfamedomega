@@ -246,7 +246,7 @@ def test_native_producer_preflight_training_and_reconstruction(tmp_path):
     from training.aom.reconstruction import NativeReconstruction, _NativeLoss
     document = json.loads(manifest.read_text())
     document["reconstruction"] = {"weight": .1, "primary_weight": 2., "secondary_weight": 1.,
-                                   "finite_difference_step": .0001, "parameter_indices": [3]}
+                                   "finite_difference_step": .0001, "parameter_indices": [3], "metric": "waveform"}
     from training.aom.contracts import TensorSchema
     schema_objects = {k: TensorSchema(tuple(v["axes"]), tuple(v["padded_shape"])) for k, v in schemas.items()}
     objective = NativeReconstruction(manifest, document, schema_objects, available_ram_bytes=10_000_000)
@@ -256,6 +256,16 @@ def test_native_producer_preflight_training_and_reconstruction(tmp_path):
     expected_gradient = 2 * (.2 - .15) / (.35 ** 2 + .15 ** 2)
     assert values.grad[0, 3].item() == pytest.approx(expected_gradient, rel=.003)
     assert values.grad[0, :3].tolist() == [0., 0., 0.]
+    # The default phase-free spectral metric also points back toward the reference amplitude.
+    spectral = NativeReconstruction(manifest, {**document, "reconstruction": {**document["reconstruction"], "metric": "spectral"}},
+                                    schema_objects, available_ram_bytes=10_000_000)
+    values = torch.tensor([[200., .35, 400., .2]], requires_grad=True)
+    _NativeLoss.apply(values, spectral, spectral.samples[False], 0, True).backward()
+    assert values.grad[0, 3].item() > 0 and values.grad[0, :3].tolist() == [0., 0., 0.]
+    # Outside its bound a clamped render has no slope; the barrier still pulls the value back in.
+    outside = torch.tensor([[1., 1., 200., .35, 400., .7]], requires_grad=True)
+    spectral(outside, outside, torch.tensor([0])).backward()
+    assert outside.grad[0, 5].item() > 0
     document["learn"]["steps"] = 3
     atomic_json(manifest, document)
     checkpoint = tmp_path / "native-checkpoint.pt"

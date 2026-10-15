@@ -36,7 +36,8 @@ if(ALFA_BUILD_TESTS)
             add_test(NAME alfa_aom_training_learners
                 COMMAND ${ALFA_AOM_TRAINING_PYTHON} -m unittest
                     training.tests.test_aom_learner training.tests.test_aom_local_learning
-                    training.tests.test_aom_runtime_model training.tests.test_aom_tiers -v)
+                    training.tests.test_aom_runtime_model training.tests.test_aom_tiers
+                    training.tests.test_aom_perceptual -v)
             set_tests_properties(alfa_aom_training_learners PROPERTIES
                 WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
                 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")

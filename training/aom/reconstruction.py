@@ -3,6 +3,12 @@
 Topology/presence remain supervised by the tensor heads. Native finite differences
 train declared unlocked parameters against original and instance renderings; this
 does not pretend the discrete compiler is differentiable.
+
+The default metric is the phase-free `perceptual.spectral_distance`; "waveform"
+keeps the earlier power-normalised sample MSE. Values arrive in the learner's
+training coordinates (log for declared log parameters) and the difference step is
+taken there. Renders clamp to the declared bounds; a quadratic barrier outside the
+bounds keeps a gradient pointing back in, where clamping alone would give zero.
 """
 import copy
 import json
@@ -35,6 +41,16 @@ class NativeReconstruction:
         self.bounds = manifest["reconstruction_bounds"]["parameters"]
         if len(self.bounds) != self.width or any(not math.isfinite(v) for pair in self.bounds for v in pair) or any(len(pair) != 2 or pair[0] > pair[1] for pair in self.bounds):
             raise ValueError("Explicit finite parameter bounds matching native templates required")
+        self.config = {"metric": "spectral", "bound_weight": 1.0, **self.config}
+        if self.config["metric"] not in ("spectral", "waveform"):
+            raise ValueError("Reconstruction metric must be spectral or waveform")
+        if not math.isfinite(self.config["bound_weight"]) or self.config["bound_weight"] < 0:
+            raise ValueError("Reconstruction bound_weight must be finite and nonnegative")
+        from .perceptual import Coordinates
+        self.coordinates = Coordinates.from_manifest(manifest, self.width)
+        low, high = self.coordinates.u_bounds()
+        self.u_low, self.u_high = (torch.tensor(v[self.indices], dtype=torch.float64) for v in (low, high))
+        self.u_span = torch.tensor(np.where(high > low, high - low, 1.0)[self.indices], dtype=torch.float64)
         self.cancelled = cancelled or (lambda: False)
         self.samples = {False: [], True: []}
         self.estimated_peak_bytes = 0
@@ -62,7 +78,7 @@ class NativeReconstruction:
                     raise ValueError("Non-silent finite native reference required for reconstruction loss")
                 sample["heads"].append((document, expected, power))
             self.samples[row.get("split", "train") == "validation"].append(sample)
-        self.identity = fingerprint({"config": self.config, "bounds": self.bounds,
+        self.identity = fingerprint({"config": self.config, "bounds": self.bounds, "coordinates": list(self.coordinates.kinds),
             "samples": [{"render": s["render"], "heads": [d for d, _, _ in s["heads"]]} for split in self.samples.values() for s in split]})
 
     def check_cancel(self):
@@ -74,21 +90,35 @@ class NativeReconstruction:
             self.check_cancel()
         template, expected, power = sample["heads"][head]
         document = copy.deepcopy(template)
+        parameters = self.coordinates.to_p(values)
         for index in self.indices:
             low, high = self.bounds[index]
-            document["tensors"]["parameters"]["values"][index] = float(np.clip(values[index], low, high))
+            document["tensors"]["parameters"]["values"][index] = float(np.clip(parameters[index], low, high))
         with NativeRuntime(document, sample["render"]["sample_rate"]) as runtime:
             actual = runtime.render(frames=sample["render"]["frames"], **sample["inputs"])
         if actual.shape != expected.shape or not np.isfinite(actual).all():
             raise ValueError("Native reconstruction candidate is invalid")
+        if self.config["metric"] == "spectral":
+            from .perceptual import spectral_distance
+            return spectral_distance(actual, expected, sample["render"]["sample_rate"])
         return float(np.mean((actual.astype(np.float64) - expected) ** 2) / power)
+
+    def barrier(self, values):
+        """Quadratic penalty, in bound widths, for selected coordinates outside their bounds."""
+        selected = values[:, self.indices]
+        low, high, span = (t.to(device=values.device, dtype=values.dtype) for t in (self.u_low, self.u_high, self.u_span))
+        outside = torch.relu(selected - high) + torch.relu(low - selected)
+        return (outside / span).square().sum(-1).mean()
 
     def __call__(self, primary, secondary, indices, *, validation=False):
         samples = [self.samples[validation][i] for i in indices.tolist()]
         p = primary[:, self.offset:self.offset + self.width]
         r = secondary[:, self.offset:self.offset + self.width]
-        return (self.config["primary_weight"] * _NativeLoss.apply(p, self, samples, 0, not validation)
+        loss = (self.config["primary_weight"] * _NativeLoss.apply(p, self, samples, 0, not validation)
                 + self.config["secondary_weight"] * _NativeLoss.apply(r, self, samples, 1, not validation))
+        if self.config["bound_weight"]:
+            loss = loss + self.config["bound_weight"] * (self.barrier(p) + self.barrier(r))
+        return loss
 
 
 class _NativeLoss(torch.autograd.Function):

@@ -48,6 +48,32 @@ def export_prediction(template: dict, prediction: dict, *, head: str, bounds: di
     return result
 
 
+def training_geometry(path, manifest, schemas):
+    """Declared parameter coordinates and the producer's offline perceptual metric factors."""
+    coordinates = metric = None
+    if "parameters" not in schemas:
+        if manifest.get("parameter_coordinates") or manifest.get("perceptual_metric"):
+            raise ValueError("Parameter coordinates and the perceptual metric need a parameters tensor")
+        return None, None
+    width = math.prod(schemas["parameters"].padded_shape)
+    if manifest.get("parameter_coordinates"):
+        from .perceptual import Coordinates
+        coordinates = Coordinates.from_manifest(manifest, width)
+    config = manifest.get("perceptual_metric")
+    if config:
+        from .perceptual import load_metric
+        from .producer import validate_metric_plan
+        validate_metric_plan(config)
+        metric = {"weight": config["weight"], "rank": config["rank"], "train": {}, "validation": {}}
+        for head, key in (("primary_canonical", "canonical"), ("secondary_rendered_instance", "instance")):
+            for split in ("train", "validation"):
+                rows = [row for row in manifest["examples"] if row.get("split", "train") == split]
+                if any(key not in row.get("metric", {}) for row in rows):
+                    raise ValueError("perceptual_metric requires a metric file for every example and head")
+                metric[split][head] = [load_metric(Path(path).parent / row["metric"][key], width, config["rank"]) for row in rows]
+    return coordinates, metric
+
+
 def train_manifest(path: Path, destination: Path, *, session=None):
     """Stream WAV analysis, retain labels/features, and validate held-out groups."""
     from .dataset import prepare_wav
@@ -66,9 +92,11 @@ def train_manifest(path: Path, destination: Path, *, session=None):
         from .reconstruction import NativeReconstruction
         reconstruction = NativeReconstruction(path, manifest, schemas, available_ram_bytes=allowance, cancelled=session.cancelled)
         allowance -= reconstruction.estimated_peak_bytes
+    coordinates, metric = training_geometry(path, manifest, schemas)
     model, metadata = train(tuple(examples), features, manifest["ontology"], schemas,
                             LearnSpec(**{**manifest["learn"], "available_ram_bytes": allowance}),
-                            session=session, validation=held, reconstruction=reconstruction)
+                            session=session, validation=held, reconstruction=reconstruction,
+                            coordinates=coordinates, metric=metric)
     metadata["analysis"] = manifest["analysis"]
     metadata["dataset"] = audit
     metadata["estimated_peak_training_bytes"] += audit["resident_dataset_estimate_bytes"] + (reconstruction.estimated_peak_bytes if reconstruction else 0)

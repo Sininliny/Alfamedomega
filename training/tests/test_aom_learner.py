@@ -1,4 +1,5 @@
 from dataclasses import replace
+import math
 from pathlib import Path
 import tempfile
 import wave
@@ -7,7 +8,7 @@ import numpy as np
 import torch
 
 from training.aom.analysis import AnalysisProfile, extract, read_wav
-from training.aom.learner import LearnSpec, train, save, load, predict, masked_loss
+from training.aom.learner import LearnSpec, train, save, load, predict, masked_loss, metric_loss
 from training.aom.pipeline import export_prediction, representation
 from training.tests import test_aom_contracts
 
@@ -35,6 +36,43 @@ class LearnerTests(unittest.TestCase):
             save(path, model, metadata)
             restored, meta = load(path)
             self.assertEqual(before, predict(restored, meta, [1, 0], mask_threshold=0.5))
+
+    def test_log_coordinates_and_perceptual_metric_train_and_roundtrip(self):
+        from training.aom.perceptual import Coordinates
+        torch.set_num_threads(1)
+        fixture = self.fixture
+        kinds, bounds = ["linear"] * 12, [[-math.inf, math.inf]] * 12
+        kinds[2], bounds[2] = "log", [0.1, 1.0]
+        coordinates = Coordinates(kinds, bounds)
+        U = np.zeros((12, 2))
+        U[2, 0], U[0, 1] = 1.0, 1.0
+        factor = {"U": U, "S": np.array([3.0, 0.5])}
+        heads = ("primary_canonical", "secondary_rendered_instance")
+        metric = {"weight": 1.0, "rank": 2, "train": {h: [factor, factor] for h in heads}, "validation": {}}
+        second = replace(fixture.example, example_id="render-2", rendered_instance=fixture.canonical)
+        spec = LearnSpec(12, 150, 0.03, 2.0, 1.0, 0.1, 10000000, 7)
+        model, metadata = train((fixture.example, second), [[1, 0], [0, 1]], fixture.canonical.ontology,
+                                fixture.schemas, spec, coordinates=coordinates, metric=metric)
+        self.assertLess(metadata["losses"][-1]["metric"], metadata["losses"][0]["metric"] / 100)
+        self.assertEqual(metadata["parameter_coordinates"], kinds)
+        before = predict(model, metadata, [1, 0], mask_threshold=0.5)
+        self.assertAlmostEqual(before["primary_canonical"]["parameters"]["values"][2], 0.5, delta=0.03)
+        self.assertAlmostEqual(before["secondary_rendered_instance"]["parameters"]["values"][2], 0.8, delta=0.03)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "model.pt"
+            save(path, model, metadata)
+            restored, meta = load(path)
+            self.assertEqual(before, predict(restored, meta, [1, 0], mask_threshold=0.5))
+        with self.assertRaises(ValueError):
+            train((fixture.example,), [[1, 0]], fixture.canonical.ontology, fixture.schemas, spec,
+                  metric={**metric, "train": {h: [] for h in heads}})
+
+    def test_metric_loss_is_the_gauss_newton_quadratic(self):
+        rng = np.random.default_rng(3)
+        delta, U, S = rng.normal(size=(2, 5)), rng.normal(size=(2, 5, 3)), rng.uniform(size=(2, 3))
+        expected = np.mean([d @ u @ np.diag(s ** 2) @ u.T @ d for d, u, s in zip(delta, U, S)])
+        actual = metric_loss(*(torch.tensor(a) for a in (delta, U, S)))
+        self.assertAlmostEqual(float(actual), expected, places=10)
 
     def test_memory_estimate_rejects_before_training(self):
         with self.assertRaises(ValueError):

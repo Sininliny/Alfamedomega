@@ -91,6 +91,8 @@ def prepare_wav(path, *, extract_features=True, cancelled=None):
             raise ValueError("Duplicate example identity")
         identities.add(row["id"])
         files = {k: path.parent / row[k] for k in ("normalized_wav", "canonical_json", "instance_json")}
+        # Offline perceptual metric factors are part of the objective's identity.
+        files.update({"metric_" + head: path.parent / name for head, name in row.get("metric", {}).items()})
         source = {k: file_digest(p) for k, p in files.items()}
         for key in ("canonical_json", "instance_json"):
             resident += files[key].stat().st_size * 8
