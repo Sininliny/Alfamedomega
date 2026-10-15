@@ -66,7 +66,9 @@ claimed by the reference model.
 
 `runtime_model.py` supplies a separate recurrent runtime tensor predictor trained
 on ordered seven-category input events (the seventh is the wave feature knobs). Its neural context is distinct from DSP
-state, and no inference rate is assumed. `export_runtime_model` writes exact
+state, and no inference rate is assumed. Value targets are normalised per coordinate
+during training, like the WAV learner's, and the statistics are folded into the values
+head afterwards, so the model and its export predict raw tensor units. `export_runtime_model` writes exact
 PyTorch GRU weights, explicit inference clock and golden differential vectors for
 C++ execution. `local_learning.py` supplies a separate local pairwise preference
 model and context-dependent measured-importance model. Both have independent
