@@ -204,6 +204,8 @@ def colab_notebook(spec: TrainSpec, script_text: str, drive_dir: str = "alfamedo
                         "differ: " + ", ".join(f"`{Path(x).name}`" for x in inputs) + "\n"))
     cells += [
         code(f"!python alfamedomega_train.py {train}\n"),
+        md("If the runtime disconnects, add `--resume` to the cell above and run it again: training "
+           "continues from the last checkpoint on Drive.\n"),
         code(f"!python alfamedomega_train.py {export}\n"),
         code(f"!cd {_q(run)} && zip -qr export.zip export && ls -la export.zip\n"),
     ]
