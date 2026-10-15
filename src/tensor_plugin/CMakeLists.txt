@@ -27,6 +27,7 @@ if(ALFA_BUILD_TESTS)
         tests/HostTests.cpp tests/PresetStoreTests.cpp tests/FactoryProgramTests.cpp
         tests/ProductHostTests.cpp tests/RealtimeTests.cpp tests/CompositionTests.cpp tests/CompositionPanelTests.cpp
         tests/PrimitiveFragmentTests.cpp tests/ProductSafetyTests.cpp tests/SoundLibraryPanelTests.cpp
+        tests/HostCompatibilityTests.cpp
         LIBRARIES alfa_tensor_plugin_shell)
     target_compile_definitions(alfa_tensor_host_tests PRIVATE ALFA_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
         JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 JUCE_STANDALONE_APPLICATION=1 JUCE_MODAL_LOOPS_PERMITTED=1 JUCE_PLUGINHOST_VST3=1)

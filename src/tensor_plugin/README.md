@@ -67,7 +67,25 @@ Input/output gain, mix, bypass and mode support host automation. Project state
 contains complete sound JSON, automation values and a separate UI tree. Presets
 contain complete editable sound documents, have stable identities/categories and
 use atomic file publication and explicit overwrite handling. The MIDI staging
-buffer is preallocated; oversized blocks are rejected rather than allocating.
+buffer is preallocated; events past it are counted as rejected rather than
+allocating, and the block still renders.
+
+## Host compatibility
+
+- Layouts: mono, stereo, mono-in/stereo-out (the mono input feeds both channels)
+  and disabled input. A mono output averages the sound's two channels.
+- Blocks: output is identical however the host cuts blocks, including empty and
+  one-sample blocks. Only channels the host actually passes are read.
+- MIDI: events stamped outside the block are clamped into it, so a note-off at
+  `numSamples` is not lost. SysEx and other long messages are skipped.
+- Sample rates: factory sounds are tested from 22.05 to 384 kHz. A rate change
+  recompiles the sound without sending parameter gestures to the host; a sound
+  that cannot run at the new rate keeps the previous one and shows a warning.
+- Sessions: parameters this build does not know are ignored, values outside
+  today's range are clamped, and numbers are read independent of the process
+  locale. A session that cannot be restored at all (newer format, unknown
+  primitive) is kept byte for byte and saved back with the project until the
+  user loads or edits a sound, and the editor shows why.
 
 ## Local checks
 

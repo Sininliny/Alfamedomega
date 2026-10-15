@@ -9,7 +9,10 @@
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <locale>
 #include <nlohmann/json.hpp>
+#include <optional>
+#include <sstream>
 #include <stdexcept>
 
 namespace alfa::tensorhost
@@ -35,6 +38,8 @@ juce::String Processor::document() const
 }
 namespace
 {
+// Merged MIDI storage reserved before the first callback, so the audio thread never allocates.
+constexpr int midiReserveBytes = 65536;
 juce::AudioProcessorValueTreeState::ParameterLayout hostParameters()
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
@@ -117,10 +122,28 @@ void Processor::setParameterValue(const juce::String& id, float actual)
 {
     if (auto* parameter = parameters_.getParameter(id))
     {
+        // An unchanged value sends nothing: reloading a sound after a sample-rate change must not
+        // look like a user gesture to the host (FL Studio marks the project changed and may record it).
+        const auto normalised = parameter->convertTo0to1(actual);
+        if (parameter->getValue() == normalised)
+            return;
         parameter->beginChangeGesture();
-        parameter->setValueNotifyingHost(parameter->convertTo0to1(actual));
+        parameter->setValueNotifyingHost(normalised);
         parameter->endChangeGesture();
     }
+}
+void Processor::warn(const juce::String& message)
+{
+    {
+        std::lock_guard lock(configurationMutex_);
+        hostWarning_ = message;
+    }
+    hostWarningRevision.fetch_add(1, std::memory_order_release);
+}
+void Processor::forgetUnrestoredSession()
+{
+    std::lock_guard lock(configurationMutex_);
+    unrestoredState_.reset();
 }
 bool Processor::editTensorParameter(size_t index, double value, juce::String& error)
 {
@@ -250,12 +273,15 @@ bool Processor::isBusesLayoutSupported(const BusesLayout& b) const
 {
     const auto out = b.getMainOutputChannelSet();
     const auto in = b.getMainInputChannelSet();
+    // Mono-in/stereo-out is the usual mono-track insert in Pro Tools (AAX), Logic and Cubase; the
+    // mono input feeds both channels. Stereo-in/mono-out has no meaningful downmix and is refused.
     return (out == juce::AudioChannelSet::mono() || out == juce::AudioChannelSet::stereo()) &&
-           (in.isDisabled() || in == out);
+           (in.isDisabled() || in == out ||
+            (in == juce::AudioChannelSet::mono() && out == juce::AudioChannelSet::stereo()));
 }
 void Processor::prepareToPlay(double rate, int)
 {
-    mergedMidi_.ensureSize(65536);
+    mergedMidi_.ensureSize(midiReserveBytes);
     rate_.store(std::isfinite(rate) && rate > 0 ? rate : 48000.0);
     clock_ = 0;
     clearPerformance();
@@ -272,11 +298,14 @@ void Processor::prepareToPlay(double rate, int)
         value.store(0.0f);
     for (auto& value : outputPeak)
         value.store(0.0f);
+    // Recompile the current sound for this rate. Parameter values are unchanged, so the host sees no
+    // gestures. A sound that cannot run at this rate keeps the previous one and says so.
     const auto saved = document();
     if (saved.isNotEmpty())
     {
         juce::String error;
-        loadJSON(saved, error);
+        if (!loadJSONImpl(saved, error, false))
+            warn("This sound cannot run at " + juce::String(rate_.load(), 0) + " Hz: " + error);
     }
 }
 void Processor::queueKey(int channel, int note, float velocity, bool on) noexcept
@@ -530,13 +559,23 @@ void Processor::processBlockImpl(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     if (active_ && !active_->execution->updateControls(controls))
         failures.fetch_add(1, std::memory_order_relaxed);
     mergedMidi_.clear();
-    if (midi.data.size() > 60000)
+    // Only short channel messages reach event(), so SysEx and meta events are not copied. Event
+    // times outside the block (some hosts stamp a note-off at numSamples or before zero) are clamped
+    // into it: dropping them would leave notes stuck. Storage was reserved in prepareToPlay; past it
+    // events are counted as rejected rather than allocating or silencing the block.
+    const auto lastSample = juce::jmax(0, buffer.getNumSamples() - 1);
+    for (const auto metadata : midi)
     {
-        buffer.clear();
-        failures.fetch_add(1, std::memory_order_relaxed);
-        return;
+        if (metadata.numBytes > 3)
+            continue;
+        if (mergedMidi_.data.size() + 16 > midiReserveBytes)
+        {
+            failures.fetch_add(1, std::memory_order_relaxed);
+            break;
+        }
+        mergedMidi_.addEvent(metadata.data, metadata.numBytes,
+                             juce::jlimit(0, lastSample, metadata.samplePosition));
     }
-    mergedMidi_.addEvents(midi, 0, buffer.getNumSamples(), 0);
     auto keyRead = keyRead_.load(std::memory_order_relaxed);
     while (keyRead != keyWrite_.load(std::memory_order_acquire))
     {
@@ -548,6 +587,8 @@ void Processor::processBlockImpl(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         keyRead_.store(keyRead, std::memory_order_release);
     }
     auto events = mergedMidi_.begin();
+    // Never read past the channels the host actually passed, whatever the declared layout says.
+    const auto inputChannels = juce::jmin(2, getTotalNumInputChannels(), buffer.getNumChannels());
     const auto selectedMode = mode.load();
     const auto targetGain = juce::Decibels::decibelsToGain(outputGain_->load());
     const auto inputGain = juce::Decibels::decibelsToGain(inputGain_->load());
@@ -564,7 +605,7 @@ void Processor::processBlockImpl(juce::AudioBuffer<float>& buffer, juce::MidiBuf
             ++events;
         }
         std::array<float, 2> dry{};
-        for (int channel = 0; channel < juce::jmin(2, getTotalNumInputChannels()); ++channel)
+        for (int channel = 0; channel < inputChannels; ++channel)
         {
             dry[static_cast<size_t>(channel)] = buffer.getSample(channel, sample);
             if (!std::isfinite(dry[static_cast<size_t>(channel)]))
@@ -575,6 +616,8 @@ void Processor::processBlockImpl(juce::AudioBuffer<float>& buffer, juce::MidiBuf
             inPeak[static_cast<size_t>(channel)] =
                 std::max(inPeak[static_cast<size_t>(channel)], std::abs(dry[static_cast<size_t>(channel)]));
         }
+        if (inputChannels == 1)
+            dry[1] = dry[0]; // mono input feeds both channels of a stereo sound
         for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
             buffer.setSample(channel, sample, 0);
         alfa::tensor::Inputs input;
@@ -605,8 +648,14 @@ void Processor::processBlockImpl(juce::AudioBuffer<float>& buffer, juce::MidiBuf
                 failures.fetch_add(1, std::memory_order_relaxed);
             if (rendered.audioRendered)
             {
-                for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
-                    buffer.addSample(channel, sample, active_->execution->mixedOutput(channel));
+                if (buffer.getNumChannels() == 1)
+                    // Mono output: average both sound channels so right-only content is not lost.
+                    buffer.addSample(
+                        0, sample,
+                        0.5f * (active_->execution->mixedOutput(0) + active_->execution->mixedOutput(1)));
+                else
+                    for (int channel = 0; channel < juce::jmin(2, buffer.getNumChannels()); ++channel)
+                        buffer.addSample(channel, sample, active_->execution->mixedOutput(channel));
             }
             else
                 failures.fetch_add(1, std::memory_order_relaxed);
@@ -703,13 +752,17 @@ private:
 };
 bool Processor::loadJSON(const juce::String& text, juce::String& error)
 {
-    return loadJSONImpl(text, error, false);
+    if (!loadJSONImpl(text, error, false))
+        return false;
+    forgetUnrestoredSession();
+    return true;
 }
 bool Processor::editConfigurationJSON(const juce::String& text, juce::String& error)
 {
     const auto before = document();
     if (!loadJSONImpl(text, error, true))
         return false;
+    forgetUnrestoredSession();
     undo_.beginNewTransaction("Edit tensor configuration");
     return undo_.perform(new ConfigurationEdit(*this, before, text));
 }
@@ -803,6 +856,14 @@ bool Processor::setTier(const juce::String& tier, juce::String& error)
 }
 void Processor::getStateInformation(juce::MemoryBlock& dest)
 {
+    {
+        std::lock_guard lock(configurationMutex_);
+        if (unrestoredState_.getSize() > 0)
+        {
+            dest = unrestoredState_;
+            return;
+        }
+    }
     auto wrapper = nlohmann::json{{"configuration", document().toStdString()}, {"mode", mode.load()}};
     std::vector<float> values;
     for (const auto& value : xControls)
@@ -816,79 +877,121 @@ void Processor::getStateInformation(juce::MemoryBlock& dest)
     const auto text = wrapper.dump();
     dest.replaceAll(text.data(), text.size());
 }
+namespace
+{
+// Parameter values are written by JUCE in the "C" format. std::stod follows the process locale, which a
+// host may have set (a German locale reads "0.5" as 0), so parse with the classic locale explicitly.
+std::optional<double> parseHostNumber(const std::string& text)
+{
+    std::istringstream stream(text);
+    stream.imbue(std::locale::classic());
+    double value = 0;
+    stream >> value;
+    if (stream.fail() || !(stream >> std::ws).eof() || !std::isfinite(value))
+        return std::nullopt;
+    return value;
+}
+} // namespace
 void Processor::setStateInformation(const void* bytes, int length)
 {
     if (bytes == nullptr || length <= 0)
         return;
+    juce::String error;
+    if (restoreState(bytes, length, error))
+    {
+        forgetUnrestoredSession();
+        return;
+    }
+    // Keep the session as it was saved, so saving the project here does not replace the user's sound
+    // with whatever is loaded now. A newer build, or this one after the user fixes the cause, opens it.
+    {
+        std::lock_guard lock(configurationMutex_);
+        unrestoredState_.replaceAll(bytes, static_cast<size_t>(length));
+    }
+    warn("The saved session could not be restored (" + error +
+         "). It is kept unchanged and saved back with the project until you load or edit a sound.");
+}
+bool Processor::restoreState(const void* bytes, int length, juce::String& error)
+{
     try
     {
         auto data =
             nlohmann::json::parse(static_cast<const char*>(bytes), static_cast<const char*>(bytes) + length);
         if (!data.is_object())
-            return;
+            throw std::invalid_argument("not a session object");
         const auto schema = data.value("state_schema", std::string{});
         if (!schema.empty() && schema != "aom.host/1" && schema != "aom.host/2")
-            return;
+            throw std::invalid_argument("session format " + schema + " is newer than this build");
         const auto configuration = data.at("configuration").get<std::string>();
-        if (data.contains("mode") && !data.at("mode").is_number_integer())
-            return;
-        const auto restoredMode = data.value("mode", 2);
-        if (restoredMode < 0 || restoredMode > 2)
-            return;
+        // Out-of-range host values are clamped rather than refused: a range may change between
+        // versions, and one stale value must not cost the whole session.
+        auto restoredMode = mode.load();
+        if (data.contains("mode"))
+        {
+            if (!data.at("mode").is_number())
+                throw std::invalid_argument("invalid input mode");
+            restoredMode = juce::jlimit(0, 2, juce::roundToInt(data.at("mode").get<double>()));
+        }
+        else
+            restoredMode = 2;
         const auto values = data.contains("x_controls") ? data.at("x_controls").get<std::vector<float>>()
                                                         : data.value("intentions", std::vector<float>{});
-        if (values.size() > xControls.size() ||
-            std::any_of(values.begin(), values.end(),
-                        [](float value) { return !std::isfinite(value) || value < -1 || value > 1; }))
-            return;
         juce::ValueTree restoredParameters, restoredUI;
         if (data.contains("parameters"))
         {
             const auto xml = juce::parseXML(juce::String(data.at("parameters").get<std::string>()));
             if (!xml || !xml->hasTagName("TensorParameters"))
-                return;
-            restoredParameters = juce::ValueTree::fromXml(*xml);
-            if (!restoredParameters.isValid())
-                return;
-            for (const auto& child : restoredParameters)
+                throw std::invalid_argument("malformed host parameters");
+            const auto saved = juce::ValueTree::fromXml(*xml);
+            if (!saved.isValid())
+                throw std::invalid_argument("malformed host parameters");
+            // Rebuild from the current layout: parameters this build does not know are skipped,
+            // parameters the session lacks keep their current value.
+            restoredParameters = parameters_.copyState().createCopy();
+            for (const auto& child : saved)
             {
-                const auto* parameter = parameters_.getParameter(child.getProperty("id").toString());
+                const auto id = child.getProperty("id").toString();
+                const auto* parameter = parameters_.getParameter(id);
                 if (!parameter || !child.hasProperty("value"))
-                    return;
-                const auto text = child.getProperty("value").toString().toStdString();
-                size_t consumed = 0;
-                const auto value = std::stod(text, &consumed);
+                    continue;
+                const auto value = parseHostNumber(child.getProperty("value").toString().toStdString());
+                if (!value)
+                    throw std::invalid_argument("host parameter " + id.toStdString() + " is not a number");
                 const auto& range = parameter->getNormalisableRange();
-                if (consumed != text.size() || !std::isfinite(value) || value < range.start ||
-                    value > range.end)
-                    return;
+                auto target = restoredParameters.getChildWithProperty("id", id);
+                if (target.isValid())
+                    target.setProperty("value", juce::jlimit<double>(range.start, range.end, *value),
+                                       nullptr);
             }
         }
         if (data.contains("ui_settings"))
         {
             const auto xml = juce::parseXML(juce::String(data.at("ui_settings").get<std::string>()));
             if (!xml || !xml->hasTagName("TensorUI"))
-                return;
+                throw std::invalid_argument("malformed interface settings");
             restoredUI = juce::ValueTree::fromXml(*xml);
             if (!restoredUI.isValid())
-                return;
+                throw std::invalid_argument("malformed interface settings");
         }
         // Validate every wrapper field before publishing any sound or host state.
-        juce::String error;
-        if (!loadJSON(configuration, error))
-            return;
+        if (!loadJSONImpl(configuration, error, false))
+            return false;
         if (restoredParameters.isValid())
             parameters_.replaceState(restoredParameters);
         if (restoredUI.isValid())
             uiSettings_.copyPropertiesAndChildrenFrom(restoredUI, nullptr);
         mode.store(restoredMode);
-        setParameterValue("mode", static_cast<float>(mode.load()));
+        setParameterValue("mode", static_cast<float>(restoredMode));
         for (size_t i = 0; i < juce::jmin(values.size(), xControls.size()); ++i)
             if (std::isfinite(values[i]))
-                setParameterValue("x" + juce::String(static_cast<int>(i)), values[i]);
+                setParameterValue("x" + juce::String(static_cast<int>(i)),
+                                  juce::jlimit(-1.0f, 1.0f, values[i]));
+        return true;
     }
-    catch (const std::exception&)
+    catch (const std::exception& failure)
     {
+        error = failure.what();
+        return false;
     }
 }
 void Processor::timerCallback()

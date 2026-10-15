@@ -74,6 +74,7 @@ private:
     nlohmann::json sound_;
     std::array<Snapshot, 2> snapshots_;
     uint64_t revision_ = 0;
+    uint64_t warningRevision_ = 0;
     int view_ = 0, selectedPrimitive_ = 0, highLayer_ = 0, highPage_ = 0, selectedSnapshot_ = 0, rawPage_ = 0;
     int focusedControl_ = 0, matrixSource_ = 0, matrixDestination_ = 0;
     bool refreshing_ = false, routeFormOpen_ = false, expertOpen_ = false, indexOrder_ = false,
