@@ -328,6 +328,13 @@ public:
             };
         }
     }
+    // Text set before the row joined the editor took the default look's colours; take the theme's now.
+    void parentHierarchyChanged() override { lookAndFeelChanged(); }
+    void lookAndFeelChanged() override
+    {
+        entry.applyColourToAllText(entry.findColour(juce::TextEditor::textColourId));
+        units.setColour(juce::Label::textColourId, findColour(juce::Label::textColourId).withAlpha(0.6f));
+    }
     void resized() override
     {
         auto r = getLocalBounds().reduced(8, 5);
@@ -871,11 +878,25 @@ public:
                                         (groups.size() == 1 ? " group" : " groups"),
                    head, juce::Justification::centredLeft, true);
         r.removeFromTop(8);
+        // Rows that fit at their base height share what is left of the panel: profiles take three
+        // shares and grow to 150 px, faders one share up to 54 px, so a short list fills its panel.
+        std::vector<std::pair<size_t, float>> fitted;
+        float used = 0, shares = 0;
         for (size_t i = static_cast<size_t>(scroll); i < groups.size(); ++i)
         {
             const auto height = groups[i].columns.size() > 1 ? 64.0f : 34.0f;
-            if (r.getHeight() < height)
+            if (used + height > r.getHeight())
                 break;
+            fitted.push_back({i, height});
+            used += height;
+            shares += groups[i].columns.size() > 1 ? 3.0f : 1.0f;
+        }
+        const auto spare = (r.getHeight() - (scroll > 0 || fitted.size() + static_cast<size_t>(scroll) < groups.size() ? 16.0f : 0.0f) - used);
+        for (auto& [i, height] : fitted)
+        {
+            const auto profile = groups[i].columns.size() > 1;
+            height = juce::jmin(profile ? 150.0f : 54.0f,
+                                height + juce::jmax(0.0f, spare) * (profile ? 3.0f : 1.0f) / juce::jmax(1.0f, shares));
             auto row = r.removeFromTop(height);
             rowAreas.push_back({i, row});
             paintGroup(g, t, i, row.reduced(0, 3));
@@ -1213,7 +1234,7 @@ public:
     }
 
 private:
-    static constexpr int minimumRow = 20, maximumRow = 34;
+    static constexpr int minimumRow = 20, maximumRow = 64;
     alfa::ui::AlfaLookAndFeel& look;
     std::vector<double> values;
     std::vector<float> liveColumns;
@@ -1237,7 +1258,7 @@ private:
     juce::Rectangle<int> cellArea() const { return getLocalBounds().withTrimmedLeft(labelWidth()); }
     int columnWidth() const
     {
-        return columnLabels.isEmpty() ? 0 : juce::jlimit(14, 72, cellArea().getWidth() / columnLabels.size());
+        return columnLabels.isEmpty() ? 0 : juce::jlimit(14, 160, cellArea().getWidth() / columnLabels.size());
     }
     juce::Rectangle<int> column(int c) const
     {
@@ -1330,7 +1351,7 @@ public:
             g.drawText("This sound has no control layer", r, juce::Justification::topLeft);
             return;
         }
-        const auto rowHeight = juce::jlimit(34, 90, r.getHeight() / static_cast<int>(layers.size()));
+        const auto rowHeight = juce::jmax(34, r.getHeight() / static_cast<int>(layers.size()));
         for (size_t l = 0; l < layers.size(); ++l)
         {
             auto row = r.removeFromTop(rowHeight);
@@ -1342,13 +1363,14 @@ public:
                        row.removeFromTop(16), juce::Justification::centredLeft, false);
             auto bars = row.reduced(0, 4).withTrimmedBottom(6).toFloat();
             const auto count = std::max<size_t>(1, layer.values.size());
-            // Slim wells, at most 22 px apart, so a short layer does not turn into empty boxes.
-            const auto w = juce::jmin(22.0f, bars.getWidth() / static_cast<float>(count));
+            // Slim wells spread across the row, at most 40 px apart; the wells stay at most 14 px wide.
+            const auto w = slot(bars.getWidth(), count);
+            const auto well = juce::jlimit(2.0f, 14.0f, w * 0.5f);
             for (size_t i = 0; i < layer.values.size(); ++i)
             {
                 auto box = juce::Rectangle<float>(bars.getX() + w * static_cast<float>(i), bars.getY(), w,
                                                   bars.getHeight())
-                               .reduced(juce::jmax(1.0f, w * 0.25f), 0);
+                               .withSizeKeepingCentre(well, bars.getHeight());
                 const auto onPage = static_cast<int>(l) == pageLayer && static_cast<int>(i) >= pageBegin &&
                                     static_cast<int>(i) < pageEnd;
                 g.setColour(alfa::ui::visuals::screenColour(t));
@@ -1398,18 +1420,22 @@ private:
     alfa::ui::AlfaLookAndFeel& look;
     std::vector<Layer> layers;
     int pageLayer = -1, pageBegin = 0, pageEnd = 0;
+    static float slot(float width, size_t count)
+    {
+        return juce::jmin(40.0f, width / static_cast<float>(std::max<size_t>(1, count)));
+    }
     std::pair<int, int> hitTestBar(juce::Point<int> p) const
     {
         if (layers.empty())
             return {-1, -1};
-        const auto rowHeight = juce::jlimit(34, 90, getHeight() / static_cast<int>(layers.size()));
+        const auto rowHeight = juce::jmax(34, getHeight() / static_cast<int>(layers.size()));
         const auto l = p.y / rowHeight;
         if (l < 0 || l >= static_cast<int>(layers.size()) || p.y % rowHeight < 16)
             return {-1, -1};
         const auto count = static_cast<int>(layers[static_cast<size_t>(l)].values.size());
         if (count == 0 || getWidth() <= 0)
             return {-1, -1};
-        const auto w = juce::jmin(22.0f, static_cast<float>(getWidth()) / static_cast<float>(count));
+        const auto w = slot(static_cast<float>(getWidth()), static_cast<size_t>(count));
         const auto index = static_cast<int>(static_cast<float>(p.x) / w);
         return index < count ? std::pair<int, int>{l, index} : std::pair<int, int>{-1, -1};
     }
@@ -1458,6 +1484,22 @@ public:
         }
         return result;
     }
+    // Height that shows every entry and the caption at this width.
+    int preferredHeight(int width) const
+    {
+        if (entries.empty())
+            return 40;
+        const auto columns = static_cast<size_t>(width > 300 ? 3 : 2);
+        if (exact())
+            return static_cast<int>((entries.size() + columns - 1) / columns) * 54 + 44;
+        return static_cast<int>(entries.size()) * 24 + 52;
+    }
+    // Smallest height that still shows every tile, without the caption.
+    int minimumHeight(int width) const
+    {
+        const auto columns = static_cast<size_t>(width > 300 ? 3 : 2);
+        return exact() ? static_cast<int>((entries.size() + columns - 1) / columns) * 44 : preferredHeight(width);
+    }
     void paint(juce::Graphics& g) override
     {
         const auto& t = look.theme();
@@ -1470,28 +1512,33 @@ public:
             return;
         }
         // When the budget is exactly what the loaded sound uses, bars would always be full: show counts.
-        const auto exact = std::all_of(entries.begin(), entries.end(), [](const Entry& e)
-                                       { return std::abs(e.used - e.budget) < 0.5; });
-        if (exact)
+        if (exact())
         {
             const auto columns = r.getWidth() > 300 ? 3 : 2;
             const auto cellWidth = r.getWidth() / columns;
+            const auto rows = static_cast<int>((entries.size() + static_cast<size_t>(columns) - 1) / static_cast<size_t>(columns));
+            // Tiles grow with spare height so a roomy panel is not left half empty.
+            // The caption goes first when the height is short; tiles then shrink to 44 px.
+            const auto caption = r.getHeight() >= rows * 54 + 44 ? 44 : 0;
+            const auto pitch = juce::jlimit(44, 110, (r.getHeight() - caption) / juce::jmax(1, rows));
             for (size_t i = 0; i < entries.size(); ++i)
             {
                 const auto cell = juce::Rectangle<int>(r.getX() + static_cast<int>(i % static_cast<size_t>(columns)) * cellWidth,
-                                                       r.getY() + static_cast<int>(i / static_cast<size_t>(columns)) * 54,
-                                                       cellWidth - 8, 46)
+                                                       r.getY() + static_cast<int>(i / static_cast<size_t>(columns)) * pitch,
+                                                       cellWidth - 8, pitch - 8)
                                       .toFloat();
                 alfa::ui::visuals::recessed(g, t, cell, 6);
                 g.setColour(t.text);
-                g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(17, true));
-                g.drawText(compactText(entries[i].used), cell.reduced(10, 4).withTrimmedBottom(16),
-                           juce::Justification::bottomLeft);
+                const auto text = cell.withSizeKeepingCentre(cell.getWidth(), 38).reduced(10, 0);
+                g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(pitch > 70 ? 20.0f : 17.0f, true));
+                g.drawText(compactText(entries[i].used), text.withTrimmedBottom(16), juce::Justification::bottomLeft);
                 g.setColour(t.text2);
                 g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(10.5f));
-                g.drawText(entries[i].name, cell.reduced(10, 5).withTrimmedTop(24), juce::Justification::topLeft);
+                g.drawText(entries[i].name, text.withTrimmedTop(24), juce::Justification::topLeft);
             }
-            r.removeFromTop(static_cast<int>((entries.size() + static_cast<size_t>(columns) - 1) / static_cast<size_t>(columns)) * 54);
+            r.removeFromTop(rows * pitch);
+            if (caption == 0)
+                return;
             g.setColour(t.text2);
             g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11.5f));
             g.drawFittedText(caption + " The sound uses exactly its budget.", r.withTrimmedTop(6),
@@ -1527,5 +1574,150 @@ private:
     alfa::ui::AlfaLookAndFeel& look;
     std::vector<Entry> entries;
     juce::String caption;
+    bool exact() const
+    {
+        return std::all_of(entries.begin(), entries.end(), [](const Entry& e)
+                           { return std::abs(e.used - e.budget) < 0.5; });
+    }
+};
+// How strongly each control of one matrix drives the next layer: per source column, the summed size of
+// its coefficients, amber for what it raises and blue for what it lowers, with the matrix's totals above.
+class ReachView final : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    explicit ReachView(alfa::ui::AlfaLookAndFeel& l)
+        : look(l)
+    {
+        setTooltip("Click a control to select its column in the matrix");
+    }
+    std::function<void(int source)> onSelect;
+    void setMatrix(const std::vector<double>& values, const juce::StringArray& rows, const juce::StringArray& columns)
+    {
+        sources = columns;
+        cells = static_cast<size_t>(rows.size() * columns.size());
+        const auto count = static_cast<size_t>(columns.size());
+        raise.assign(count, 0.0);
+        lower.assign(count, 0.0);
+        targets.assign(count, 0);
+        nonZero = 0;
+        largest = 0;
+        for (size_t i = 0; i < values.size() && count > 0; ++i)
+        {
+            const auto v = values[i];
+            const auto c = i % count;
+            if (v == 0.0)
+                continue;
+            (v > 0 ? raise[c] : lower[c]) += std::abs(v);
+            ++targets[c];
+            ++nonZero;
+            largest = juce::jmax(largest, std::abs(v));
+        }
+        repaint();
+    }
+    void select(int source)
+    {
+        selected = source;
+        repaint();
+    }
+    // Height that lists every control in a compact row with the one-line totals.
+    int preferredHeight() const { return 22 + 16 * sources.size(); }
+    void paint(juce::Graphics& g) override
+    {
+        const auto& t = look.theme();
+        auto r = getLocalBounds().toFloat();
+        if (sources.isEmpty())
+        {
+            g.setColour(t.text2);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(12));
+            g.drawText("No matrix in this layer", r, juce::Justification::topLeft);
+            return;
+        }
+        // Totals as three readouts when every control still gets a 20 px row, as one line when 16 px rows
+        // fit, and left out when the rows need all the height.
+        const auto count = static_cast<float>(sources.size());
+        if (r.getHeight() >= 98.0f + 20.0f * count)
+        {
+            paintTotals(g, t, r.removeFromTop(46));
+            r.removeFromTop(12);
+        }
+        else if (r.getHeight() >= 22.0f + 16.0f * count)
+        {
+            g.setColour(t.text2);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11));
+            g.drawText(juce::String(static_cast<int>(nonZero)) + " of " + juce::String(static_cast<int>(cells)) +
+                           " coefficients  ·  largest " + compactText(largest),
+                       r.removeFromTop(18), juce::Justification::centredLeft, true);
+            r.removeFromTop(4);
+        }
+        if (r.getHeight() >= 98.0f + 20.0f * count - 58.0f)
+        {
+            g.setColour(t.text2);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(10, true));
+            g.drawText("DRIVE PER CONTROL", r.removeFromTop(16), juce::Justification::centredLeft);
+            r.removeFromTop(4);
+        }
+        double strongest = 1e-12;
+        for (size_t c = 0; c < raise.size(); ++c)
+            strongest = juce::jmax(strongest, raise[c] + lower[c]);
+        rowHeight = juce::jlimit(14.0f, 30.0f, r.getHeight() / count);
+        rowsTop = r.getY();
+        for (int c = 0; c < sources.size() && r.getHeight() >= rowHeight; ++c)
+        {
+            auto row = r.removeFromTop(rowHeight);
+            const auto index = static_cast<size_t>(c);
+            g.setColour(c == selected ? t.accent : t.text);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11.5f, c == selected));
+            g.drawText(sources[c], row.removeFromLeft(78), juce::Justification::centredLeft, true);
+            g.setColour(t.text2);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(10.5f));
+            g.drawText(targets[index] == 0 ? juce::String("none")
+                                           : compactText(raise[index] + lower[index]) + "  ·  " +
+                                                 juce::String(targets[index]) + (targets[index] == 1 ? " target" : " targets"),
+                       row.removeFromRight(98), juce::Justification::centredRight, true);
+            auto groove = row.reduced(6, 0).withSizeKeepingCentre(row.getWidth() - 12, juce::jmin(8.0f, rowHeight - 8));
+            alfa::ui::visuals::recessed(g, t, groove, groove.getHeight() / 2);
+            const auto up = groove.getWidth() * static_cast<float>(raise[index] / strongest);
+            const auto down = groove.getWidth() * static_cast<float>(lower[index] / strongest);
+            g.setColour(t.accent.withAlpha(0.85f));
+            g.fillRoundedRectangle(groove.withWidth(up), groove.getHeight() / 2);
+            g.setColour(t.mod.withAlpha(0.85f));
+            g.fillRoundedRectangle(groove.withX(groove.getX() + up).withWidth(down), groove.getHeight() / 2);
+        }
+    }
+    void paintTotals(juce::Graphics& g, const alfa::ui::Theme& t, juce::Rectangle<float> tiles) const
+    {
+        const std::array<std::pair<juce::String, juce::String>, 3> totals{
+            {{"Coefficients", juce::String(static_cast<int>(nonZero)) + " of " + juce::String(static_cast<int>(cells))},
+             {"Largest", compactText(largest)},
+             {"Density", juce::String(juce::roundToInt(cells ? 100.0 * static_cast<double>(nonZero) / static_cast<double>(cells) : 0.0)) + " %"}}};
+        const auto tileWidth = tiles.getWidth() / 3.0f;
+        for (const auto& [name, value] : totals)
+        {
+            const auto tile = tiles.removeFromLeft(tileWidth).withTrimmedRight(8);
+            alfa::ui::visuals::recessed(g, t, tile, 6);
+            g.setColour(t.text);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(15, true));
+            g.drawText(value, tile.reduced(10, 4).withTrimmedBottom(16), juce::Justification::bottomLeft, true);
+            g.setColour(t.text2);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(10.5f));
+            g.drawText(name, tile.reduced(10, 5).withTrimmedTop(24), juce::Justification::topLeft, true);
+        }
+    }
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        const auto c = static_cast<int>((e.position.y - rowsTop) / juce::jmax(1.0f, rowHeight));
+        if (e.position.y >= rowsTop && c >= 0 && c < sources.size() && onSelect)
+            onSelect(c);
+    }
+
+private:
+    alfa::ui::AlfaLookAndFeel& look;
+    juce::StringArray sources;
+    std::vector<double> raise, lower;
+    std::vector<int> targets;
+    size_t cells = 0, nonZero = 0;
+    double largest = 0;
+    int selected = -1;
+    float rowHeight = 20, rowsTop = 0;
 };
 } // namespace alfa::tensorhost

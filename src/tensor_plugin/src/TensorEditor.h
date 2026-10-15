@@ -41,6 +41,7 @@ private:
     InfluenceView influence_;
     MatrixView matrix_;
     CapacityView capacity_;
+    ReachView reach_;
     SoundSpace space_;
     HeadingView heading_;
     std::vector<std::unique_ptr<ElementView>> elements_;
@@ -93,10 +94,17 @@ private:
     bool refreshing_ = false, routeFormOpen_ = false, expertOpen_ = false, indexOrder_ = false,
          ranked_ = false;
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> settingsLabels_;
+    struct Card
+    {
+        juce::Rectangle<int> area;
+        juce::String title, note;
+    };
+    std::vector<Card> settingsCards_;
+    juce::Rectangle<int> paletteArea_, engineArea_, libraryNote_;
     juce::Rectangle<int> flowArea_, workspace_, highArea_, influenceArea_, xyArea_, scopeArea_, primitiveArea_,
         parameterArea_, routingArea_, layerArea_, tensorArea_, selectionArea_, capacityArea_, settingsArea_,
         footer_, elementsArea_, spaceArea_, layerStateArea_, headingArea_, modesArea_, snapshotArea_,
-        presetArea_, brandArea_;
+        presetArea_, brandArea_, reachArea_;
     // Every primitive of the sound, grouped as the element views group them; the heading and the knob
     // fingerprints report per group.
     struct Group
@@ -140,6 +148,7 @@ private:
     void syncMode();
     void layoutSettings();
     void paintFlow(juce::Graphics&, juce::Rectangle<int>);
+    void paintSettings(juce::Graphics&);
     void refreshTensor();
     void rebuildElements();
     void refreshSpace();

@@ -132,6 +132,10 @@ An edit to the composed weight `w_d` changes the last matrix by the smallest amo
 new weight: row `d` moves by `Δw · v / |v|²`, where `v` is the vector that reaches the last matrix
 from the focused control (for a control in the last layer, exactly its own coefficient).
 
+Panels use their whole height (Sinin, 2026-10-15: "尽可能充分利用UI，不要留下大片空白"). Influence rows
+share the spare height (faders up to 54 px, profiles up to 150 px), and Layer state rows split the
+panel between layers with wells spread across the width.
+
 ### Knobs, faders and values
 
 Rotary controls are a recessed well with a raised cap and a 2 px pointer, a thin track and a value
@@ -150,6 +154,9 @@ The editor uses them only while blocks keep arriving; otherwise it shows authore
 
 - **Instances:** one card per primitive with its voices together ("Partials ×8"): family stripe,
   title, primitive, activation and one live level per voice. "All parameters" keeps the raw list.
+  Cards share the list's height; a tall card adds a profile of the group's authored values as
+  fractions of their ranges (averaged over voices), and "All parameters" shows every parameter in
+  tensor order coloured by group.
 - **Parameters:** one row per parameter of the selected primitive, named without the voice. A row
   moves every voice by the same amount (clamped to the range), so voices keep their offsets; rows
   whose voices differ say so. Time and frequency sliders are logarithmic, so short attacks and low
@@ -163,13 +170,21 @@ The editor uses them only while blocks keep arriving; otherwise it shows authore
 
 - **Control matrix:** a heat map of the selected layer's matrix, sources as columns and destinations as
   rows (named parameters on the last layer). Click a cell to select it and type its coefficient.
+  Cells grow to fill the panel (rows up to 64 px, columns up to 160 px).
+- **Capacity** takes the height its tiles need; **Reach** fills the rest of the column: per control,
+  the summed size of its column (amber for what it raises, blue for what it lowers) and how many
+  targets it has, with the matrix's coefficient count, largest value and density when there is room.
+  Click a control to select its column.
 - **Expert:** the tensor value inspector, Apply / Export JSON, runtime model import, composition and
   the compiled inspection report. JSON is the last resort, not the main surface.
 
 ### Settings
 
-Theme, accent, knob drag, keyboard, preset library folder, and the loaded sound's precision and resource notes, laid
-out in two columns without overlapping text. Settings never change the sound.
+Five cards that fill the view: **Appearance** (theme, export / import, accent and the live palette as
+swatches with hex codes), **Playing** (knob drag, on-screen keyboard), **Sound library** (folder,
+refresh, how many sounds and where), **This sound** (precision and the capacity tiles) and **Audio
+engine** (sample rate, block time, latency, active notes, state values, channels; live). Settings never
+change the sound.
 
 ## AOM Centre
 
