@@ -341,7 +341,8 @@ void zero(std::span<Scalar> values) noexcept
 template <typename Scalar>
 void hold(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
 {
-    zero<Scalar>(next);
+    if (next.size() != s.localState.size())
+        zero<Scalar>(next);
     std::copy_n(s.localState.begin(), std::min(s.localState.size(), next.size()), next.begin());
 }
 template <typename Scalar>
@@ -356,7 +357,7 @@ bool base(const StepT<Scalar>& s) noexcept
         return false;
     const double interval = static_cast<double>(s.clock.periodSamples) / s.sampleRate;
     return interval > 0 && std::isfinite(interval) && std::isfinite(s.activation) && s.activation >= 0 &&
-           allFinite<Scalar>(s.parameters) && allFinite<Scalar>(s.localState);
+           (s.finiteVerified || (allFinite<Scalar>(s.parameters) && allFinite<Scalar>(s.localState)));
 }
 template <typename Scalar>
 double dt(const StepT<Scalar>& s) noexcept
@@ -374,6 +375,19 @@ template <typename Scalar>
 std::span<const Scalar> asset(const StepT<Scalar>& s, std::size_t i) noexcept
 {
     return i < s.assets.size() ? s.assets[i].values : std::span<const Scalar>{};
+}
+// sin(2 pi x) for a phase x in [0, 1) without a libm call, for float runtimes: folded to
+// a quarter cycle, the degree-13 Taylor polynomial is within 7e-10 of the true value,
+// far below float resolution.
+double sinTurns(double x) noexcept
+{
+    double r = x >= 0.5 ? x - 1 : x;
+    r = r > 0.25 ? 0.5 - r : r < -0.25 ? -0.5 - r : r;
+    const double y = tau * r, y2 = y * y;
+    return y * (1 + y2 * (-1.0 / 6 +
+                          y2 * (1.0 / 120 + y2 * (-1.0 / 5040 +
+                                                  y2 * (1.0 / 362880 + y2 * (-1.0 / 39916800 +
+                                                                             y2 * (1.0 / 6227020800.0)))))));
 }
 double wrap(double x) noexcept
 {
@@ -694,12 +708,15 @@ void fft(std::span<Scalar> z, bool inverse) noexcept
             x = safe<Scalar>(x / static_cast<double>(n));
 }
 
-template <Op op, typename Scalar>
+template <Op op, typename Scalar, bool checked = true>
 void transition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
 {
     hold<Scalar>(s, next);
-    if (next.size() != s.localState.size() || !valid<Scalar>(s, op))
+    if (next.size() != s.localState.size())
         return;
+    if constexpr (checked)
+        if (!valid<Scalar>(s, op))
+            return;
     const auto p = s.parameters;
     const auto n = next.size();
     const auto table = asset<Scalar>(s, 0);
@@ -711,9 +728,13 @@ void transition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
     }
     if constexpr (op == Op::Additive)
     {
+        const double interval = dt<Scalar>(s);
         for (std::size_t i = 0; i < n; ++i)
         {
-            next[i] = safe<Scalar>(wrap(s.localState[i] + p[2 * i] * dt<Scalar>(s)));
+            // Phases stay in [0, 1) and advance by less than a cycle for every audible partial,
+            // so wrapping is usually one subtraction; x - floor(x) gives the same value there.
+            const double x = s.localState[i] + p[2 * i] * interval;
+            next[i] = safe<Scalar>(x >= 0 && x < 1 ? x : x >= 1 && x < 2 ? x - 1 : wrap(x));
             if (next[i] >= 1)
                 next[i] = 0.0f;
         }
@@ -843,8 +864,7 @@ void transition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
         if constexpr (op == Op::Diffusion)
             x += p[0] * (-static_cast<double>(p[0]) * audio<Scalar>(s) + s.localState.back());
         next[0] = safe<Scalar>(x);
-        for (std::size_t i = 1; i < n; ++i)
-            next[i] = s.localState[i - 1];
+        std::copy(s.localState.begin(), s.localState.end() - 1, next.begin() + 1);
     }
     if constexpr (op == Op::Resonator || op == Op::Modal)
     {
@@ -946,8 +966,7 @@ void transition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
         if (next[0] >= 1)
             next[0] = 0.0f;
         next[1] = safe<Scalar>(audio<Scalar>(s) + p[4] * delayed);
-        for (std::size_t i = 2; i < n; ++i)
-            next[i] = s.localState[i - 1];
+        std::copy(s.localState.begin() + 1, s.localState.end() - 1, next.begin() + 2);
     }
     if constexpr (op == Op::Phaser)
     {
@@ -972,8 +991,8 @@ void transition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
             const auto length = static_cast<std::size_t>(value);
             next[offset] =
                 safe<Scalar>(audio<Scalar>(s) / norm + p[0] * (s.localState[offset + length - 1] - 2 * mean));
-            for (std::size_t i = 1; i < length; ++i)
-                next[offset + i] = s.localState[offset + i - 1];
+            std::copy_n(s.localState.begin() + static_cast<std::ptrdiff_t>(offset), length - 1,
+                        next.begin() + static_cast<std::ptrdiff_t>(offset + 1));
             offset += length;
         }
     }
@@ -982,8 +1001,7 @@ void transition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
         if (n)
         {
             next[0] = audio<Scalar>(s);
-            for (std::size_t i = 1; i < n; ++i)
-                next[i] = s.localState[i - 1];
+            std::copy(s.localState.begin(), s.localState.end() - 1, next.begin() + 1);
         }
     }
     if constexpr (op == Op::PhaseVocoder)
@@ -1049,8 +1067,7 @@ void transition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
         if (n)
         {
             next[0] = audio<Scalar>(s);
-            for (std::size_t i = 1; i < n; ++i)
-                next[i] = s.localState[i - 1];
+            std::copy(s.localState.begin(), s.localState.end() - 1, next.begin() + 1);
         }
     }
     if constexpr (op == Op::GrainStretch)
@@ -1082,12 +1099,13 @@ void transition(const StepT<Scalar>& s, std::span<Scalar> next) noexcept
     }
 }
 
-template <Op op, typename Scalar>
+template <Op op, typename Scalar, bool checked = true>
 void readout(const StepT<Scalar>& s, std::span<Scalar> out) noexcept
 {
     zero<Scalar>(out);
-    if (!valid<Scalar>(s, op))
-        return;
+    if constexpr (checked)
+        if (!valid<Scalar>(s, op))
+            return;
     const auto p = s.parameters;
     const auto n = s.localState.size();
     const auto table = asset<Scalar>(s, 0);
@@ -1202,7 +1220,10 @@ void readout(const StepT<Scalar>& s, std::span<Scalar> out) noexcept
                 if (cycles >= 0.5)
                     continue;
                 const double gain = std::min(1.0, (0.5 - cycles) * 20.0);
-                y += gain * p[2 * i + 1] * std::sin(tau * s.localState[i]);
+                if constexpr (std::is_same_v<Scalar, float>)
+                    y += gain * p[2 * i + 1] * sinTurns(s.localState[i]);
+                else
+                    y += gain * p[2 * i + 1] * std::sin(tau * s.localState[i]);
             }
         }
         if constexpr (op == Op::Noise)
@@ -1311,10 +1332,28 @@ void readout(const StepT<Scalar>& s, std::span<Scalar> out) noexcept
     }
 }
 
+// Readout then transition with one validation: valid() scans every parameter and state
+// element, and both callbacks would otherwise repeat it on the same step.
+template <Op op, typename Scalar>
+void advance(const StepT<Scalar>& s, std::span<Scalar> out, std::span<Scalar> next) noexcept
+{
+    if (!valid<Scalar>(s, op))
+    {
+        zero<Scalar>(out);
+        hold<Scalar>(s, next);
+        return;
+    }
+    readout<op, Scalar, false>(s, out);
+    transition<op, Scalar, false>(s, next);
+}
+
 template <Op op, typename Scalar>
 PrimitiveT<Scalar> descriptor(std::size_t states, std::size_t outputs, std::string_view id)
 {
-    return {std::string(id), states, outputs, transition<op, Scalar>, readout<op, Scalar>};
+    PrimitiveT<Scalar> primitive{std::string(id), states, outputs, transition<op, Scalar>,
+                                 readout<op, Scalar>};
+    primitive.advance = advance<op, Scalar>;
+    return primitive;
 }
 } // namespace
 

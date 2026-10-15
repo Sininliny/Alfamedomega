@@ -4,6 +4,7 @@
 #include "detail/Finite.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <limits>
@@ -404,12 +405,18 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
     std::copy(committedOutput_.begin(), committedOutput_.end(), candidateOutput_.begin());
     std::copy(configuration_.parameters.values.begin(), configuration_.parameters.values.end(),
               effectiveParameters_.begin());
+    // Every projection and audio binding reads one of eight source views; resolve them once.
+    static_assert(static_cast<std::size_t>(SourceKind::OutputHistory) == 7);
+    std::array<SourceValuesT<Scalar>, 8> sourceTable{};
+    for (std::size_t kind = 0; kind < sourceTable.size(); ++kind)
+        sourceTable[kind] =
+            sourceValues<Scalar>(static_cast<SourceKind>(kind), inputs, state_, committedOutput_);
     for (const auto& projection : configuration_.projections)
     {
         if (!configuration_.parameterLocks.empty() &&
             configuration_.parameterLocks[projection.parameterElement] != 0)
             continue;
-        const auto sources = sourceValues<Scalar>(projection.source, inputs, state_, committedOutput_);
+        const auto& sources = sourceTable[static_cast<std::size_t>(projection.source)];
         if (projection.sourceElement >= sources.values.size() ||
             (!sources.presence.empty() && sources.presence[projection.sourceElement] == 0))
         {
@@ -438,6 +445,7 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
     step.stateAllocation = states_;
     step.routing = view<Scalar>(configuration_.routing);
     step.modulation = view<Scalar>(configuration_.modulation);
+    step.finiteVerified = true;
     for (const auto& update : schedule_)
     {
         const auto index = update.instance;
@@ -463,7 +471,7 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
             std::fill(operands.begin(), operands.end(), 0.0f);
             for (const auto& binding : instance.audioBindings)
             {
-                const auto source = sourceValues<Scalar>(binding.source, inputs, state_, committedOutput_);
+                const auto& source = sourceTable[static_cast<std::size_t>(binding.source)];
                 if (binding.sourceElement >= source.values.size() ||
                     (!source.presence.empty() && source.presence[binding.sourceElement] == 0))
                 {
@@ -493,7 +501,9 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
         step.assets = assets_[index];
         step.scratch = std::span<Scalar>(scratch_).first(instance.primitive->scratchElements);
         std::fill(output.begin(), output.end(), 0.0f);
-        instance.primitive->readout(step, output);
+        const bool fused = instance.primitive->advance && !instance.primitive->sparseTransition;
+        if (!fused)
+            instance.primitive->readout(step, output);
         if (instance.primitive->sparseTransition)
         {
             const auto scratch = journalSlices_[index];
@@ -524,8 +534,13 @@ bool RuntimeT<Scalar>::tick(const InputsT<Scalar>& inputs) noexcept
         {
             const auto scratch = denseScratch_[index];
             auto next = std::span<Scalar>(next_).subspan(scratch.offset, scratch.count);
-            std::copy(step.localState.begin(), step.localState.end(), next.begin());
-            instance.primitive->transition(step, next);
+            if (fused) // advance starts by holding S_t in next itself
+                instance.primitive->advance(step, output, next);
+            else
+            {
+                std::copy(step.localState.begin(), step.localState.end(), next.begin());
+                instance.primitive->transition(step, next);
+            }
             if (!finite<Scalar>(next))
             {
                 std::fill(output_.begin(), output_.end(), Scalar{0});

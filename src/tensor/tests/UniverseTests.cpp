@@ -624,3 +624,69 @@ TEST_CASE("Tensor additive partials at or above Nyquist are muted instead of ali
     slow.state[0] = 0.25f;
     REQUIRE(slow.scalar(fast) == 0);
 }
+
+TEST_CASE("Tensor additive sine stays within float resolution of the exact sine", "[tensor][universe]")
+{
+    // Float runtimes evaluate partials with a polynomial instead of libm; it must match sin(2 pi x)
+    // across the whole cycle, including both quarter-cycle folds.
+    Harness additive("osc.additive", 1);
+    const std::array<float, 2> partial{0, 1};
+    double worst = 0;
+    for (int i = 0; i < 4096; ++i)
+    {
+        const float phase = static_cast<float>(i) / 4096.0f;
+        additive.state[0] = phase;
+        const double exact = std::sin(2 * std::numbers::pi * static_cast<double>(phase));
+        worst = std::max(worst, std::abs(additive.scalar(partial) - exact));
+    }
+    REQUIRE(worst < 2e-7);
+}
+
+TEST_CASE("Tensor fused advance equals readout followed by transition", "[tensor][universe]")
+{
+    // The runtime calls advance(), validated once; the separate callbacks stay the reference.
+    struct Case
+    {
+        const char* id;
+        std::size_t count;
+        std::vector<float> parameters;
+        std::vector<float> asset;
+    };
+    const std::vector<Case> cases{
+        {"osc.additive", 3, {220, 0.5f, 660, 0.25f, 23000, 1}, {}},
+        {"time.modulated_delay", 64, {0.0006f, 0.0002f, 0.7f, 0.5f, 0.4f}, {}},
+        {"time.fdn_reverb", 8, {0.5f}, {3, 5}},
+        {"time.diffusion_allpass", 5, {0.5f}, {}},
+        {"time.convolution_fir", 3, {}, {1, 0.5f, -0.25f, 0.125f}},
+        {"filter.biquad_lowpass", 4, {1200, 0.7f}, {}},
+    };
+    for (const auto& c : cases)
+    {
+        CAPTURE(c.id);
+        Harness reference(c.id, c.count), fused(c.id, c.count);
+        if (!c.asset.empty())
+        {
+            reference.setAssets({c.asset});
+            fused.setAssets({c.asset});
+        }
+        REQUIRE(fused.primitive.advance != nullptr);
+        for (int i = 0; i < 200; ++i)
+        {
+            const std::array<float, 1> input{static_cast<float>(std::sin(0.37 * i))};
+            const auto expected = reference.tick(c.parameters, input);
+            Step s;
+            s.sampleRate = fused.rate;
+            s.clock = {1, 0};
+            s.activation = 1;
+            s.localState = fused.state;
+            s.parameters = c.parameters;
+            s.inputs.audio.values = input;
+            s.assets = fused.assets;
+            s.finiteVerified = true;
+            fused.primitive.advance(s, fused.output, fused.next);
+            fused.state.swap(fused.next);
+            REQUIRE(std::equal(expected.begin(), expected.end(), fused.output.begin()));
+            REQUIRE(reference.state == fused.state);
+        }
+    }
+}

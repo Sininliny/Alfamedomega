@@ -86,6 +86,9 @@ struct StepT
     // Ephemeral typed workspace; callbacks initialize every element they read.
     // Contents are unspecified between calls and never represent persistent S_t.
     std::span<Scalar> scratch{};
+    // Set by the runtime, which already guarantees finite parameters and state (every state
+    // write and every effective parameter is checked), so primitives need not rescan them.
+    bool finiteVerified = false;
 };
 
 // Deterministic primitive implementations own mathematical interpretation of their
@@ -96,6 +99,11 @@ template <typename Scalar>
 using TransitionT = void (*)(const StepT<Scalar>&, std::span<Scalar> nextState) noexcept;
 template <typename Scalar>
 using ReadoutT = void (*)(const StepT<Scalar>&, std::span<Scalar> output) noexcept;
+// Optional fused update: must equal readout(output) followed by transition(nextState) on the
+// same step. It lets a primitive validate its step once instead of once per callback.
+template <typename Scalar>
+using AdvanceT = void (*)(const StepT<Scalar>&, std::span<Scalar> output,
+                          std::span<Scalar> nextState) noexcept;
 
 template <typename Scalar>
 struct StateWriteT
@@ -119,6 +127,7 @@ struct PrimitiveT
     std::size_t sparseWriteCapacity = 0;
     SparseTransitionT<Scalar> sparseTransition = nullptr;
     std::size_t scratchElements = 0;
+    AdvanceT<Scalar> advance = nullptr;
 };
 
 enum class SourceKind
