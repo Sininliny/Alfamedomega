@@ -32,7 +32,7 @@ private:
     };
     Processor& processor_;
     alfa::ui::AlfaLookAndFeel look_;
-    juce::MidiKeyboardComponent keyboard_;
+    KeyboardView keyboard_;
     LiveScope scope_;
     StereoMeter meters_;
     ExplorationPad exploration_;
@@ -40,6 +40,7 @@ private:
     MatrixView matrix_;
     CapacityView capacity_;
     SoundSpace space_;
+    HeadingView heading_;
     std::vector<std::unique_ptr<ElementView>> elements_;
     LayerStateView layerState_;
     juce::Label brand_, version_, status_, telemetry_, paramHeader_, routeHeader_, levelHeader_,
@@ -92,7 +93,25 @@ private:
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> settingsLabels_;
     juce::Rectangle<int> workspace_, highArea_, influenceArea_, xyArea_, scopeArea_, primitiveArea_,
         parameterArea_, routingArea_, layerArea_, tensorArea_, selectionArea_, capacityArea_, settingsArea_,
-        footer_, elementsArea_, spaceArea_, layerStateArea_;
+        footer_, elementsArea_, spaceArea_, layerStateArea_, headingArea_, modesArea_, snapshotArea_,
+        presetArea_, brandArea_;
+    // Every primitive of the sound, grouped as the element views group them; the heading and the knob
+    // fingerprints report per group.
+    struct Group
+    {
+        juce::String title, primitive;
+        std::vector<ElementView::Instance> members;
+        std::vector<juce::String> names;
+    };
+    std::vector<Group> groups_;
+    std::vector<std::array<double, 2>> parameterRanges_;
+    // Control index of each knob on the current page.
+    std::vector<size_t> highIndices_;
+    // Recent movement of the projected layer in control units, for the heading.
+    std::vector<double> lastU_, motion_;
+    double motionTime_ = -1e9;
+    void updateHeading(const std::vector<double>& parameters);
+    void paintFingerprints(juce::Graphics&);
     void timerCallback() override;
     int getNumRows() override;
     void paintListBoxItem(int, juce::Graphics&, int, int, bool) override;

@@ -47,7 +47,7 @@ void AlfaLookAndFeel::applyColours()
     setColour(juce::ToggleButton::textColourId, t.text);
     setColour(juce::ToggleButton::tickColourId, t.accent);
     setColour(juce::ToggleButton::tickDisabledColourId, t.line);
-    setColour(juce::ComboBox::backgroundColourId, t.panel);
+    setColour(juce::ComboBox::backgroundColourId, t.bg);
     setColour(juce::ComboBox::textColourId, t.text);
     setColour(juce::ComboBox::outlineColourId, t.line);
     setColour(juce::ComboBox::arrowColourId, t.text2);
@@ -95,15 +95,17 @@ void AlfaLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int widt
                                        float sliderPos, float startAngle, float endAngle,
                                        juce::Slider& slider)
 {
+    // A raised cap sitting in a recessed well, with a thin value arc around it. Bipolar ranges grow from
+    // the centre: amber above it, blue below, as every signed value in the product.
     const auto& t = current;
     const bool dimmed = slider.getProperties()[dimmedProperty];
     const bool light = t.bg.getPerceivedBrightness() > 0.5f;
-    const auto area = juce::Rectangle<int>(x, y, width, height).toFloat().reduced(3.0f);
-    const auto diameter = juce::jmin(area.getWidth(), area.getHeight());
+    const auto area = juce::Rectangle<int>(x, y, width, height).toFloat().reduced(2.0f);
+    const auto diameter = juce::jmin(area.getWidth(), area.getHeight(), 64.0f);
     const auto centre = area.getCentre();
     const auto radius = diameter * 0.5f;
-    const auto trackWidth = juce::jlimit(2.0f, 4.0f, radius * 0.09f);
-    const auto arcRadius = radius - trackWidth - 1.5f;
+    const auto trackWidth = juce::jlimit(2.0f, 3.2f, radius * 0.11f);
+    const auto arcRadius = radius - trackWidth * 0.5f - 0.5f;
 
     auto arc = [&](float from, float to, float r)
     {
@@ -116,56 +118,62 @@ void AlfaLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int widt
         return juce::PathStrokeType(w, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
     };
 
-    // Track
-    g.setColour(t.line);
+    const auto track = light ? t.line : t.panel.brighter(0.12f);
+    g.setColour(track);
     g.strokePath(arc(startAngle, endAngle, arcRadius), rounded(trackWidth));
 
-    // Value arc with a soft glow; bipolar ranges grow from the centre, others from the start.
     const auto angle = startAngle + sliderPos * (endAngle - startAngle);
     const bool bipolar = slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0;
-    const auto origin = bipolar ? (startAngle + endAngle) * 0.5f : startAngle;
-    const auto valueColour = dimmed ? t.text2.withAlpha(0.5f) : t.accent;
-    const auto valueArc = arc(juce::jmin(origin, angle), juce::jmax(origin, angle), arcRadius);
-    if (!dimmed)
+    const auto origin = bipolar ? startAngle + static_cast<float>(slider.valueToProportionOfLength(0.0)) *
+                                                   (endAngle - startAngle)
+                                : startAngle;
+    if (bipolar)
     {
-        g.setColour(valueColour.withAlpha(0.14f));
-        g.strokePath(valueArc, rounded(trackWidth * 3.2f));
+        g.setColour(t.text2.withAlpha(0.6f));
+        g.fillEllipse(juce::Rectangle<float>(2.6f, 2.6f).withCentre(centre.getPointOnCircumference(arcRadius, origin)));
     }
-    g.setColour(valueColour);
-    g.strokePath(valueArc, rounded(trackWidth));
+    const auto valueColour = dimmed ? t.text2.withAlpha(0.5f) : (angle < origin ? t.mod : t.accent);
+    if (std::abs(angle - origin) > 0.01f)
+    {
+        g.setColour(valueColour);
+        g.strokePath(arc(juce::jmin(origin, angle), juce::jmax(origin, angle), arcRadius), rounded(trackWidth));
+    }
 
-    // Modulation ring outside the value arc, covering the range the source moves it through.
+    // Modulation ring just outside the value arc, covering the range the source moves it through.
     const double modDepth = slider.getProperties()[modDepthProperty];
     if (std::abs(modDepth) > 0.001)
     {
         const auto span = static_cast<float>(modDepth) * (endAngle - startAngle);
         const auto modEnd = juce::jlimit(startAngle, endAngle, angle + span);
-        g.setColour(t.mod);
-        g.strokePath(arc(juce::jmin(angle, modEnd), juce::jmax(angle, modEnd), radius - trackWidth * 0.4f),
-                     rounded(trackWidth * 0.7f));
+        g.setColour(t.mod.withAlpha(0.8f));
+        g.strokePath(arc(juce::jmin(angle, modEnd), juce::jmax(angle, modEnd), arcRadius + trackWidth + 1.0f),
+                     rounded(1.5f));
     }
 
-    // Body: a soft shadow, then a lit dome.
-    const auto bodyRadius = arcRadius - trackWidth * 2.2f;
-    const auto body = juce::Rectangle<float>(bodyRadius * 2.0f, bodyRadius * 2.0f).withCentre(centre);
-    g.setColour(juce::Colours::black.withAlpha(light ? 0.10f : 0.32f));
-    g.fillEllipse(body.translated(0.0f, bodyRadius * 0.12f).expanded(1.5f));
-    const auto top = light ? t.panel.brighter(0.4f) : t.panel.brighter(0.22f);
-    const auto bottom = light ? t.panel.darker(0.06f) : t.panel.darker(0.12f);
-    g.setGradientFill(
-        juce::ColourGradient(top, centre.x, body.getY(), bottom, centre.x, body.getBottom(), false));
-    g.fillEllipse(body);
-    g.setColour(juce::Colours::white.withAlpha(light ? 0.6f : 0.07f));
-    g.drawEllipse(body.reduced(0.75f), 1.0f);
+    // Well, then the cap with a soft shadow and a hairline of light on its upper rim.
+    const auto wellRadius = arcRadius - trackWidth - 2.5f;
+    const auto well = juce::Rectangle<float>(wellRadius * 2, wellRadius * 2).withCentre(centre);
+    g.setColour(light ? t.bg.darker(0.03f) : t.bg.darker(0.12f));
+    g.fillEllipse(well);
+    const auto capRadius = wellRadius - 3.0f;
+    const auto cap = juce::Rectangle<float>(capRadius * 2, capRadius * 2).withCentre(centre);
+    g.setColour(juce::Colours::black.withAlpha(light ? 0.16f : 0.45f));
+    g.fillEllipse(cap.translated(0, 1.6f).expanded(0.6f));
+    const auto top = light ? juce::Colours::white : t.panel.brighter(0.55f);
+    const auto bottom = light ? t.panel.darker(0.03f) : t.panel.brighter(0.2f);
+    g.setGradientFill(juce::ColourGradient(top, centre.x, cap.getY(), bottom, centre.x, cap.getBottom(), false));
+    g.fillEllipse(cap);
+    g.setColour(juce::Colours::white.withAlpha(light ? 1.0f : 0.09f));
+    g.strokePath(arc(juce::MathConstants<float>::pi * 1.62f, juce::MathConstants<float>::pi * 2.38f, capRadius - 0.6f),
+                 juce::PathStrokeType(1.0f));
 
-    // Pointer: a short line near the rim.
-    const auto pointerStart = centre.getPointOnCircumference(bodyRadius * 0.45f, angle);
-    const auto pointerEnd = centre.getPointOnCircumference(bodyRadius * 0.82f, angle);
-    g.setColour(dimmed ? t.text2 : (slider.isMouseOverOrDragging() ? t.accent : t.text));
-    g.drawLine({pointerStart, pointerEnd}, juce::jmax(1.8f, trackWidth * 0.75f));
+    const auto pointerStart = centre.getPointOnCircumference(capRadius * 0.3f, angle);
+    const auto pointerEnd = centre.getPointOnCircumference(capRadius * 0.78f, angle);
+    g.setColour(dimmed ? t.text2 : (slider.isMouseOverOrDragging() ? valueColour : t.text));
+    g.drawLine({pointerStart, pointerEnd}, 2.0f);
 
     if (slider.hasKeyboardFocus(true))
-        drawFocusOutline(g, area.withSizeKeepingCentre(diameter, diameter).expanded(1.0f), diameter * 0.5f);
+        drawFocusOutline(g, juce::Rectangle<float>(diameter, diameter).withCentre(centre).expanded(1.0f), diameter * 0.5f);
 }
 
 void AlfaLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int width, int height,
@@ -179,36 +187,41 @@ void AlfaLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int widt
     const bool vertical = style == juce::Slider::LinearVertical || style == juce::Slider::LinearBarVertical;
     const auto thickness = 4.0f;
 
+    // A recessed groove, a neutral fill and a small raised cap.
     auto track = vertical ? bounds.withSizeKeepingCentre(thickness, bounds.getHeight())
                           : bounds.withSizeKeepingCentre(bounds.getWidth(), thickness);
-    g.setColour(t.line);
+    g.setColour(light ? t.bg.darker(0.04f) : t.bg.darker(0.15f));
     g.fillRoundedRectangle(track, thickness * 0.5f);
+    g.setColour(juce::Colours::black.withAlpha(light ? 0.08f : 0.3f));
+    g.drawHorizontalLine(juce::roundToInt(track.getY()), track.getX() + 2, track.getRight() - 2);
 
-    // Fill from zero when the range spans it, else from the minimum.
     const bool bipolar = slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0;
     const auto zero = bipolar ? static_cast<float>(slider.getPositionOfValue(0.0))
                               : (vertical ? track.getBottom() : track.getX());
     const auto from = juce::jmin(zero, sliderPos), to = juce::jmax(zero, sliderPos);
     auto filled = vertical ? track.withTop(from).withBottom(to) : track.withLeft(from).withRight(to);
-    const auto fill = dimmed ? t.text2.withAlpha(0.5f) : t.accent;
-    g.setColour(fill.withAlpha(0.18f));
-    g.fillRoundedRectangle(filled.expanded(vertical ? 3.0f : 0.0f, vertical ? 0.0f : 3.0f), 4.0f);
+    const auto fill = dimmed ? t.text2.withAlpha(0.4f)
+                      : bipolar ? (sliderPos < zero ? t.mod : t.accent).withAlpha(0.85f)
+                                : t.text2.withAlpha(0.8f);
     g.setColour(fill);
     g.fillRoundedRectangle(filled, thickness * 0.5f);
 
-    // Thumb: a lit disc with an accent rim.
-    const auto thumbSize = 14.0f;
+    const auto thumbSize = 12.0f;
     const auto thumb = juce::Rectangle<float>(thumbSize, thumbSize)
                            .withCentre(vertical ? juce::Point<float>{track.getCentreX(), sliderPos}
                                                 : juce::Point<float>{sliderPos, track.getCentreY()});
-    g.setColour(juce::Colours::black.withAlpha(light ? 0.12f : 0.35f));
-    g.fillEllipse(thumb.translated(0.0f, 1.5f));
-    g.setGradientFill(juce::ColourGradient(light ? juce::Colours::white : t.panel.brighter(0.35f),
-                                           thumb.getCentreX(), thumb.getY(), t.panel.brighter(0.05f),
+    g.setColour(juce::Colours::black.withAlpha(light ? 0.18f : 0.5f));
+    g.fillEllipse(thumb.translated(0.0f, 1.2f).expanded(0.5f));
+    g.setGradientFill(juce::ColourGradient(light ? juce::Colours::white : t.panel.brighter(0.6f),
+                                           thumb.getCentreX(), thumb.getY(),
+                                           light ? t.panel.darker(0.03f) : t.panel.brighter(0.25f),
                                            thumb.getCentreX(), thumb.getBottom(), false));
     g.fillEllipse(thumb);
-    g.setColour(slider.isMouseOverOrDragging() ? fill : fill.withAlpha(0.75f));
-    g.drawEllipse(thumb.reduced(1.0f), 1.6f);
+    if (slider.isMouseOverOrDragging())
+    {
+        g.setColour(t.accent.withAlpha(0.8f));
+        g.drawEllipse(thumb.reduced(0.5f), 1.2f);
+    }
 
     if (slider.hasKeyboardFocus(true))
         drawFocusOutline(g, bounds, 4.0f);
@@ -218,7 +231,7 @@ juce::Label* AlfaLookAndFeel::createSliderTextBox(juce::Slider& slider)
 {
     // Values read as quiet text under the control, not as boxed fields; double-click to type one.
     auto* label = LookAndFeel_V4::createSliderTextBox(slider);
-    label->setFont(monoFont(12.0f));
+    label->setFont(labelFont(11.0f));
     label->setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
     label->setColour(juce::Label::outlineColourId, juce::Colours::transparentBlack);
     label->setColour(juce::Label::textColourId, current.text2);
@@ -230,32 +243,79 @@ juce::Label* AlfaLookAndFeel::createSliderTextBox(juce::Slider& slider)
 void AlfaLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& button, const juce::Colour&,
                                            bool isMouseOverButton, bool isButtonDown)
 {
+    // Three button looks, set with the "look" property: "tab" (text with an underline when on),
+    // "segment" (one choice inside a recessed group the parent draws) and the default raised button.
     const auto& t = current;
-    const auto bounds = button.getLocalBounds().toFloat().reduced(0.5f);
+    const bool light = t.bg.getPerceivedBrightness() > 0.5f;
+    const auto look = button.getProperties()[lookProperty].toString();
+    const auto bounds = button.getLocalBounds().toFloat();
     const bool on = button.getToggleState();
-    const auto radius = 7.0f;
-
-    auto fill = on ? t.accent : t.panel.brighter(0.03f);
-    if (isButtonDown)
-        fill = fill.darker(0.12f);
-    else if (isMouseOverButton)
-        fill = fill.brighter(on ? 0.08f : 0.06f);
-
-    g.setGradientFill(juce::ColourGradient(fill.brighter(0.05f), 0.0f, bounds.getY(), fill.darker(0.05f),
-                                           0.0f, bounds.getBottom(), false));
-    g.fillRoundedRectangle(bounds, radius);
-    g.setColour(on ? t.accent.darker(0.1f) : t.line);
-    g.drawRoundedRectangle(bounds, radius, 1.0f);
-
+    if (look == "tab")
+    {
+        if (on)
+        {
+            g.setColour(t.text);
+            g.fillRoundedRectangle(bounds.withTop(bounds.getBottom() - 2).reduced(10, 0), 1);
+        }
+        else if (isMouseOverButton)
+        {
+            g.setColour(t.text2.withAlpha(0.35f));
+            g.fillRoundedRectangle(bounds.withTop(bounds.getBottom() - 2).reduced(10, 0), 1);
+        }
+    }
+    else if (look == "segment")
+    {
+        if (on)
+        {
+            const auto r = bounds.reduced(0.5f, 0.5f);
+            g.setColour(juce::Colours::black.withAlpha(light ? 0.12f : 0.45f));
+            g.fillRoundedRectangle(r.translated(0, 1), 5);
+            g.setColour(light ? juce::Colours::white : t.panel.brighter(0.14f));
+            g.fillRoundedRectangle(r, 5);
+            g.setColour(juce::Colours::white.withAlpha(light ? 1.0f : 0.06f));
+            g.drawHorizontalLine(juce::roundToInt(r.getY()), r.getX() + 4, r.getRight() - 4);
+        }
+        else if (isMouseOverButton)
+        {
+            g.setColour(t.text2.withAlpha(0.1f));
+            g.fillRoundedRectangle(bounds.reduced(0.5f), 5);
+        }
+    }
+    else
+    {
+        auto fill = on ? (light ? juce::Colours::white : t.panel.brighter(0.16f))
+                       : (light ? t.panel.brighter(0.4f) : t.panel.brighter(0.07f));
+        if (isButtonDown)
+            fill = fill.darker(0.08f);
+        else if (isMouseOverButton)
+            fill = fill.brighter(light ? 0.0f : 0.08f).darker(light ? 0.02f : 0.0f);
+        const auto r = bounds.reduced(0.5f, 1.0f);
+        g.setColour(juce::Colours::black.withAlpha(light ? 0.1f : 0.45f));
+        g.fillRoundedRectangle(r.translated(0, 1), 7);
+        g.setColour(fill);
+        g.fillRoundedRectangle(r, 7);
+        g.setColour(juce::Colours::white.withAlpha(light ? 1.0f : 0.06f));
+        g.drawHorizontalLine(juce::roundToInt(r.getY()), r.getX() + 5, r.getRight() - 5);
+        if (on)
+        {
+            g.setColour(t.accent);
+            g.fillRoundedRectangle(r.withTop(r.getBottom() - 2).reduced(8, 0), 1);
+        }
+    }
     if (button.hasKeyboardFocus(false))
-        drawFocusOutline(g, bounds, radius);
+        drawFocusOutline(g, bounds.reduced(0.5f), 7.0f);
 }
 
-void AlfaLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& button, bool, bool)
+void AlfaLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& button, bool isMouseOverButton, bool)
 {
     const auto& t = current;
-    g.setFont(getTextButtonFont(button, button.getHeight()));
-    auto colour = button.getToggleState() ? t.bg : t.text;
+    const auto look = button.getProperties()[lookProperty].toString();
+    const bool on = button.getToggleState();
+    const bool prominent = look == "tab" || look == "segment" ? on : true;
+    g.setFont(labelFont(look == "tab" ? 12.5f : 12.0f, on && look != ""));
+    auto colour = prominent || isMouseOverButton ? t.text : t.text2;
+    if (look.isEmpty() && !on && button.getProperties()["quiet"])
+        colour = isMouseOverButton ? t.text : t.text2;
     if (!button.isEnabled())
         colour = t.text2.withAlpha(0.45f);
     g.setColour(colour);
@@ -267,23 +327,29 @@ void AlfaLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& bu
                                        bool)
 {
     const auto& t = current;
+    const bool light = t.bg.getPerceivedBrightness() > 0.5f;
     auto bounds = button.getLocalBounds().toFloat();
-    const auto switchArea = bounds.removeFromLeft(34.0f).withSizeKeepingCentre(30.0f, 16.0f);
+    const auto switchArea = bounds.removeFromLeft(30.0f).withSizeKeepingCentre(26.0f, 14.0f);
     const bool on = button.getToggleState();
 
-    g.setColour(on ? t.accent : t.line);
-    g.fillRoundedRectangle(switchArea, 8.0f);
-    const auto knob = juce::Rectangle<float>(12.0f, 12.0f)
-                          .withCentre({on ? switchArea.getRight() - 8.0f : switchArea.getX() + 8.0f,
+    g.setColour(on ? t.accent : (light ? t.bg.darker(0.05f) : t.bg.darker(0.15f)));
+    g.fillRoundedRectangle(switchArea, 7.0f);
+    if (!on)
+    {
+        g.setColour(juce::Colours::black.withAlpha(light ? 0.08f : 0.3f));
+        g.drawHorizontalLine(juce::roundToInt(switchArea.getY()), switchArea.getX() + 4, switchArea.getRight() - 4);
+    }
+    const auto knob = juce::Rectangle<float>(10.0f, 10.0f)
+                          .withCentre({on ? switchArea.getRight() - 7.0f : switchArea.getX() + 7.0f,
                                        switchArea.getCentreY()});
-    g.setColour(juce::Colours::black.withAlpha(0.2f));
+    g.setColour(juce::Colours::black.withAlpha(0.25f));
     g.fillEllipse(knob.translated(0.0f, 1.0f));
-    g.setColour(on ? t.bg : (isMouseOverButton ? t.text : t.text2));
+    g.setColour(on ? juce::Colours::white : (isMouseOverButton ? t.text : (light ? juce::Colours::white : t.text2)));
     g.fillEllipse(knob);
 
-    g.setColour(button.isEnabled() ? t.text : t.text2.withAlpha(0.5f));
-    g.setFont(labelFont(13.0f));
-    g.drawFittedText(button.getButtonText(), bounds.withTrimmedLeft(8.0f).toNearestInt(),
+    g.setColour(button.isEnabled() ? (on || isMouseOverButton ? t.text : t.text2) : t.text2.withAlpha(0.5f));
+    g.setFont(labelFont(12.0f));
+    g.drawFittedText(button.getButtonText(), bounds.withTrimmedLeft(6.0f).toNearestInt(),
                      juce::Justification::centredLeft, 1);
 
     if (button.hasKeyboardFocus(false))
@@ -294,33 +360,37 @@ void AlfaLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, boo
                                    juce::ComboBox& box)
 {
     const auto& t = current;
+    const bool light = t.bg.getPerceivedBrightness() > 0.5f;
     const auto bounds =
-        juce::Rectangle<float>(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height))
-            .reduced(0.5f);
-    g.setGradientFill(juce::ColourGradient(t.panel.brighter(0.05f), 0.0f, bounds.getY(),
-                                           t.panel.darker(0.03f), 0.0f, bounds.getBottom(), false));
+        juce::Rectangle<float>(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)).reduced(0.5f);
+    g.setColour(light ? t.bg.interpolatedWith(t.panel, 0.3f) : t.bg.darker(0.12f));
     g.fillRoundedRectangle(bounds, 7.0f);
-    g.setColour(box.hasKeyboardFocus(true) ? t.accent : t.line);
-    g.drawRoundedRectangle(bounds, 7.0f, 1.0f);
+    g.setColour(juce::Colours::black.withAlpha(light ? 0.08f : 0.35f));
+    g.drawHorizontalLine(juce::roundToInt(bounds.getY()) + 1, bounds.getX() + 5, bounds.getRight() - 5);
+    if (box.hasKeyboardFocus(true))
+    {
+        g.setColour(t.accent);
+        g.drawRoundedRectangle(bounds, 7.0f, 1.0f);
+    }
 
     juce::Path arrow;
     const auto cx = bounds.getRight() - 12.0f;
     const auto cy = bounds.getCentreY();
-    arrow.startNewSubPath(cx - 4.0f, cy - 2.0f);
+    arrow.startNewSubPath(cx - 3.5f, cy - 1.5f);
     arrow.lineTo(cx, cy + 2.0f);
-    arrow.lineTo(cx + 4.0f, cy - 2.0f);
+    arrow.lineTo(cx + 3.5f, cy - 1.5f);
     g.setColour(t.text2);
-    g.strokePath(arrow, juce::PathStrokeType(1.5f));
+    g.strokePath(arrow, juce::PathStrokeType(1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 }
 
 juce::Font AlfaLookAndFeel::getComboBoxFont(juce::ComboBox& box)
 {
-    return labelFont(juce::jmin(14.0f, static_cast<float>(box.getHeight()) * 0.5f));
+    return labelFont(juce::jmin(13.0f, static_cast<float>(box.getHeight()) * 0.48f));
 }
 
 juce::Font AlfaLookAndFeel::getTextButtonFont(juce::TextButton&, int buttonHeight)
 {
-    return labelFont(juce::jmin(14.0f, static_cast<float>(buttonHeight) * 0.5f));
+    return labelFont(juce::jmin(12.5f, static_cast<float>(buttonHeight) * 0.46f));
 }
 
 juce::Font AlfaLookAndFeel::getLabelFont(juce::Label& label)

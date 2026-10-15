@@ -119,15 +119,27 @@ inline void allowRename(juce::Label& label, const juce::String& raw,
 class ParameterKnob final : public juce::Component
 {
 public:
-    ParameterKnob(Processor& p, const juce::String& id, const juce::String& label, bool percent = false)
+    // A fader is a short horizontal slider with its name on the left and its value on the right.
+    ParameterKnob(Processor& p, const juce::String& id, const juce::String& label, bool percent = false,
+                  bool fader = false)
         : parameterId(id)
+        , fader_(fader)
     {
         name.setText(label, juce::dontSendNotification);
-        name.setJustificationType(juce::Justification::centred);
+        name.setJustificationType(fader ? juce::Justification::centredLeft : juce::Justification::centred);
+        name.setFont(alfa::ui::AlfaLookAndFeel::labelFont(fader ? 11.0f : 12.0f, true));
         addAndMakeVisible(name);
-        alfa::ui::visuals::rotaryGesture(slider,
-                                         p.uiSettings().getProperty("knob_gesture", "vertical").toString());
-        slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 86, 16);
+        if (fader)
+        {
+            slider.setSliderStyle(juce::Slider::LinearHorizontal);
+            slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 64, 18);
+        }
+        else
+        {
+            alfa::ui::visuals::rotaryGesture(slider,
+                                             p.uiSettings().getProperty("knob_gesture", "vertical").toString());
+            slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 86, 16);
+        }
         addAndMakeVisible(slider);
         slider.setWantsKeyboardFocus(true);
         if (percent)
@@ -156,7 +168,15 @@ public:
         attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(p.parameters(),
                                                                                             id, slider);
         // The attachment installs the parameter's own seven-decimal text; X controls read better compact.
-        if (!percent && !id.contains("gain"))
+        if (percent)
+        {
+            slider.textFromValueFunction = [](double v)
+            {
+                return juce::String(juce::roundToInt(v * 100)) + " %";
+            };
+            slider.updateText();
+        }
+        else if (!id.contains("gain"))
         {
             slider.textFromValueFunction = [](double v)
             {
@@ -167,13 +187,17 @@ public:
     }
     void resized() override
     {
-        // Name under the knob, value as quiet text between them.
+        // Name under the knob, value as quiet text between them; a fader reads left to right.
         auto r = getLocalBounds();
-        name.setBounds(r.removeFromBottom(18));
+        if (fader_)
+            name.setBounds(r.removeFromLeft(38));
+        else
+            name.setBounds(r.removeFromBottom(18));
         slider.setBounds(r);
     }
     // Built before it joins the editor, so it takes the editor's look (value text, fonts) only now.
     void parentHierarchyChanged() override { sendLookAndFeelChange(); }
+    bool isFader() const noexcept { return fader_; }
     juce::Slider& control() { return slider; }
     juce::Label& title() { return name; }
     std::function<void()> onTouched;
@@ -185,6 +209,7 @@ public:
 
 private:
     juce::String parameterId;
+    bool fader_ = false;
     juce::Label name;
     juce::Slider slider;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
@@ -391,44 +416,186 @@ private:
     juce::Slider slider;
     juce::ToggleButton lock;
 };
+// The whole sound at a glance: the output spectrum now (solid) and where its recent change is taking it
+// (dashed: the measured change of the last half second carried on for as long again), amber where it
+// rises and blue where it falls, with the measured change of a few broad properties beside it.
 class LiveScope final : public juce::Component
 {
 public:
+    static constexpr size_t bandCount = 120;
+    static constexpr float lowest = 30.0f, highest = 16000.0f, floorDb = -72.0f;
     LiveScope(Processor& p, alfa::ui::AlfaLookAndFeel& l)
         : processor(p)
         , look(l)
     {
-        bands.fill(-90);
+        fast.fill(floorDb);
+        slow.fill(floorDb);
     }
-    void paint(juce::Graphics& g) override
+    // Analyse the latest output; called at the editor's timer rate.
+    void tick()
     {
-        const auto& t = look.theme();
-        surface(g, t, getLocalBounds(), "OUTPUT");
-        alfa::ui::visuals::badge(g, juce::Rectangle<float>(static_cast<float>(getWidth() - 132), 5, 120, 18),
-                                 "CH 1 / FFT 2048", t.mod);
-        auto area = getLocalBounds().reduced(16, 12).withTrimmedTop(24);
-        auto spectrumArea = area.removeFromBottom(area.getHeight() / 3);
         std::array<float, 2048> samples{};
-        const auto captureCursor = processor.waveformCursor.load(std::memory_order_relaxed) % samples.size();
+        const auto start = processor.waveformCursor.load(std::memory_order_relaxed) % samples.size();
         for (size_t i = 0; i < samples.size(); ++i)
-            samples[i] = processor.waveformSnapshot[(captureCursor + i) % samples.size()].load(
-                std::memory_order_relaxed);
-        alfa::ui::visuals::waveform(g, area.toFloat(), t, samples, t.mod, false);
+            samples[i] = processor.waveformSnapshot[(start + i) % samples.size()].load(std::memory_order_relaxed);
         std::array<float, 4096> data{};
         std::copy(samples.begin(), samples.end(), data.begin());
         window.multiplyWithWindowingTable(data.data(), 2048);
         fft.performFrequencyOnlyForwardTransform(data.data());
-        alfa::ui::visuals::logSpectrum(data, 2048, static_cast<float>(processor.getSampleRate()), bands);
-        alfa::ui::visuals::spectrum(g, spectrumArea.reduced(0, 3).toFloat(), t, bands);
+        rate = static_cast<float>(processor.getSampleRate() > 0 ? processor.getSampleRate() : 48000.0);
+        const auto seed = !seeded;
+        seeded = true;
+        const auto bin = rate / 2048.0f;
+        for (size_t k = 0; k < bandCount; ++k)
+        {
+            const auto low = frequency(static_cast<float>(k)), high = frequency(static_cast<float>(k) + 1.0f);
+            float peak = 0;
+            if (high - low < bin)
+            {
+                // Narrower than one bin: interpolate between the two nearest bins.
+                const auto position = juce::jlimit(1.0f, 1022.0f, 0.5f * (low + high) / bin);
+                const auto i = static_cast<size_t>(position);
+                const auto f = position - static_cast<float>(i);
+                peak = data[i] * (1 - f) + data[i + 1] * f;
+            }
+            else
+                for (auto i = static_cast<size_t>(std::ceil(low / bin)); i <= static_cast<size_t>(high / bin) && i < 1024; ++i)
+                    peak = juce::jmax(peak, data[i]);
+            const auto db = juce::jmax(floorDb, juce::Decibels::gainToDecibels(peak / 512.0f, floorDb));
+            fast[k] = seed ? db : fast[k] + 0.5f * (db - fast[k]);
+            slow[k] = seed ? db : slow[k] + 0.07f * (db - slow[k]);
+        }
+        repaint();
+    }
+    void paint(juce::Graphics& g) override
+    {
+        const auto& t = look.theme();
+        alfa::ui::visuals::panel(g, t, getLocalBounds(), "Sound",
+                                 "output spectrum, and where its recent change is heading", t.accent);
+        auto inner = getLocalBounds().reduced(10).withTrimmedTop(26);
+        const auto listWidth = inner.getWidth() > 520 ? 168 : 0;
+        auto list = inner.removeFromRight(listWidth);
+        if (listWidth)
+            inner.removeFromRight(8);
+        const auto screen = inner.toFloat();
+        alfa::ui::visuals::recessed(g, t, screen, 8);
+        auto plot = screen.reduced(30, 10).withTrimmedBottom(14).withTrimmedRight(-20);
+        const auto x = [&](float hz)
+        {
+            return plot.getX() + plot.getWidth() * std::log(hz / lowest) / std::log(highest / lowest);
+        };
+        const auto y = [&](float db)
+        {
+            return plot.getY() + plot.getHeight() * juce::jlimit(0.0f, 1.0f, db / floorDb);
+        };
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(9.5f));
+        for (const auto db : {0.0f, -24.0f, -48.0f})
+        {
+            g.setColour(alfa::ui::visuals::gridColour(t));
+            g.drawHorizontalLine(static_cast<int>(y(db)), plot.getX(), plot.getRight());
+            g.setColour(t.text2.withAlpha(0.7f));
+            g.drawText(juce::String(static_cast<int>(db)), juce::Rectangle<float>(screen.getX() + 2, y(db) - 6, 24, 12),
+                       juce::Justification::centredRight);
+        }
+        for (const auto& [hz, label] : std::initializer_list<std::pair<float, const char*>>{
+                 {50, "50"}, {100, "100"}, {200, "200"}, {500, "500"}, {1000, "1k"}, {2000, "2k"},
+                 {5000, "5k"}, {10000, "10k"}})
+        {
+            g.setColour(alfa::ui::visuals::gridColour(t));
+            g.drawVerticalLine(static_cast<int>(x(hz)), plot.getY(), plot.getBottom());
+            g.setColour(t.text2.withAlpha(0.7f));
+            g.drawText(label, juce::Rectangle<float>(x(hz) - 16, plot.getBottom() + 3, 32, 11),
+                       juce::Justification::centred);
+        }
+        std::vector<juce::Point<float>> now, next;
+        float level = floorDb;
+        for (size_t k = 0; k < bandCount; ++k)
+            level = juce::jmax(level, fast[k]);
+        const auto sounding = level > floorDb + 6;
+        for (size_t k = 0; k < bandCount; ++k)
+        {
+            const auto hz = frequency(static_cast<float>(k) + 0.5f);
+            now.push_back({x(hz), y(fast[k])});
+            next.push_back({x(hz), y(juce::jlimit(floorDb, 0.0f, fast[k] + (fast[k] - slow[k])))});
+        }
+        alfa::ui::visuals::deltaCurves(g, t, now, sounding ? next : std::vector<juce::Point<float>>{},
+                                       plot.getBottom());
+        if (!listWidth)
+            return;
+        // Broad properties of the output, now against half a second ago.
+        auto rows = list.toFloat().reduced(4, 2);
+        g.setColour(t.text2);
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(9.5f, true));
+        g.drawText("MEASURED CHANGE", rows.removeFromTop(16), juce::Justification::centredLeft);
+        rows.removeFromTop(2);
+        const auto measured = measure();
+        const auto rowHeight = juce::jmin(20.0f, rows.getHeight() / static_cast<float>(measured.size()));
+        for (const auto& [name, change, unit, digits] : measured)
+        {
+            auto row = rows.removeFromTop(rowHeight);
+            g.setColour(t.text2);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11));
+            g.drawText(name, row, juce::Justification::centredLeft);
+            g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(11.5f, true));
+            const auto quiet = !sounding || std::abs(change) < std::pow(10.0, -digits) * 0.5;
+            g.setColour(quiet ? t.text2 : change > 0 ? t.accent : t.mod);
+            g.drawText(!sounding ? juce::String("-")
+                                 : (change > 0 && !quiet ? "+" : "") +
+                                       (digits == 0 ? juce::String(quiet ? 0 : juce::roundToInt(change))
+                                                    : juce::String(quiet ? 0.0 : change, digits)) +
+                                       " " + unit,
+                       row, juce::Justification::centredRight);
+        }
     }
 
 private:
+    struct Property
+    {
+        juce::String name;
+        double change;
+        juce::String unit;
+        int digits;
+    };
     Processor& processor;
     alfa::ui::AlfaLookAndFeel& look;
-    std::array<float, 64> bands{};
+    std::array<float, bandCount> fast{}, slow{};
+    float rate = 48000;
+    bool seeded = false;
     juce::dsp::FFT fft{11};
     juce::dsp::WindowingFunction<float> window{2048, juce::dsp::WindowingFunction<float>::hann};
+    static float frequency(float band)
+    {
+        return lowest * std::pow(highest / lowest, band / static_cast<float>(bandCount));
+    }
+    std::vector<Property> measure() const
+    {
+        const auto summary = [&](const std::array<float, bandCount>& bands)
+        {
+            // Power in the whole spectrum and in three regions, and the power-weighted centre frequency.
+            std::array<double, 5> result{};
+            double weighted = 0;
+            for (size_t k = 0; k < bandCount; ++k)
+            {
+                const auto hz = frequency(static_cast<float>(k) + 0.5f);
+                const auto power = std::pow(10.0, bands[k] / 10.0);
+                result[0] += power;
+                result[hz < 250 ? 1 : hz < 4000 ? 2 : 3] += power;
+                weighted += power * hz;
+            }
+            result[4] = result[0] > 0 ? weighted / result[0] : 0;
+            for (size_t i = 0; i < 4; ++i)
+                result[i] = 10 * std::log10(juce::jmax(1e-12, result[i]));
+            return result;
+        };
+        const auto a = summary(fast), b = summary(slow);
+        return {{"Level", a[0] - b[0], "dB", 1},
+                {"Centroid", a[4] - b[4], "Hz", 0},
+                {"Lows < 250 Hz", a[1] - b[1], "dB", 1},
+                {"Mids", a[2] - b[2], "dB", 1},
+                {"Highs > 4 kHz", a[3] - b[3], "dB", 1}};
+    }
 };
+// Input and output peaks as two thin horizontal bars, left over right channel.
 class StereoMeter final : public juce::Component
 {
 public:
@@ -440,21 +607,83 @@ public:
     void paint(juce::Graphics& g) override
     {
         const auto& t = look.theme();
-        auto area = getLocalBounds().reduced(8);
-        g.setFont(alfa::ui::AlfaLookAndFeel::monoFont(10));
+        auto area = getLocalBounds().toFloat();
+        g.setFont(alfa::ui::AlfaLookAndFeel::labelFont(9.5f, true));
+        const auto rowHeight = area.getHeight() / 2;
         for (int pair = 0; pair < 2; ++pair)
         {
-            auto bar = area.removeFromLeft(area.getWidth() / (2 - pair)).reduced(4, 0);
+            auto row = area.removeFromTop(rowHeight);
             g.setColour(t.text2);
-            g.drawText(pair == 0 ? "IN" : "OUT", bar.removeFromTop(16), juce::Justification::centred);
+            g.drawText(pair == 0 ? "IN" : "OUT", row.removeFromLeft(26), juce::Justification::centredLeft);
             const auto& peaks = pair == 0 ? processor.inputPeak : processor.outputPeak;
-            alfa::ui::visuals::meter(g, bar.toFloat(), t, peaks[0].load(), peaks[1].load(),
-                                     pair == 0 ? t.mod : t.accent);
+            for (int channel = 0; channel < 2; ++channel)
+            {
+                const auto bar = row.withHeight(3).withY(row.getCentreY() - 3.5f + 4.0f * static_cast<float>(channel));
+                g.setColour(alfa::ui::visuals::screenColour(t));
+                g.fillRoundedRectangle(bar, 1.5f);
+                const auto peak = peaks[static_cast<size_t>(channel)].load();
+                const auto fraction = levelFraction(peak);
+                g.setColour(juce::Decibels::gainToDecibels(peak, -60.0f) > -1 ? t.warn
+                                                                                 : alfa::ui::visuals::nowColour(t));
+                g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * fraction), 1.5f);
+            }
         }
     }
 
 private:
     Processor& processor;
+    alfa::ui::AlfaLookAndFeel& look;
+};
+// The on-screen keyboard: soft ivory and graphite keys, played keys in the accent.
+class KeyboardView final : public juce::MidiKeyboardComponent
+{
+public:
+    KeyboardView(juce::MidiKeyboardState& keys, alfa::ui::AlfaLookAndFeel& l)
+        : juce::MidiKeyboardComponent(keys, horizontalKeyboard)
+        , look(l)
+    {
+        setScrollButtonsVisible(false);
+    }
+    void paint(juce::Graphics& g) override
+    {
+        const auto& t = look.theme();
+        g.setColour(alfa::ui::visuals::screenColour(t));
+        g.fillRoundedRectangle(getLocalBounds().toFloat(), 6);
+        juce::MidiKeyboardComponent::paint(g);
+    }
+    void drawWhiteNote(int, juce::Graphics& g, juce::Rectangle<float> area, bool isDown, bool isOver,
+                       juce::Colour, juce::Colour) override
+    {
+        const auto& t = look.theme();
+        const auto light = alfa::ui::visuals::isLight(t);
+        auto key = area.reduced(0.75f, 0).withTrimmedTop(1);
+        auto colour = isDown ? t.accent : light ? juce::Colour(0xfffdfcfa) : juce::Colour(0xffe6e2d9);
+        if (isOver && !isDown)
+            colour = colour.darker(0.06f);
+        g.setGradientFill(juce::ColourGradient(colour, key.getX(), key.getY(), colour.darker(0.07f), key.getX(),
+                                               key.getBottom(), false));
+        g.fillRoundedRectangle(key, 3);
+        g.setColour(juce::Colours::black.withAlpha(light ? 0.16f : 0.25f));
+        g.drawRoundedRectangle(key, 3, 0.75f);
+    }
+    void drawBlackNote(int, juce::Graphics& g, juce::Rectangle<float> area, bool isDown, bool isOver,
+                       juce::Colour) override
+    {
+        const auto& t = look.theme();
+        auto key = area.withTrimmedTop(1).reduced(0.5f, 0);
+        auto colour = isDown ? t.accent.darker(0.15f) : juce::Colour(0xff1d1f24);
+        if (isOver && !isDown)
+            colour = colour.brighter(0.15f);
+        g.setColour(juce::Colours::black.withAlpha(0.3f));
+        g.fillRoundedRectangle(key.translated(0, 1.5f), 2.5f);
+        g.setGradientFill(juce::ColourGradient(colour.brighter(0.25f), key.getX(), key.getY(), colour, key.getX(),
+                                               key.getBottom(), false));
+        g.fillRoundedRectangle(key, 2.5f);
+        g.setColour(juce::Colours::white.withAlpha(isDown ? 0.2f : 0.08f));
+        g.fillRoundedRectangle(key.reduced(2.0f, 0).removeFromBottom(4).translated(0, -2), 1.5f);
+    }
+
+private:
     alfa::ui::AlfaLookAndFeel& look;
 };
 class ExplorationPad final : public juce::Component

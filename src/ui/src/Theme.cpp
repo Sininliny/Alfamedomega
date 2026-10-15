@@ -6,16 +6,16 @@ namespace
 {
 constexpr const char* graphiteJson = R"({
   "name": "Graphite",
-  "bg": "#17181C", "panel": "#202227", "line": "#2E3138",
-  "text": "#EAE6DF", "text2": "#A29E95",
-  "accent": "#E2A54E", "mod": "#7BA9D8", "warn": "#DE8068"
+  "bg": "#111317", "panel": "#1B1E24", "line": "#2A2E36",
+  "text": "#EBE9E4", "text2": "#8B9099",
+  "accent": "#F2A35E", "mod": "#6AA2F5", "warn": "#E27B62"
 })";
 
 constexpr const char* paperJson = R"({
   "name": "Paper",
-  "bg": "#ECE8E1", "panel": "#F7F5F0", "line": "#D9D3C8",
-  "text": "#2A2824", "text2": "#67635B",
-  "accent": "#B06A16", "mod": "#3A71AB", "warn": "#B3492E"
+  "bg": "#E9E7E2", "panel": "#F4F3EF", "line": "#DDDAD3",
+  "text": "#23252A", "text2": "#6B6E75",
+  "accent": "#D9822F", "mod": "#3B78D8", "warn": "#C0502F"
 })";
 
 constexpr const char* contrastJson = R"({
@@ -47,14 +47,14 @@ Theme Theme::fromJson(const juce::String& json)
     {
         Theme t;
         t.name = "Graphite";
-        t.bg = juce::Colour(0xff17181c);
-        t.panel = juce::Colour(0xff202227);
-        t.line = juce::Colour(0xff2e3138);
-        t.text = juce::Colour(0xffeae6df);
-        t.text2 = juce::Colour(0xffa29e95);
-        t.accent = juce::Colour(0xffe2a54e);
-        t.mod = juce::Colour(0xff7ba9d8);
-        t.warn = juce::Colour(0xffde8068);
+        t.bg = juce::Colour(0xff111317);
+        t.panel = juce::Colour(0xff1b1e24);
+        t.line = juce::Colour(0xff2a2e36);
+        t.text = juce::Colour(0xffebe9e4);
+        t.text2 = juce::Colour(0xff8b9099);
+        t.accent = juce::Colour(0xfff2a35e);
+        t.mod = juce::Colour(0xff6aa2f5);
+        t.warn = juce::Colour(0xffe27b62);
         return t;
     }();
 
