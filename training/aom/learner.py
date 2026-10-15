@@ -336,7 +336,7 @@ def load(path: Path, *, available_ram_bytes=None):
     if available_ram_bytes is not None:
         available = min(available, available_ram_bytes)
     ModelBudget(Path(path).stat().st_size * 4, available, 0, 0)
-    package = torch.load(Path(path), map_location="cpu", weights_only=True, mmap=True)
+    package = torch.load(str(Path(path)), map_location="cpu", weights_only=True, mmap=True)
     if package.get("format") != "aom-dual-tensor-v1":
         raise ValueError("Unsupported AOM learner package")
     metadata = package["metadata"]
