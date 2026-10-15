@@ -1,9 +1,8 @@
 name: CI
 
+# Manual runs only: there are no Actions minutes, so automatic runs only
+# produced failure emails. Run it from the Actions tab when needed.
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
 concurrency:
