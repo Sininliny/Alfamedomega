@@ -82,7 +82,7 @@ def pad_tensor(source: Tensor, schema: TensorSchema) -> PaddedTensor:
 
 @dataclass(frozen=True)
 class Representation:
-    """Named AOM tensors in an explicitly versioned ontology, without method slots."""
+    """Named AMO tensors in an explicitly versioned ontology, without method slots."""
     ontology: str
     tensors: tuple[tuple[str, Tensor], ...]
 

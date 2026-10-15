@@ -1,4 +1,4 @@
-"""AOM queue integration without opening the legacy Models store or a DAW."""
+"""AMO queue integration without opening the legacy Models store or a DAW."""
 import json
 import os
 from pathlib import Path

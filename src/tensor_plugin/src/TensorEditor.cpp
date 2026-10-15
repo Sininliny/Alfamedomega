@@ -2386,7 +2386,7 @@ void Editor::selectMatrixCell(int source, int destination)
 }
 std::vector<size_t> Editor::controlOrder() const
 {
-    // A learned ranking written by AOM Centre orders the controls, most important first.
+    // A learned ranking written by AMO Centre orders the controls, most important first.
     // Without one the order is the authored index order and nothing is called learned.
     const auto layers = sound_.value("control_layers", nlohmann::json::array());
     const auto layer = static_cast<size_t>(highLayer_);
@@ -2412,7 +2412,7 @@ void Editor::rebuildHighControls()
         size_t count = 0;
         if (layer < layers.size())
             count = layers[layer].at("values").size();
-        // A learned ranking written by AOM Centre orders the controls, most important first.
+        // A learned ranking written by AMO Centre orders the controls, most important first.
         // Without one the order is the authored index order and nothing is called learned.
         std::vector<size_t> order(count);
         std::iota(order.begin(), order.end(), size_t{0});

@@ -58,7 +58,7 @@ src/tensor_plugin/ native tensor Standalone/VST3 and layered editor
 src/inference/   legacy model loading and real-time inference host (no JUCE)
 src/ui/          look-and-feel and editor components
 src/plugin/      the plugin target
-training/        AOM data contract plus legacy method training and ONNX export
+training/        AMO data contract plus legacy method training and ONNX export
 programs/        explicit demonstration tensor programs, not learned defaults
 docs/            design docs and decision records
 cmake/           build helpers and pinned dependencies

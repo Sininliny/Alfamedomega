@@ -22,7 +22,7 @@ VST3, while preserving the existing targets.
   the original 0.35. Canonical loss fell from 0.05110 to 0.0000462; rendered-instance
   loss fell from 0.09097 to 0.00000224. These are fixture results, not evidence of
   arbitrary-WAV generalization.
-- AOM Centre CLI invokes the new learner and compiler; the GUI uses an independent
+- AMO Centre CLI invokes the new learner and compiler; the GUI uses an independent
   process for tensor training/import, leaving the audio host outside offline work.
 - C++ formatting uses locally installed clang-format 22.1.3; CI's version 18 and
   other operating systems have not been run here.
@@ -67,7 +67,7 @@ certification is inferred from the local build and deterministic checks.
 - Tensor suite: 47 cases, 42,291 assertions passed.
 - Native tensor host: 6 cases, 27 assertions passed.
 - Combined tensor/training/retained-plugin CTest selection: 72/72 passed.
-- AOM Centre in its PySide6 environment: 54 passed, 6 platform/environment skips.
+- AMO Centre in its PySide6 environment: 54 passed, 6 platform/environment skips.
 - Actual Standalone smoke process: exit code 0 after its processor/editor checks.
 - Actual trained runtime GRU rendered 16,000 samples at 16 kHz. Its learned routing
   coefficient produced peak 0.159958 versus baseline 0.080000; reset replay was

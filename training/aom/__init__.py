@@ -1,4 +1,4 @@
-"""Validated AOM training contracts; no learned model or waveform normalizer."""
+"""Validated AMO training contracts; no learned model or waveform normalizer."""
 
 from .contracts import (
     CanonicalGroup, ModelBudget, ModelCategory, NormalizationRecord, PaddedTensor,

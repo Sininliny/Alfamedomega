@@ -338,7 +338,7 @@ def load(path: Path, *, available_ram_bytes=None):
     ModelBudget(Path(path).stat().st_size * 4, available, 0, 0)
     package = torch.load(Path(path), map_location="cpu", weights_only=True, mmap=True)
     if package.get("format") != "aom-dual-tensor-v1":
-        raise ValueError("Unsupported AOM learner package")
+        raise ValueError("Unsupported AMO learner package")
     metadata = package["metadata"]
     count = metadata["input_width"] * metadata["hidden_width"] + metadata["hidden_width"] + 4 * (metadata["hidden_width"] + 1) * metadata["target_width"]
     ModelBudget(count * 16, available, 0, 0)

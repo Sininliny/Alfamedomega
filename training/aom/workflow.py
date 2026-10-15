@@ -1,4 +1,4 @@
-"""Independent manifest workflows and publication gates for AOM Centre."""
+"""Independent manifest workflows and publication gates for AMO Centre."""
 import json
 import math
 from pathlib import Path

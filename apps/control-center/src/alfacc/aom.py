@@ -1,7 +1,7 @@
 """Control Center services for the independent tensor compiler learner/runtime.
 
 The caller explicitly supplies repository and model paths. These services never
-silently route AOM operations to the legacy method-vector trainer.
+silently route AMO operations to the legacy method-vector trainer.
 """
 import json
 import os
@@ -17,14 +17,14 @@ TRAINING_CATEGORIES = {"train": "wav_preset_learning", "train-runtime": "runtime
 
 def create_tensor_job(manager, repository, action, arguments, *, python=None,
                       checkpoint=None, resume=False, checkpoint_every=100):
-    """Queue independent AOM work with durable history and cooperative cancellation."""
+    """Queue independent AMO work with durable history and cooperative cancellation."""
     from .jobs import cmd_step, FINISHED
     if action not in (*TRAINING_CATEGORIES, "preflight", "infer", "import-wav", "build-dataset", "evaluate-wav",
                       "rank-controls"):
-        raise ValueError("Unsupported AOM task")
+        raise ValueError("Unsupported AMO task")
     repository = Path(repository).resolve()
     if not (repository / "training/aom/__main__.py").is_file():
-        raise ValueError("Select a repository containing the AOM training package")
+        raise ValueError("Select a repository containing the AMO training package")
     if action in TRAINING_CATEGORIES:
         if len(arguments) != 2:
             raise ValueError("Training requires a manifest and output package")
@@ -107,10 +107,10 @@ def infer_tensor_preset(repository: Path, model: Path, wav: Path, output: Path,
 def validate_tensor_document(document: dict) -> None:
     """Early UI format check; authoritative semantic validation is native prepare."""
     if document.get("schema") != "aom.tensor/1" or not document.get("ontology"):
-        raise ValueError("An explicitly versioned AOM tensor document is required")
+        raise ValueError("An explicitly versioned AMO tensor document is required")
     tensors = document.get("tensors", {})
     if set(tensors) != {"activation", "parameters", "routing", "modulation"}:
-        raise ValueError("AOM compiler requires activation, parameters, routing and modulation tensors")
+        raise ValueError("AMO compiler requires activation, parameters, routing and modulation tensors")
 
 
 def import_tensor_wav(repository: Path, model: Path, wav: Path, template: Path,

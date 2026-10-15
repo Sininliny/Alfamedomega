@@ -1,4 +1,4 @@
-# AOM tensor training requirements
+# AMO tensor training requirements
 
 This is the new training specification supplied by Sinin on 2026-09-30. It is not a claim that
 `alfamedomega_train.py` implements it. That script remains the legacy method-based trainer,
@@ -24,7 +24,7 @@ context. No single 250 Hz hop or fixed primitive-slot count defines the replacem
 | Model | Purpose | Resource priority |
 |---|---|---|
 | Runtime | Real-time DSP configuration/control prediction | Low latency, predictable CPU/runtime cost |
-| Preset learning | Offline arbitrary WAV-to-editable-AOM inference and structure estimation | Reconstruction quality, deeper analysis and search |
+| Preset learning | Offline arbitrary WAV-to-editable-AMO inference and structure estimation | Reconstruction quality, deeper analysis and search |
 | Preference | Local taste adaptation and exploration | Personalization and local learning |
 
 The offline learner may be much larger and slower than the runtime model. Its importer must estimate
@@ -39,7 +39,7 @@ estimator has been selected or implemented for this new model yet.
 Define:
 
 ```text
-C       = canonical normalized AOM representation before parameter perturbation
+C       = canonical normalized AMO representation before parameter perturbation
 I_delta = valid perturbed instance of C
 W_delta = deterministic DSP render of I_delta at a sampled performance/pitch
 W_input = W_delta under sampled recording/loudness conditions
@@ -51,7 +51,7 @@ recover the actual rendered instance for reconstruction and parameter understand
 against I_delta is explicitly ruled out. A reconstruction target does not replace canonical identity
 supervision, and perturbed examples must not be mislabeled as the canonical target.
 
-Generate examples by selecting a known AOM preset, perturbing parameters within valid ranges,
+Generate examples by selecting a known AMO preset, perturbing parameters within valid ranges,
 rendering multiple variations, and rendering the same sound at different pitches. Preserve the
 canonical identity and perturbation provenance across these pairs. Source construction, routing,
 state and performance labels must remain distinguishable from inferred or unknown metadata.
@@ -192,7 +192,7 @@ hand-authored semantic macros (see `docs/audio-tensor-space/mission.md`).
 
 ## Implementation status
 
-The `src/tensor` runtime executes and validates the four shared tensors. The AOM
+The `src/tensor` runtime executes and validates the four shared tensors. The AMO
 Centre training system now supplies separate WAV, recurrent runtime, local-preference
 and measured-importance workflows, explicit data provenance/group validation,
 RAM/VRAM checks, CPU/CUDA training, cancellation and reproducible checkpoints.
@@ -210,4 +210,4 @@ and constrained measured-candidate tier conversion are implemented; full learned
 cross-tier distillation remains outside these reference fixtures. Legacy training
 commands keep their historical outputs and are explicitly identified as legacy.
 
-Operational manifests, examples and limits: [AOM Centre training system](../docs/control-center/aom-training-system.md).
+Operational manifests, examples and limits: [AMO Centre training system](../docs/control-center/amo-training-system.md).

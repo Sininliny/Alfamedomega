@@ -1,6 +1,6 @@
-# AOM Centre
+# AMO Centre
 
-The Alfamedomega control center (window title **AOM Centre**). A standalone app for the work that isn't playing music: training model sizes, installing and
+The Alfamedomega control center (window title **AMO Centre**). A standalone app for the work that isn't playing music: training model sizes, installing and
 moving model weights, running Adaptive Preference Learning in batch over your sample
 libraries, and learning the timbres of the instrument plugins you already own. The plugin (VST3/AAX) stays focused on performance and reads what this app installs.
 
@@ -30,7 +30,7 @@ export ALFA_MODELS_DIR=/tmp/alfa/Models ALFA_CC_HOME=/tmp/alfa/home
 
 | Area | Actions |
 |---|---|
-| **Audio Tensor Space** | Build controlled native datasets; preflight manifests; train separate WAV/runtime/preference/importance models; cancel/resume; measure native reconstruction; import editable tensor presets. [Training system guide](../../docs/control-center/aom-training-system.md). |
+| **Audio Tensor Space** | Build controlled native datasets; preflight manifests; train separate WAV/runtime/preference/importance models; cancel/resume; measure native reconstruction; import editable tensor presets. [Training system guide](../../docs/control-center/amo-training-system.md). |
 | **Legacy models** | See which sizes are installed; import a `.alfamodel` bundle, a training export folder or a zipped export from Colab; export a bundle; verify SHA-256; remove; set the default size. Folder layout and manifest: [model-store.md](../../docs/control-center/model-store.md). |
 | **Legacy training** | Run `training/alfamedomega_train.py` with a Python that has PyTorch, for any tier and stage (pretrain, polish, fine-tune, distil), then export and install the result in the same job. Or write a self-contained Colab notebook, and import the export zip when it is done. |
 | **Legacy preference learning** | Choose sample and preset folders, index them into weak text labels from file and folder names, and run the preference learner over them. Forget everything with one button. [preference-batch.md](../../docs/control-center/preference-batch.md). |

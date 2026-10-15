@@ -23,7 +23,7 @@ if(ALFA_BUILD_TESTS)
     find_package(Python3 QUIET COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
         set(ALFA_AOM_TRAINING_PYTHON "${Python3_EXECUTABLE}" CACHE FILEPATH
-            "Python with NumPy and PyTorch for the AOM learner tests")
+            "Python with NumPy and PyTorch for the AMO learner tests")
         add_test(NAME alfa_aom_training_contracts
             COMMAND ${ALFA_AOM_TRAINING_PYTHON} -m unittest
                     training.tests.test_aom_contracts training.tests.test_aom_hardware -v)
@@ -42,7 +42,7 @@ if(ALFA_BUILD_TESTS)
                 WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
                 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
         else()
-            message(STATUS "AOM learner tests require NumPy/PyTorch; set ALFA_AOM_TRAINING_PYTHON to that environment")
+            message(STATUS "AMO learner tests require NumPy/PyTorch; set ALFA_AOM_TRAINING_PYTHON to that environment")
         endif()
     endif()
 endif()

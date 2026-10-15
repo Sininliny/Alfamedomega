@@ -58,7 +58,7 @@ def build_dataset(plan_path, destination, *, dll_path=None, cancelled=None, prog
     ModelBudget(plan_path.stat().st_size * 16, measured, 0, 0)
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     if plan.get("schema") != "aom.dataset-plan/1" or plan["analysis"]["recording_policy"] != "controlled_render":
-        raise ValueError("An explicit controlled-render AOM dataset plan is required")
+        raise ValueError("An explicit controlled-render AMO dataset plan is required")
     allowance = min(plan["learn"]["available_ram_bytes"], measured)
     if destination.exists():
         raise ValueError("Dataset destination already exists; choose a new version directory")

@@ -14,7 +14,7 @@ env:
 
 jobs:
   tensor-training:
-    name: AOM tensor learners (CPU)
+    name: AMO tensor learners (CPU)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

@@ -1,4 +1,4 @@
-"""alfa-cc-gui: the AOM Centre window (PySide6).
+"""alfa-cc-gui: the AMO Centre window (PySide6).
 
 A thin layer over the core: every button creates a job or calls the model store, so the GUI and
 the CLI always agree. Jobs run one at a time in the background; the window polls their records.
@@ -958,7 +958,7 @@ class JobsPage(Page):
 
 class SettingsPage(Page):
     def __init__(self, win):
-        super().__init__(win, "Settings", f"AOM Centre {__version__}. Data folder: {win.ctx.home}")
+        super().__init__(win, "Settings", f"AMO Centre {__version__}. Data folder: {win.ctx.home}")
         f, lay = card()
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignRight)
@@ -1032,7 +1032,7 @@ class MainWindow(QMainWindow):
     def __init__(self, ctx: Context):
         super().__init__()
         self.ctx = ctx
-        self.setWindowTitle("AOM Centre")
+        self.setWindowTitle("AMO Centre")
         self.resize(1180, 800)
         self.aom_recent, self.aom_finished = {}, set()
         central = QWidget()
@@ -1088,7 +1088,7 @@ class MainWindow(QMainWindow):
         title = label("  Alfamedomega", "h2")
         title.setContentsMargins(12, 18, 0, 0)
         bl.addWidget(title)
-        sub = label("   AOM Centre", "muted")
+        sub = label("   AMO Centre", "muted")
         sub.setContentsMargins(12, 0, 0, 8)
         bl.addWidget(sub)
         bl.addWidget(self.nav, 1)
@@ -1158,7 +1158,7 @@ class MainWindow(QMainWindow):
 def main(argv=None) -> int:
     argv = sys.argv if argv is None else argv
     app = QApplication(argv)
-    app.setApplicationName("AOM Centre")
+    app.setApplicationName("AMO Centre")
     app.setStyleSheet(stylesheet())
     home = models = None
     args = argv[1:]

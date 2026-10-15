@@ -339,7 +339,7 @@ def build_parser() -> argparse.ArgumentParser:
     inference.add_argument("output", type=Path)
     inference.add_argument("--mask-threshold", type=float, required=True)
     inference.add_argument("--python")
-    importing = actions.add_parser("import-wav", help="infer and compile an editable AOM preset")
+    importing = actions.add_parser("import-wav", help="infer and compile an editable AMO preset")
     for name in ("model", "wav", "template", "bounds", "output"):
         importing.add_argument(name, type=Path)
     importing.add_argument("--head", choices=("primary_canonical", "secondary_rendered_instance"), required=True)
