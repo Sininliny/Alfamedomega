@@ -1,0 +1,201 @@
+{
+  "generation_commit": "342642ddccc88ae0e28aecf88ce1c5ad8ffc0454",
+  "comparison_commit": "b43c6cb6019d9f9916ffb542c56b4f94ffc222d8",
+  "comparison_native_library_sha256": "ae5d558b55d14e9358e43eb750875762c3db4dfa2b10777a0961882013f50443",
+  "strict_replay_compatible": false,
+  "families": {
+    "additive_sparse4": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 6.05359673500061e-08,
+      "max_rms_error": 3.1161037804617195e-08
+    },
+    "additive_dense12": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 2,
+      "max_sample_error": 6.332993507385254e-08,
+      "max_rms_error": 3.3725202330807186e-08
+    },
+    "additive_inharmonic8": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 6.007030606269836e-08,
+      "max_rms_error": 3.100516253883177e-08
+    },
+    "saw_lowpass": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.2036097449288646e-08
+    },
+    "saw_bandpass": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.5306911189265106e-08
+    },
+    "saw_highpass": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 2.7437484240833594e-08
+    },
+    "saw_lp_tanh": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.445424383270915e-08
+    },
+    "saw_tanh_lp": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.2059893365968055e-08
+    },
+    "wavetable_lowpass": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.443776526739526e-08
+    },
+    "sine_ring": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.435589021011553e-08
+    },
+    "sine_fm": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.4470247547505116e-08
+    },
+    "sine_am": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.447210894783232e-08
+    },
+    "saw_chorus": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.234293086137761e-08
+    },
+    "saw_phaser": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.348618549153111e-08
+    },
+    "saw_comb": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.263145203593675e-08
+    },
+    "noise_bandpass": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.1244109331783934e-08
+    },
+    "noise_modal": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 2.5349234852457587e-08
+    },
+    "impulse_modal4": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 2.2348756457731296e-08
+    },
+    "impulse_modal12": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 2.568395788888834e-08
+    },
+    "impulse_waveguide": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 1.620342500862073e-08
+    },
+    "additive_resonator": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 1,
+      "max_sample_error": 4.577450454235077e-07,
+      "max_rms_error": 4.154361059871751e-08
+    },
+    "fm_lowpass": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.426096578263751e-08
+    },
+    "additive_cubic": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 2,
+      "max_sample_error": 6.705522537231445e-08,
+      "max_rms_error": 3.252485290831013e-08
+    },
+    "additive_feedback": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.30371535493766e-08
+    },
+    "fx_lowpass": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.338600316752233e-08
+    },
+    "fx_highpass": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.34670500045942e-08
+    },
+    "fx_bandpass": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.324145510089097e-08
+    },
+    "fx_tanh": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 4.185111316982856e-08
+    },
+    "fx_phaser": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.33777180440576e-08
+    },
+    "fx_stereo_width": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.355978413514964e-08
+    },
+    "fx_ring_delay": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.449164975948045e-08
+    },
+    "fx_fir": {
+      "replays": 48,
+      "above_original_pcm24_tolerance": 0,
+      "max_sample_error": 5.960464477539063e-08,
+      "max_rms_error": 3.278062583261478e-08
+    }
+  },
+  "action": "Keep original dataset immutable and pin generation runtime for strict reconstruction. New corpora must be generated with the current runtime. Existing WAV/graph features remain readable."
+}

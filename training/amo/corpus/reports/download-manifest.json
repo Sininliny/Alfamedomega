@@ -1,0 +1,42 @@
+{
+  "dataset": "alfamedomega-round-expanded-20261014-corpus-v2",
+  "generation_commit": "342642ddccc88ae0e28aecf88ce1c5ad8ffc0454",
+  "examples": 131072,
+  "canonical_groups": 16384,
+  "parts": [
+    {
+      "name": "corpus-v2.tar.zst.part-000",
+      "bytes": 1992294400,
+      "sha256": "927845ac60866cd72a18443fd9173fa0d24141b7f6cc389d6b8ad85866be9f0d"
+    },
+    {
+      "name": "corpus-v2.tar.zst.part-001",
+      "bytes": 1992294400,
+      "sha256": "4cb7db50fe4a8da429e95e5f84dd3aa1e9fea9c78e62c2924b811de4a3b65121"
+    },
+    {
+      "name": "corpus-v2.tar.zst.part-002",
+      "bytes": 1992294400,
+      "sha256": "89091efe6e13900b72af73bf5ff04b9eb1d2520f29f50356fbfe708e3aad7afb"
+    },
+    {
+      "name": "corpus-v2.tar.zst.part-003",
+      "bytes": 1992294400,
+      "sha256": "28c2d382eb8093b2a4820479c73dd82e4cfa00af60c99c514c63109701d99b18"
+    },
+    {
+      "name": "corpus-v2.tar.zst.part-004",
+      "bytes": 1992294400,
+      "sha256": "14143824880ab35a2909d0717e85c07fa8414c010090e705b52c9202852b112a"
+    },
+    {
+      "name": "corpus-v2.tar.zst.part-005",
+      "bytes": 260968963,
+      "sha256": "2a98ef0a2169f3944a28e96fd665576a174ccfb5c6b0184864a05ec2a82b8ba7"
+    }
+  ],
+  "unpacked_bytes": 23764725636,
+  "files": 181594,
+  "archive_checksum_and_member_sizes_verified": true,
+  "windows_target": "F:\\source\\code\\Alfamedomega\\training\\data\\round-expanded-20261014\\corpus-v2"
+}

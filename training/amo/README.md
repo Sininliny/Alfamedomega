@@ -156,3 +156,6 @@ quality gates and the limits of the reference analysis/reconstruction policies.
 Synthetic executable examples are in [examples](examples/controlled-dataset-plan.json).
 Run the expanded lifecycle/CPU/CUDA/native regression suite with `python -m pytest
 training/tests`; the existing unittest examples remain usable for the earlier tests.
+
+The [CPU corpus](corpus/README.md) supplies 32 authored graph families, paired FX inputs,
+canonical/instance graph targets, group splits and bounded shard readers.
