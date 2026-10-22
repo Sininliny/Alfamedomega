@@ -182,6 +182,8 @@ def main():
     parser.add_argument("train_args", nargs=argparse.REMAINDER,
                         help="extra arguments for training.amo.corpus.train after --, e.g. -- --epochs 150")
     args = parser.parse_args()
+    if "@" in args.user:
+        parser.error("--user is the Kaggle handle shown in kaggle.com/<handle>, not the account e-mail")
     extra = [a for a in args.train_args if a != "--"]
     header = "BUNDLE = " + repr(bundle()) + "\n"
     common = BOOTSTRAP.format(commit=commit())
