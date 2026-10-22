@@ -81,7 +81,7 @@ python -m training.amo.corpus.diversity_audit training/data/round-expanded-20261
 重做须选择新版本目录：
 
 ```bash
-python -m training.amo.corpus.prepare build NEW_DIRECTORY --canonical-per-type 512 --workers 4
+python -m training.amo.corpus.prepare build NEW_DIRECTORY --canonical-per-type 512 --workers 4 [--no-wav]
 ```
 
 原生渲染使用 `build/data-release/src/tensor/libalfa_tensor_c.so` 的 Release 库。库和源码版本指纹已保存；只在 CPU 上运行。生成时峰值不超过 0.406357；重放最大逐样本误差 5.96e-8，符合 PCM24 量化精度。音频、状态时钟、路由/图、资产、mask 和特征均已核验，未启动 optimizer。原始生成版本与审计结果见 [reports/report.json](reports/report.json) 和 [reports/verification.json](reports/verification.json)。
@@ -112,3 +112,28 @@ py -3 .\restore.py --source . --project 'F:\source\code\Alfamedomega'
 ```
 
 恢复程序先核对每卷大小及 SHA-256，再流式解压，无须拼接出额外的大压缩包。它把数据放到 `training\data\round-expanded-20261014\corpus-v2`，要求解压数据量加 1 GiB 的空余空间，拒绝覆盖已有 corpus。下载目录与目标目录可以位于不同磁盘。校验清单只验证分卷内容与完整性，不代替原生运行时版本验证。
+
+## 2026-10-22 审查修订（corpus-v3）
+
+- **修复**：`prepare.py` 在 import 时设置 `CUDA_VISIBLE_DEVICES=""`，而 `reader.py` 会 import 它，导致任何用 reader 的 GPU 训练静默退回 CPU。现在只在命令行入口设置。
+- **修复（数据偏差）**：v2 中物理/模态 5 个结构族的时长单独取 1.6–2.4 秒，其余 0.9–1.45 秒；时长同时在 `X_audio[0]` 和 `conditions[1]` 里，模型可以只凭时长认出这些结构族。现在所有族统一取 1.2–2.4 秒。因此重新生成的数据是新版本 `corpus-v3`，与 v2 不逐字节一致。
+- **新增 `--no-wav`**：WAV 只在内存中量化并计算指纹，不写盘。全量约 0.8 GB（含 WAV 约 30 GB）。`validate` 在此模式下重新渲染并要求逐字节相同的 PCM24 指纹；旧 WAV learner 的 legacy manifest 需要 WAV 文件，因此跳过。
+- `--workers` 上限改为本机 CPU 数；无 git 的代码包（Kaggle）用 `AMO_SOURCE_COMMIT` 记录来源提交。
+- 全量生成很快：4 核约 25 分钟（4096 条 47 秒）。
+
+## 训练结构编码器
+
+[train.py](train.py) 从 `X_audio` 与已知演奏条件学习：结构族（32 类，只作预测目标）、8 个节点槽的原生运算、所有 padding 坐标的 presence，以及 canonical / instance 两头的 parameters、routing、modulation、assets 数值。扁平参数下标在不同结构族含义不同，所以数值按（结构族, 坐标）标准化（正值且跨度 ≥ 8 倍时用 log），数值头以结构族为条件：训练时用真实族，推理时用预测族。族内恒定的坐标直接由统计量解码，不计损失。
+
+```bash
+python -m training.amo.corpus.train CORPUS_DIR runs/corpus-encoder --epochs 120
+python -m training.amo.corpus.train CORPUS_DIR runs/corpus-encoder --epochs 120 --resume auto
+```
+
+- 每个 epoch 原子写入 `last.pt`，验证集改善时写 `best.pt`；`--checkpoint-minutes`（默认 20）在 epoch 内也存 `last.pt`；`--keep-every N` 另存 `epoch-NNNN.pt`。
+- `--resume auto` 从 `OUTPUT/last.pt` 或 `--resume-search` 目录下最新的 `last.pt` 精确续训（权重、AdamW、GradScaler、所有 RNG、epoch 内位置）。语料、协议或模型尺寸不同则拒绝续训。
+- `--time-budget-hours` 在时限前保存并以退出码 2 结束（Kaggle 用 11）。
+- 监控：每 `--log-every` 步打印 loss 各分量、学习率、梯度范数、samples/s、本 epoch 与总 ETA、GPU 显存；每个 epoch 打印验证 loss、结构族准确率、运算槽/整图准确率、presence 准确率、各张量 MAE(z) 以及用预测族解码的端到端 MAE。全部写入 `train.log` 与 `metrics.jsonl`。
+- 结束时导出 `model.pt`（`amo.corpus-encoder/1`：最佳权重、标准化统计、运算词表）。
+
+在 Kaggle 上生成与训练见 [kaggle/README.md](kaggle/README.md)。

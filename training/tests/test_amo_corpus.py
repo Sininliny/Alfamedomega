@@ -79,3 +79,54 @@ class CorpusReaderTests(unittest.TestCase):
         ):
             with self.assertRaises(ValueError):
                 next(batches(self.root, **arguments))
+
+
+class CorpusTrainingDataTests(unittest.TestCase):
+    """NumPy side of the corpus trainer; the model itself needs PyTorch."""
+
+    def test_load_split_concatenates_all_shards(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        shards = []
+        for index, type_id in enumerate((0, 3)):
+            shard = root / "shards" / f"s{index}"
+            shard.mkdir(parents=True)
+            shards.append({"shard": f"shards/s{index}"})
+            np.savez_compressed(
+                shard / "prepared.npz",
+                id=np.array([f"{index}-a", f"{index}-b"]),
+                canonical_id=np.array(["a", "b"]),
+                type_id=np.array([type_id, type_id]),
+                split=np.array([0, 1]),
+                X_audio=np.zeros((2, 2244), dtype=np.float32),
+                conditions=np.zeros((2, 10), dtype=np.float32),
+                fx_input_mask=np.zeros(2, dtype=bool),
+            )
+        (root / "shards.json").write_text(json.dumps(shards))
+        from training.amo.corpus.reader import load_split
+
+        train = load_split(root, "train")
+        self.assertEqual(train["id"].tolist(), ["0-a", "1-a"])
+        self.assertEqual(train["type_id"].tolist(), [0, 3])
+        with self.assertRaises(ValueError):
+            load_split(root, "test")
+
+    def test_target_statistics_round_trip_and_constant_coordinates(self):
+        from training.amo.corpus.train import TargetStats
+
+        type_id = np.array([0, 0, 0, 1, 1])
+        values = np.array(
+            [[200.0, 0.5, 0.0], [2000.0, 0.5, 0.0], [6000.0, 0.5, 0.0],
+             [-0.2, 0.0, 0.0], [0.4, 0.0, 0.0]], np.float32)
+        mask = np.array([[1, 1, 0]] * 3 + [[1, 0, 0]] * 2, bool)
+        stats = TargetStats.fit(type_id, [values], [mask], types=2)
+        self.assertTrue(stats.log[0, 0])  # positive and spans > 8x: log space
+        self.assertFalse(stats.log[1, 0])  # signed
+        self.assertFalse(stats.learnable[0, 1])  # constant inside family 0
+        self.assertFalse(stats.learnable[0, 2])  # absent padding
+        z = stats.encode(type_id, values, mask)
+        self.assertTrue(np.all(z[~mask] == 0))
+        decoded = stats.decode(type_id, z)
+        np.testing.assert_allclose(decoded[mask], values[mask], rtol=1e-5, atol=1e-6)
+        np.testing.assert_array_equal(stats.weight(type_id, mask)[:, 1], 0)

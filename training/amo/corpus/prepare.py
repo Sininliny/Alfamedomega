@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Auditable CPU-native, many-topology paired AOM training corpus."""
+"""Auditable CPU-native, many-topology paired AMO training corpus."""
 
 import argparse
 import copy
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -14,9 +15,6 @@ import sys
 import time
 import wave
 
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 import numpy as np
@@ -87,6 +85,18 @@ SOURCE_IDS = {
     "output_history": 8,
 }
 MAX_EDGES = 96
+
+
+def source_commit():
+    """Commit of the generating source; a git-less bundle (e.g. Kaggle) sets AMO_SOURCE_COMMIT."""
+    if os.environ.get("AMO_SOURCE_COMMIT"):
+        return os.environ["AMO_SOURCE_COMMIT"]
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, stderr=subprocess.DEVNULL
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
 
 
 def dump(path, data):
@@ -703,11 +713,11 @@ def performance_for(type_index, original_index, case):
     )
     sr = 16000 if case % 2 == 0 else 24000
     is_fx = type_index >= 24
-    duration = (
-        float(rng.uniform(0.90, 1.45))
-        if type_index not in (16, 17, 18, 19, 20)
-        else float(rng.uniform(1.6, 2.4))
-    )
+    # One duration range for every family: clip length is an observed input
+    # (X_audio[0] and conditions[1]), so family-specific ranges would let a
+    # model read "physical/modal" off the duration instead of the sound. The
+    # floor still covers the slowest ADSR release and modal T60 tails.
+    duration = float(rng.uniform(1.2, 2.4))
     note = int([36, 47, 58, 69][case] + rng.integers(-2, 3))
     # Limit high partials while still crossing registers and tuning conditions.
     note = min(69, max(34, note))
@@ -799,6 +809,12 @@ def audible(doc, raw):
 
 
 def write_wav(path, audio, sr):
+    """Quantise to stereo PCM24; write `path` unless it is None.
+
+    Returns (decoded audio, sha256 of the WAV file bytes). The digest is computed
+    from the in-memory file either way, so a corpus built with --no-wav carries
+    the same audio fingerprints as one that keeps its WAV files.
+    """
     if not np.isfinite(audio).all() or np.abs(audio).max() >= 1:
         raise ValueError("Invalid or clipping native audio")
     codes = np.rint(audio * 8388608).astype(np.int32)
@@ -813,13 +829,17 @@ def write_wav(path, audio, sr):
         .astype(np.uint8)
         .tobytes()
     )
-    with wave.open(str(path), "wb") as w:
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as w:
         w.setnchannels(2)
         w.setsampwidth(3)
         w.setframerate(sr)
         w.writeframes(encoded)
+    data = buffer.getvalue()
+    if path is not None:
+        Path(path).write_bytes(data)
     # Match stored PCM24 exactly for feature extraction and reproducibility checks.
-    return codes.astype(np.float64) / 8388608
+    return codes.astype(np.float64) / 8388608, hashlib.sha256(data).hexdigest()
 
 
 def features(audio, sr):
@@ -985,7 +1005,7 @@ def probe(destination):
 
 
 def generate_shard(task):
-    ti, start, count, total, root, op_ids = task
+    ti, start, count, total, root, op_ids, keep_wav = task
     name = NAMES[ti]
     root = Path(root)
     path = root / "shards" / f"{ti:02d}-{name}-{start:04d}"
@@ -996,7 +1016,8 @@ def generate_shard(task):
             "Incomplete shard exists; inspect it rather than overwrite " + str(path)
         )
     path.mkdir(parents=True)
-    (path / "audio").mkdir()
+    if keep_wav:
+        (path / "audio").mkdir()
     (path / "labels").mkdir()
     coordinates = lhs(total, 64, SEED + ti * 3109)
     split_order = np.random.default_rng(SEED + ti * 787).permutation(total)
@@ -1056,10 +1077,12 @@ def generate_shard(task):
             if ti >= 24:
                 input_file = path / "audio" / f"{group_id}-input-{case}.wav"
                 # DSP consumes precisely the stored PCM input, not an unrecorded higher-precision input.
-                source_audio = write_wav(
-                    input_file, source_audio.astype(np.float64), sr
-                ).astype(np.float32)
-                input_sha = file_digest(input_file)
+                source_audio, input_sha = write_wav(
+                    input_file if keep_wav else None, source_audio.astype(np.float64), sr
+                )
+                source_audio = source_audio.astype(np.float32)
+                if not keep_wav:
+                    input_file = None
             source_feature = (
                 features(source_audio, sr)
                 if ti >= 24
@@ -1085,7 +1108,7 @@ def generate_shard(task):
                         (name, original, case, "invalid output", peak, rms)
                     )
                 wav = path / "audio" / f"{example_id}.wav"
-                decoded = write_wav(wav, output, sr)
+                decoded, waveform_sha = write_wav(wav if keep_wav else None, output, sr)
                 output_feature = features(decoded, sr)
                 conditions = np.asarray(
                     [
@@ -1107,7 +1130,6 @@ def generate_shard(task):
                 fhash = hashlib.sha256(
                     np.rint(x * 1000).astype(np.int32).tobytes()
                 ).hexdigest()
-                waveform_sha = file_digest(wav)
                 waveforms_seen.add(waveform_sha)
                 features_seen.add(fhash)
                 minimum = min(minimum, rms)
@@ -1127,7 +1149,7 @@ def generate_shard(task):
                             canonical_path if variation == 0 else instance_path
                         ).relative_to(root)
                     ),
-                    "normalized_wav": str(wav.relative_to(root)),
+                    "normalized_wav": str(wav.relative_to(root)) if keep_wav else None,
                     "input_wav": str(input_file.relative_to(root))
                     if input_file
                     else None,
@@ -1167,7 +1189,7 @@ def generate_shard(task):
                 # The compact legacy export is deliberately restricted to matching known structures.
                 # Broad paired features remain the primary corpus for noisy/FX/nonfundamental examples.
                 legacy_feature = None
-                if name in LEGACY_PITCHED:
+                if keep_wav and name in LEGACY_PITCHED:
                     legacy_feature = np.asarray(
                         extract(decoded, sr, profile), np.float32
                     )
@@ -1273,7 +1295,7 @@ def generate_shard(task):
     return summary
 
 
-def build(destination, canonical_per_type, workers):
+def build(destination, canonical_per_type, workers, keep_wav=True):
     if destination.exists():
         raise ValueError("Published output exists; choose a new version")
     stage = destination.with_name(destination.name + ".staging")
@@ -1289,13 +1311,14 @@ def build(destination, canonical_per_type, workers):
         "points_per_canonical": 8,
         "workers": workers,
         "expected_examples": 32 * canonical_per_type * 8,
-        "git_commit": subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
-        ).strip(),
+        "git_commit": source_commit(),
         "script_sha256": file_digest(Path(__file__)),
         "native_library_sha256": file_digest(LIB),
         "split_policy": "original-construction group; stratified 75/12.5/12.5 per topology",
         "no_optimizer_started": True,
+        # False: WAV files were hashed in memory but not stored (prepared features,
+        # labels and fingerprints only). Legacy WAV-learner manifests need the files.
+        "wav_files": keep_wav,
     }
     dump(stage / "build-plan.json", plan)
     jobs = [
@@ -1306,6 +1329,7 @@ def build(destination, canonical_per_type, workers):
             canonical_per_type,
             str(stage),
             op_ids,
+            keep_wav,
         )
         for ti in range(32)
         for start in range(0, canonical_per_type, 64)
@@ -1504,15 +1528,17 @@ def validate(destination, verification_output=None):
             digest = row["sha256"]["wav"]
             assert audio_splits.get(digest, split) == split
             audio_splits[digest] = split
-            assert file_digest(destination / row["normalized_wav"]) == digest
-            checked_hashes += 1
+            if row["normalized_wav"]:
+                assert file_digest(destination / row["normalized_wav"]) == digest
+                checked_hashes += 1
+            if row["role"] == "paired_fx":
+                fx_pairs += 1
             if row["input_wav"]:
                 assert (
                     file_digest(destination / row["input_wav"])
                     == row["sha256"]["input"]
                 )
                 checked_hashes += 1
-                fx_pairs += 1
             for prefix, key in [
                 ("canonical_", "canonical_json"),
                 ("instance_", "instance_json"),
@@ -1542,6 +1568,13 @@ def validate(destination, verification_output=None):
             perf = row["performance"]
             _, midi = inputs_for(perf)
             source = np.zeros((perf["frames"], 2), np.float32)
+            if row["role"] == "paired_fx" and not row["input_wav"]:
+                # --no-wav corpus: regenerate the deterministic input and require
+                # the exact PCM24 file bytes that were fingerprinted.
+                source, input_sha = write_wav(None, inputs_for(perf)[0].astype(np.float64), perf["sample_rate"])
+                assert input_sha == row["sha256"]["input"], ("Input replay differs", row["id"])
+                source = source.astype(np.float32)
+                checked_hashes += 1
             if row["input_wav"]:
                 from training.amo.analysis import read_wav
 
@@ -1551,9 +1584,15 @@ def validate(destination, verification_output=None):
             doc = json.loads((destination / row["instance_json"]).read_text())
             with NativeRuntime(doc, perf["sample_rate"], LIB) as runtime:
                 output = audible(doc, runtime.render(audio=source, midi=midi))
-            from training.amo.analysis import read_wav
+            if row["normalized_wav"]:
+                from training.amo.analysis import read_wav
 
-            recorded, rate = read_wav(destination / row["normalized_wav"])
+                recorded, rate = read_wav(destination / row["normalized_wav"])
+            else:
+                recorded, replay_sha = write_wav(None, output, perf["sample_rate"])
+                rate = perf["sample_rate"]
+                assert replay_sha == row["sha256"]["wav"], ("Output replay differs", row["id"])
+                checked_hashes += 1
             assert rate == perf["sample_rate"]
             error = float(np.abs(recorded - output).max())
             max_error = max(max_error, error)
@@ -1566,7 +1605,7 @@ def validate(destination, verification_output=None):
                 [
                     features(recorded, rate),
                     features(source, rate)
-                    if row["input_wav"]
+                    if row["role"] == "paired_fx"
                     else np.zeros(32 * 35 + 2, np.float32),
                 ]
             )
@@ -1641,24 +1680,40 @@ class ShardReader:
 
 
 if __name__ == "__main__":
+    # Generation is CPU-only and single-threaded per worker. Set this only for the
+    # CLI: importing ShardReader from a GPU trainer must not hide its devices.
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=["build", "validate", "probe"])
     parser.add_argument("destination", type=Path)
     parser.add_argument("--canonical-per-type", type=int, default=512)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument(
+        "--no-wav",
+        action="store_true",
+        help="Do not store WAV files (~0.5 GB instead of ~30 GB); features, labels and "
+        "audio fingerprints are kept, legacy WAV-learner manifests are skipped",
+    )
+    parser.add_argument(
         "--verification-output",
         type=Path,
         help="Write verification separately without changing an existing corpus",
     )
     args = parser.parse_args()
-    if not 1 <= args.workers <= 4:
-        parser.error("Use 1–4 CPU workers")
+    if not 1 <= args.workers <= (os.cpu_count() or 1):
+        parser.error(f"Use 1–{os.cpu_count()} CPU workers")
     if args.canonical_per_type < 8 or args.canonical_per_type % 8:
         parser.error("Canonical count must be a positive multiple of 8, at least 8")
     if args.action == "probe":
         probe(args.destination.resolve())
     elif args.action == "build":
-        build(args.destination.resolve(), args.canonical_per_type, args.workers)
+        build(
+            args.destination.resolve(),
+            args.canonical_per_type,
+            args.workers,
+            keep_wav=not args.no_wav,
+        )
     else:
         validate(args.destination.resolve(), args.verification_output)

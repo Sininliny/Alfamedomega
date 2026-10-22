@@ -45,3 +45,21 @@ def batches(root, split="train", batch_size=64, protocol="originals", as_torch=F
                 inputs = {k: torch.from_numpy(v.copy()) for k, v in inputs.items()}
                 targets = {k: torch.from_numpy(v.copy()) for k, v in targets.items()}
             yield {"inputs": inputs, "targets": targets, "metadata": metadata}
+
+
+def load_split(root, split="train", protocol="originals", keys=None):
+    """Concatenate one split of every shard in memory, for globally shuffled SGD.
+
+    `batches` yields one shard (one structure family) at a time, which is right
+    for streaming evaluation but gives single-family optimizer batches. The
+    prepared features of the whole corpus fit in memory, so training loads a
+    split once and shuffles across families.
+    """
+    parts = {}
+    for batch in batches(root, split, batch_size=1 << 30, protocol=protocol):
+        merged = {**batch["inputs"], **batch["targets"], **batch["metadata"]}
+        for key in keys or merged:
+            parts.setdefault(key, []).append(merged[key])
+    if not parts:
+        raise ValueError(f"Split {split!r} is empty under protocol {protocol!r}")
+    return {key: np.concatenate(values) for key, values in parts.items()}
