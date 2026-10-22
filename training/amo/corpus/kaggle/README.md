@@ -27,6 +27,6 @@ python training/amo/corpus/kaggle/kaggle_push.py status amo-corpus-train-a
 python training/amo/corpus/kaggle/kaggle_push.py output amo-corpus-train-a build/kaggle/out-a
 ```
 
-凭据只从环境读取：`KAGGLE_USERNAME` + `KAGGLE_KEY`（或 `KAGGLE_API_TOKEN`），否则读 `~/.kaggle/kaggle.json`。装了官方 CLI 时也可以直接 `kaggle kernels push -p build/kaggle/generate`；训练 kernel 第二次起需要把另一个训练 kernel 加进 `kernel-metadata.json` 的 `kernel_sources`。
+`--user` 是 Kaggle 主页地址里的用户名（kaggle.com/<用户名>），不是登录邮箱；`status`/`output` 也请写全 `用户名/kernel`。凭据只从环境读取：`KAGGLE_USERNAME` + `KAGGLE_KEY`（或 `KAGGLE_API_TOKEN`），否则读 `~/.kaggle/kaggle.json`。装了官方 CLI 时也可以直接 `kaggle kernels push -p build/kaggle/generate`；训练 kernel 第二次起需要把另一个训练 kernel 加进 `kernel-metadata.json` 的 `kernel_sources`。
 
 额外训练参数写在 `--` 之后，例如 `-- --epochs 200 --width 512`。改动模型尺寸后旧 checkpoint 不能续训，训练会明确报错。
