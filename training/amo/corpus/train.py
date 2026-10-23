@@ -664,6 +664,12 @@ def train(args):
         log("   per-tensor val MAE(z): " + ", ".join(
             f"{k[10:]} {v:.3f}" for k, v in metrics.items() if k.startswith("val_mae_z_") and "e2e" not in k),
             log_path)
+        if args.patience:
+            best_epoch = min(history, key=lambda row: row["val_total"])["epoch"]
+            if epoch - best_epoch >= args.patience and epoch < args.epochs:
+                log(f"early stop: val has not improved for {epoch - best_epoch} epochs"
+                    f" (best {best:.4f} at epoch {best_epoch})", log_path)
+                break
         if time.monotonic() - run_start + float(np.mean(epoch_seconds[-3:])) > budget and epoch < args.epochs:
             log(f"time budget {args.time_budget_hours}h would be exceeded by the next epoch;"
                 f" stopping at epoch {epoch}, continue with --resume auto", log_path)
@@ -723,6 +729,8 @@ def parse(argv=None):
     parser.add_argument("--resume-search", nargs="*", default=["/kaggle/input"])
     parser.add_argument("--checkpoint-minutes", type=float, default=20.0,
                         help="also save last.pt inside an epoch this often (0 disables)")
+    parser.add_argument("--patience", type=int, default=0,
+                        help="stop and export once val_total has not improved for N epochs (0 = off)")
     parser.add_argument("--keep-every", type=int, default=0, help="keep epoch-NNNN.pt every N epochs")
     parser.add_argument("--time-budget-hours", type=float, default=0.0,
                         help="stop cleanly (exit 2) before this wall time, e.g. 11.5 on Kaggle")
