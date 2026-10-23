@@ -33,6 +33,7 @@ BUNDLE = ["CMakeLists.txt", "CMakePresets.json", "cmake", "src/dsp", "src/infere
 EXCLUDE = {"__pycache__", "reports"}
 GENERATE_SLUG = "amo-corpus-generate"
 TRAIN_SLUGS = ("amo-corpus-train-a", "amo-corpus-train-b")
+EVALUATE_SLUG = "amo-corpus-evaluate"
 
 
 def bundle():
@@ -157,6 +158,22 @@ def main():
 main()
 '''
 
+EVALUATE = r'''
+def main():
+    unpack()
+    corpus = find_corpus()
+    models = sorted(Path("/kaggle/input").rglob("run/model.pt"), key=lambda p: p.stat().st_mtime)
+    if not models:
+        raise SystemExit("run/model.pt not found under /kaggle/input: add a finished train kernel output")
+    output = Path("/kaggle/working")
+    for split in ("test", "validation"):
+        run([sys.executable, "-m", "training.amo.corpus.evaluate", corpus, models[-1], "--split", split,
+             "--out", output / f"evaluation-{{split}}.json"], cwd=CODE)
+
+
+main()
+'''
+
 
 def write_kernel(directory, slug, title, user, source, *, gpu, internet, kernel_sources=()):
     directory.mkdir(parents=True, exist_ok=True)
@@ -196,6 +213,12 @@ def main():
                      "AMO corpus train " + slug[-1].upper(), args.user,
                      header + common + TRAIN.format(train_args=train_args),
                      gpu=True, internet=False, kernel_sources=[f"{args.user}/{GENERATE_SLUG}"])
+    # Evaluates the newest run/model.pt among the mounted train outputs; kaggle_push.py
+    # `evaluate` mounts the train kernel that ran last.
+    find_corpus = TRAIN[TRAIN.index("def find_corpus"):TRAIN.index("def main")]
+    write_kernel(args.out / "evaluate", EVALUATE_SLUG, "AMO corpus evaluate", args.user,
+                 header + common + (find_corpus + EVALUATE).format(), gpu=True, internet=False,
+                 kernel_sources=[f"{args.user}/{GENERATE_SLUG}"])
     size = len(header) / 1024
     print(f"wrote {args.out} (embedded code {size:.0f} KiB, commit {commit()})")
 
