@@ -127,11 +127,26 @@ def train(kernels):
     state_path.write_text(json.dumps(state, indent=2))
 
 
+def evaluate(kernels):
+    """Push the evaluate kernel with the output of the train kernel that ran last."""
+    kernels = Path(kernels)
+    state_path = kernels / "push-state.json"
+    last = json.loads(state_path.read_text()).get("last_train") if state_path.exists() else None
+    if not last:
+        raise SystemExit("no train kernel pushed from this folder yet")
+    directory = kernels / "evaluate"
+    meta = json.loads((directory / "kernel-metadata.json").read_text())
+    owner = meta["id"].split("/")[0]
+    push(directory, [s for s in meta["kernel_sources"] if "amo-corpus-train" not in s]
+         + [f"{owner}/amo-corpus-train-{last}"])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("push").add_argument("directory")
     commands.add_parser("train").add_argument("kernels", help="folder written by make_kernels.py")
+    commands.add_parser("evaluate").add_argument("kernels", help="folder written by make_kernels.py")
     commands.add_parser("status").add_argument("slug")
     out = commands.add_parser("output")
     out.add_argument("slug")
@@ -141,6 +156,8 @@ def main():
         push(args.directory)
     elif args.command == "train":
         train(args.kernels)
+    elif args.command == "evaluate":
+        evaluate(args.kernels)
     elif args.command == "status":
         print(json.dumps(status(args.slug), indent=2))
     else:
