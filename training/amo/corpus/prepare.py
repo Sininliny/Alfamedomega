@@ -671,6 +671,13 @@ def make_document(name, u):
     return result
 
 
+MAX_RESAMPLES = 8
+
+
+class InvalidOutput(ValueError):
+    """A sampled construction rendered silent, clipping or nonfinite audio."""
+
+
 def lhs(count, dimensions, seed):
     rng = np.random.default_rng(seed)
     return np.column_stack(
@@ -707,9 +714,9 @@ def instance_for(doc, bounds, editable, seed):
     return result, updates
 
 
-def performance_for(type_index, original_index, case):
+def performance_for(type_index, original_index, case, attempt=0):
     rng = np.random.default_rng(
-        SEED + type_index * 1000003 + original_index * 9176 + case * 131
+        SEED + type_index * 1000003 + original_index * 9176 + case * 131 + attempt * 7777777
     )
     sr = 16000 if case % 2 == 0 else 24000
     is_fx = type_index >= 24
@@ -1045,218 +1052,243 @@ def generate_shard(task):
     profile = AnalysisProfile(
         **{**PROFILE, "harmonic_ratios": tuple(PROFILE["harmonic_ratios"])}
     )
+    resampled = []
     for original in range(start, start + count):
-        doc, bounds, editable, fields = make_document(name, coordinates[original])
-        alternative, changes = instance_for(
-            doc, bounds, editable, SEED + ti * 9511 + original * 43
-        )
-        group_id = f"{ti:02d}-{original:05d}"
-        canonical_path = path / "labels" / f"{group_id}-canonical.json"
-        instance_path = path / "labels" / f"{group_id}-instance.json"
-        dump(canonical_path, doc)
-        dump(instance_path, alternative)
-        canonical_sha = file_digest(canonical_path)
-        instance_sha = file_digest(instance_path)
-        structural_digest = digest_json(doc)
-        if structural_digest in group_digests:
-            raise ValueError("Duplicate original construction")
-        group_digests[structural_digest] = split_of[original]
-        targets = [graph_labels(d, op_ids) for d in (doc, alternative)]
-        for document in (doc, alternative):
-            for name_, tensor in document["tensors"].items():
-                assert all(
-                    lo <= v <= hi
-                    for v, (lo, hi) in zip(tensor["values"], bounds[name_])
-                ), (name, original, name_)
-        for case in range(4):
-            performance = performance_for(ti, original, case)
-            sr = performance["sample_rate"]
-            source_audio, midi = inputs_for(performance)
-            input_file = None
-            input_sha = None
-            if ti >= 24:
-                input_file = path / "audio" / f"{group_id}-input-{case}.wav"
-                # DSP consumes precisely the stored PCM input, not an unrecorded higher-precision input.
-                source_audio, input_sha = write_wav(
-                    input_file if keep_wav else None, source_audio.astype(np.float64), sr
+        # A rare construction/performance pair renders silent or clipping (e.g. a pitch-modulated
+        # tuned waveguide whose integer delay steps past its single-sample impulse). Redraw the
+        # performances and the point inside the same Latin-hypercube cell (stratification is
+        # kept) instead of aborting the whole build; complete.json lists every redraw.
+        for attempt in range(MAX_RESAMPLES + 1):
+            u = coordinates[original]
+            if attempt:
+                jitter = np.random.default_rng(SEED + ti * 7919 + original * 131 + attempt)
+                u = (np.floor(u * total) + jitter.random(u.shape)) / total
+            snapshot = (len(rows), len(arrays), len(legacy), len(f0_error), set(features_seen),
+                        set(waveforms_seen), minimum, maximum, samples, total_audio_seconds, replay_count)
+            structural_digest = None
+            try:
+                doc, bounds, editable, fields = make_document(name, u)
+                alternative, changes = instance_for(
+                    doc, bounds, editable, SEED + ti * 9511 + original * 43
                 )
-                source_audio = source_audio.astype(np.float32)
-                if not keep_wav:
+                group_id = f"{ti:02d}-{original:05d}"
+                canonical_path = path / "labels" / f"{group_id}-canonical.json"
+                instance_path = path / "labels" / f"{group_id}-instance.json"
+                dump(canonical_path, doc)
+                dump(instance_path, alternative)
+                canonical_sha = file_digest(canonical_path)
+                instance_sha = file_digest(instance_path)
+                structural_digest = digest_json(doc)
+                if structural_digest in group_digests:
+                    raise ValueError("Duplicate original construction")
+                group_digests[structural_digest] = split_of[original]
+                targets = [graph_labels(d, op_ids) for d in (doc, alternative)]
+                for document in (doc, alternative):
+                    for name_, tensor in document["tensors"].items():
+                        assert all(
+                            lo <= v <= hi
+                            for v, (lo, hi) in zip(tensor["values"], bounds[name_])
+                        ), (name, original, name_)
+                for case in range(4):
+                    performance = performance_for(ti, original, case, attempt)
+                    sr = performance["sample_rate"]
+                    source_audio, midi = inputs_for(performance)
                     input_file = None
-            source_feature = (
-                features(source_audio, sr)
-                if ti >= 24
-                else np.zeros(32 * 35 + 2, np.float32)
-            )
-            for variation, d in enumerate((doc, alternative)):
-                example_id = f"{group_id}-p{case}-d{variation}"
-                with NativeRuntime(d, sr, LIB) as runtime:
-                    output = audible(d, runtime.render(audio=source_audio, midi=midi))
-                    if original == start and case == 0:
-                        runtime.reset()
-                        replay = audible(
-                            d, runtime.render(audio=source_audio, midi=midi)
+                    input_sha = None
+                    if ti >= 24:
+                        input_file = path / "audio" / f"{group_id}-input-{case}.wav"
+                        # DSP consumes precisely the stored PCM input, not an unrecorded higher-precision input.
+                        source_audio, input_sha = write_wav(
+                            input_file if keep_wav else None, source_audio.astype(np.float64), sr
                         )
-                        assert np.array_equal(output, replay), (
-                            "Native reset reproducibility failed"
-                        )
-                        replay_count += 1
-                peak = float(np.abs(output).max())
-                rms = float(np.sqrt(np.mean(output**2)))
-                if not np.isfinite(output).all() or peak >= 0.95 or rms < 1e-6:
-                    raise ValueError(
-                        (name, original, case, "invalid output", peak, rms)
+                        source_audio = source_audio.astype(np.float32)
+                        if not keep_wav:
+                            input_file = None
+                    source_feature = (
+                        features(source_audio, sr)
+                        if ti >= 24
+                        else np.zeros(32 * 35 + 2, np.float32)
                     )
-                wav = path / "audio" / f"{example_id}.wav"
-                decoded, waveform_sha = write_wav(wav if keep_wav else None, output, sr)
-                output_feature = features(decoded, sr)
-                conditions = np.asarray(
-                    [
-                        sr / 24000.0,
-                        performance["frames"] / sr,
-                        performance["velocity"],
-                        performance["note_off_seconds"],
-                        performance["midi_note"] / 127.0,
-                        performance["tuning_cents"] / 100.0,
-                        performance["vibrato_rate"] / 10.0,
-                        performance["vibrato_cents"] / 100.0,
-                        case / 3.0,
-                        ti >= 24,
-                    ],
-                    np.float32,
-                )
-                x = np.concatenate([output_feature, source_feature])
-                assert np.isfinite(x).all()
-                fhash = hashlib.sha256(
-                    np.rint(x * 1000).astype(np.int32).tobytes()
-                ).hexdigest()
-                waveforms_seen.add(waveform_sha)
-                features_seen.add(fhash)
-                minimum = min(minimum, rms)
-                maximum = max(maximum, peak)
-                samples += 1
-                total_audio_seconds += len(output) / sr
-                row = {
-                    "id": example_id,
-                    "canonical_id": group_id,
-                    "split": split_of[original],
-                    "type_id": ti,
-                    "structure_name": name,
-                    "role": performance["role"],
-                    "canonical_json": str(canonical_path.relative_to(root)),
-                    "instance_json": str(
-                        (
-                            canonical_path if variation == 0 else instance_path
-                        ).relative_to(root)
-                    ),
-                    "normalized_wav": str(wav.relative_to(root)) if keep_wav else None,
-                    "input_wav": str(input_file.relative_to(root))
-                    if input_file
-                    else None,
-                    "performance": performance,
-                    "perturbation_id": "identity"
-                    if variation == 0
-                    else "bounded-multicoordinate",
-                    "perturbations": [] if variation == 0 else changes,
-                    "normalization": {
-                        "policy_id": "controlled-broad-spectrum-paired-v2",
-                        "removed": ["global_gain_from_relative_spectrum"],
-                        "preserved": [
-                            "duration",
-                            "envelope",
-                            "spectral_bandwidth",
-                            "stereo_relation",
-                            "input_output_gain_ratio",
-                        ],
-                        "recording_conditions": "exact controlled render; no inferred calibration",
-                    },
-                    "quality": {
-                        "peak": peak,
-                        "rms": rms,
-                        "last_50ms_rms": float(
-                            np.sqrt(np.mean(output[-round(sr * 0.05) :] ** 2))
-                        ),
-                    },
-                    "sha256": {
-                        "wav": waveform_sha,
-                        "input": input_sha,
-                        "canonical": canonical_sha,
-                        "instance": canonical_sha if variation == 0 else instance_sha,
-                        "construction": structural_digest,
-                    },
-                    "feature_fingerprint_1e3": fhash,
-                }
-                # The compact legacy export is deliberately restricted to matching known structures.
-                # Broad paired features remain the primary corpus for noisy/FX/nonfundamental examples.
-                legacy_feature = None
-                if keep_wav and name in LEGACY_PITCHED:
-                    legacy_feature = np.asarray(
-                        extract(decoded, sr, profile), np.float32
-                    )
-                    signal = decoded[:, int(np.argmax(np.mean(decoded**2, axis=0)))]
-                    spectrum = np.abs(np.fft.rfft(signal * np.hanning(len(signal))))
-                    bins = np.fft.rfftfreq(len(signal), 1 / sr)
-                    selected = np.flatnonzero((bins >= 50) & (bins <= 600))
-                    estimate = bins[selected[np.argmax(spectrum[selected])]]
-                    expected = 440 * 2 ** (
-                        (
-                            performance["midi_note"]
-                            - 69
-                            + performance["tuning_cents"] / 100
-                        )
-                        / 12
-                    )
-                    error = float(abs(1200 * np.log2(estimate / expected)))
-                    row["reference_pitch_error_cents"] = error
-                    f0_error.append(error)
-                    if (
-                        error < 35
-                        and performance["events"] != "two_notes"
-                        and split_of[original] != "test"
-                    ):
-                        legacy_row = {
-                            k: row[k]
-                            for k in (
-                                "id",
-                                "canonical_id",
-                                "split",
-                                "canonical_json",
-                                "instance_json",
-                                "normalized_wav",
-                                "perturbation_id",
+                    for variation, d in enumerate((doc, alternative)):
+                        example_id = f"{group_id}-p{case}-d{variation}"
+                        with NativeRuntime(d, sr, LIB) as runtime:
+                            output = audible(d, runtime.render(audio=source_audio, midi=midi))
+                            if original == start and case == 0:
+                                runtime.reset()
+                                replay = audible(
+                                    d, runtime.render(audio=source_audio, midi=midi)
+                                )
+                                assert np.array_equal(output, replay), (
+                                    "Native reset reproducibility failed"
+                                )
+                                replay_count += 1
+                        peak = float(np.abs(output).max())
+                        rms = float(np.sqrt(np.mean(output**2)))
+                        if not np.isfinite(output).all() or peak >= 0.95 or rms < 1e-6:
+                            raise InvalidOutput(
+                                (name, original, case, "invalid output", peak, rms)
                             )
-                        }
-                        legacy_row["normalization"] = {
-                            "policy_id": "controlled-voiced-reference-policy-v2",
-                            "removed": ["pitch", "loudness", "recording_condition"],
-                            "preserved": [
-                                "timbre",
-                                "articulation",
-                                "temporal_behavior",
+                        wav = path / "audio" / f"{example_id}.wav"
+                        decoded, waveform_sha = write_wav(wav if keep_wav else None, output, sr)
+                        output_feature = features(decoded, sr)
+                        conditions = np.asarray(
+                            [
+                                sr / 24000.0,
+                                performance["frames"] / sr,
+                                performance["velocity"],
+                                performance["note_off_seconds"],
+                                performance["midi_note"] / 127.0,
+                                performance["tuning_cents"] / 100.0,
+                                performance["vibrato_rate"] / 10.0,
+                                performance["vibrato_cents"] / 100.0,
+                                case / 3.0,
+                                ti >= 24,
                             ],
+                            np.float32,
+                        )
+                        x = np.concatenate([output_feature, source_feature])
+                        assert np.isfinite(x).all()
+                        fhash = hashlib.sha256(
+                            np.rint(x * 1000).astype(np.int32).tobytes()
+                        ).hexdigest()
+                        waveforms_seen.add(waveform_sha)
+                        features_seen.add(fhash)
+                        minimum = min(minimum, rms)
+                        maximum = max(maximum, peak)
+                        samples += 1
+                        total_audio_seconds += len(output) / sr
+                        row = {
+                            "id": example_id,
+                            "canonical_id": group_id,
+                            "split": split_of[original],
+                            "type_id": ti,
+                            "structure_name": name,
+                            "role": performance["role"],
+                            "canonical_json": str(canonical_path.relative_to(root)),
+                            "instance_json": str(
+                                (
+                                    canonical_path if variation == 0 else instance_path
+                                ).relative_to(root)
+                            ),
+                            "normalized_wav": str(wav.relative_to(root)) if keep_wav else None,
+                            "input_wav": str(input_file.relative_to(root))
+                            if input_file
+                            else None,
+                            "performance": performance,
+                            "perturbation_id": "identity"
+                            if variation == 0
+                            else "bounded-multicoordinate",
+                            "perturbations": [] if variation == 0 else changes,
+                            "normalization": {
+                                "policy_id": "controlled-broad-spectrum-paired-v2",
+                                "removed": ["global_gain_from_relative_spectrum"],
+                                "preserved": [
+                                    "duration",
+                                    "envelope",
+                                    "spectral_bandwidth",
+                                    "stereo_relation",
+                                    "input_output_gain_ratio",
+                                ],
+                                "recording_conditions": "exact controlled render; no inferred calibration",
+                            },
+                            "quality": {
+                                "peak": peak,
+                                "rms": rms,
+                                "last_50ms_rms": float(
+                                    np.sqrt(np.mean(output[-round(sr * 0.05) :] ** 2))
+                                ),
+                            },
+                            "sha256": {
+                                "wav": waveform_sha,
+                                "input": input_sha,
+                                "canonical": canonical_sha,
+                                "instance": canonical_sha if variation == 0 else instance_sha,
+                                "construction": structural_digest,
+                            },
+                            "feature_fingerprint_1e3": fhash,
                         }
-                        legacy.append(legacy_row)
-                packed = {
-                    "X_audio": x,
-                    "conditions": conditions,
-                    "id": example_id,
-                    "type_id": ti,
-                    "split": {"train": 0, "validation": 1, "test": 2}[
-                        split_of[original]
-                    ],
-                    "canonical_id": group_id,
-                    "fx_input_mask": ti >= 24,
-                }
-                for prefix, target in [
-                    ("canonical_", targets[0]),
-                    ("instance_", targets[variation]),
-                ]:
-                    for key, value in target.items():
-                        packed[prefix + key] = value
-                if legacy_feature is not None:
-                    packed["reference_features"] = legacy_feature
-                rows.append(row)
-                arrays.append(packed)
+                        # The compact legacy export is deliberately restricted to matching known structures.
+                        # Broad paired features remain the primary corpus for noisy/FX/nonfundamental examples.
+                        legacy_feature = None
+                        if keep_wav and name in LEGACY_PITCHED:
+                            legacy_feature = np.asarray(
+                                extract(decoded, sr, profile), np.float32
+                            )
+                            signal = decoded[:, int(np.argmax(np.mean(decoded**2, axis=0)))]
+                            spectrum = np.abs(np.fft.rfft(signal * np.hanning(len(signal))))
+                            bins = np.fft.rfftfreq(len(signal), 1 / sr)
+                            selected = np.flatnonzero((bins >= 50) & (bins <= 600))
+                            estimate = bins[selected[np.argmax(spectrum[selected])]]
+                            expected = 440 * 2 ** (
+                                (
+                                    performance["midi_note"]
+                                    - 69
+                                    + performance["tuning_cents"] / 100
+                                )
+                                / 12
+                            )
+                            error = float(abs(1200 * np.log2(estimate / expected)))
+                            row["reference_pitch_error_cents"] = error
+                            f0_error.append(error)
+                            if (
+                                error < 35
+                                and performance["events"] != "two_notes"
+                                and split_of[original] != "test"
+                            ):
+                                legacy_row = {
+                                    k: row[k]
+                                    for k in (
+                                        "id",
+                                        "canonical_id",
+                                        "split",
+                                        "canonical_json",
+                                        "instance_json",
+                                        "normalized_wav",
+                                        "perturbation_id",
+                                    )
+                                }
+                                legacy_row["normalization"] = {
+                                    "policy_id": "controlled-voiced-reference-policy-v2",
+                                    "removed": ["pitch", "loudness", "recording_condition"],
+                                    "preserved": [
+                                        "timbre",
+                                        "articulation",
+                                        "temporal_behavior",
+                                    ],
+                                }
+                                legacy.append(legacy_row)
+                        packed = {
+                            "X_audio": x,
+                            "conditions": conditions,
+                            "id": example_id,
+                            "type_id": ti,
+                            "split": {"train": 0, "validation": 1, "test": 2}[
+                                split_of[original]
+                            ],
+                            "canonical_id": group_id,
+                            "fx_input_mask": ti >= 24,
+                        }
+                        for prefix, target in [
+                            ("canonical_", targets[0]),
+                            ("instance_", targets[variation]),
+                        ]:
+                            for key, value in target.items():
+                                packed[prefix + key] = value
+                        if legacy_feature is not None:
+                            packed["reference_features"] = legacy_feature
+                        rows.append(row)
+                        arrays.append(packed)
+                break
+            except InvalidOutput as error:
+                if attempt == MAX_RESAMPLES:
+                    raise
+                del rows[snapshot[0]:], arrays[snapshot[1]:], legacy[snapshot[2]:], f0_error[snapshot[3]:]
+                features_seen, waveforms_seen = snapshot[4], snapshot[5]
+                minimum, maximum, samples, total_audio_seconds, replay_count = snapshot[6:]
+                if structural_digest is not None and structural_digest in group_digests:
+                    del group_digests[structural_digest]
+                resampled.append({"original": original, "attempt": attempt + 1, "reason": list(error.args[0])})
+                print(f"resampling {name} {original}: {error.args[0]}", flush=True)
     # Save bounded shards, never repeatedly decompress a complete dataset inside an item loop.
     keys = set(arrays[0])
     common = set.intersection(*(set(a) for a in arrays))
@@ -1281,6 +1313,7 @@ def generate_shard(task):
         "max_peak": maximum,
         "audio_seconds": total_audio_seconds,
         "reset_replay_checks": replay_count,
+        "resampled": resampled,
         "unique_waveforms": len(waveforms_seen),
         "unique_features_rounded_1e3": len(features_seen),
         "split_counts": {
