@@ -16,6 +16,9 @@ This writes three folders, each a valid `kaggle kernels push -p DIR` target:
   alternate: each mounts the other's latest output and resumes from the newest
   ``last.pt``, so an interrupted or time-limited run continues where it stopped.
   ``kaggle_push.py`` sets the sources for each push.
+- ``evaluate``: GPU kernel, internet on (builds libalfa_tensor_c). Scores the newest
+  mounted ``run/model.pt`` on the test and validation splits and renders the
+  predicted constructions of ``--resynth`` test examples per family.
 """
 
 import argparse
@@ -165,10 +168,12 @@ def main():
     models = sorted(Path("/kaggle/input").rglob("run/model.pt"), key=lambda p: p.stat().st_mtime)
     if not models:
         raise SystemExit("run/model.pt not found under /kaggle/input: add a finished train kernel output")
+    build_library()
     output = Path("/kaggle/working")
-    for split in ("test", "validation"):
-        run([sys.executable, "-m", "training.amo.corpus.evaluate", corpus, models[-1], "--split", split,
-             "--out", output / f"evaluation-{{split}}.json"], cwd=CODE)
+    run([sys.executable, "-m", "training.amo.corpus.evaluate", corpus, models[-1], "--split", "test",
+         "--resynth", RESYNTH, "--out", output / "evaluation-test.json"], cwd=CODE)
+    run([sys.executable, "-m", "training.amo.corpus.evaluate", corpus, models[-1], "--split", "validation",
+         "--out", output / "evaluation-validation.json"], cwd=CODE)
 
 
 main()
@@ -196,6 +201,8 @@ def main():
     parser.add_argument("--canonical-per-type", type=int, default=512)
     parser.add_argument("--time-budget-hours", type=float, default=11.0,
                         help="stop and save before Kaggle's 12 h session limit")
+    parser.add_argument("--resynth", type=int, default=256,
+                        help="evaluate kernel: render predictions for N test examples per family")
     parser.add_argument("train_args", nargs=argparse.REMAINDER,
                         help="extra arguments for training.amo.corpus.train after --, e.g. -- --epochs 150")
     args = parser.parse_args()
@@ -216,8 +223,10 @@ def main():
     # Evaluates the newest run/model.pt among the mounted train outputs; kaggle_push.py
     # `evaluate` mounts the train kernel that ran last.
     find_corpus = TRAIN[TRAIN.index("def find_corpus"):TRAIN.index("def main")]
+    build_library = GENERATE[GENERATE.index("def build_library"):GENERATE.index("def main")]
     write_kernel(args.out / "evaluate", EVALUATE_SLUG, "AMO corpus evaluate", args.user,
-                 header + common + (find_corpus + EVALUATE).format(), gpu=True, internet=False,
+                 header + common + f"RESYNTH = {args.resynth}\n"
+                 + (find_corpus + build_library + EVALUATE).format(), gpu=True, internet=True,
                  kernel_sources=[f"{args.user}/{GENERATE_SLUG}"])
     size = len(header) / 1024
     print(f"wrote {args.out} (embedded code {size:.0f} KiB, commit {commit()})")
