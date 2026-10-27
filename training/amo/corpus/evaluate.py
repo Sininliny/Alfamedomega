@@ -11,6 +11,7 @@ cannot tell apart. The test split is never seen by ``train.py``.
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -22,7 +23,7 @@ if str(ROOT) not in sys.path:
 
 from training.amo.corpus.reader import load_split  # noqa: E402
 from training.amo.corpus.train import (  # noqa: E402
-    MODEL_SCHEMA, VALUE_TENSORS, Standardizer, TargetStats, build_model,
+    HEADS, MODEL_SCHEMA, VALUE_TENSORS, Standardizer, TargetStats, build_model,
     corpus_keys, encode_split, evaluate, parse, split_values, take, to_device)
 
 
@@ -30,6 +31,88 @@ def family_names(root, types):
     plan = root / "build-plan.json"
     names = json.loads(plan.read_text()).get("types", []) if plan.exists() else []
     return [names[t] if t < len(names) else f"type{t}" for t in range(types)]
+
+
+def resynthesis(model, data, ids, truth, predicted, stats, widths, names, args, amp_dtype):
+    """Render predictions for a per-family sample and score them against the rendered target.
+
+    Candidates per example, each rendered with the example's own performance plan:
+    ``predicted`` (predicted family and its instance values), ``true_family`` (values
+    predicted with the true family given), ``family_centre`` (true family, every
+    coordinate at its training mean: what the value head must beat).
+    """
+    import torch
+    from training.amo.corpus import resynth
+
+    rng = np.random.default_rng(20261027)
+    chosen = np.concatenate([rng.permutation(np.flatnonzero(truth == t))[:args.resynth]
+                             for t in range(len(names)) if (truth == t).any()])
+    batch = take(data, torch.from_numpy(chosen).to(data["x"].device))
+
+    def instance_values(type_ids, z):
+        parts = {}
+        offset = 0
+        for name in VALUE_TENSORS:
+            width = widths[name]
+            parts[name] = stats[name].decode(type_ids, z[:, offset:offset + width].astype(np.float64))
+            offset += width
+        return parts
+
+    head = list(HEADS).index("instance")
+    with torch.no_grad(), torch.autocast(batch["x"].device.type, dtype=amp_dtype, enabled=amp_dtype is not None):
+        free = model(batch["x"], batch["conditions"], None)["values"][:, head].float().cpu().numpy()
+        given = model(batch["x"], batch["conditions"], batch["type_id"])["values"][:, head].float().cpu().numpy()
+    true_types, predicted_types = truth[chosen], predicted[chosen]
+    candidates = {"predicted": (predicted_types, instance_values(predicted_types, free)),
+                  "true_family": (true_types, instance_values(true_types, given)),
+                  "family_centre": (true_types, instance_values(true_types, np.zeros_like(given)))}
+    rows = resynth.split_rows(args.corpus, args.split)
+    jobs = []
+    for i, index in enumerate(chosen):
+        row = rows[str(ids[index])]
+        target = json.loads((Path(args.corpus) / row["instance_json"]).read_text())
+        jobs.append((target, row["performance"],
+                     {name: (int(t[i]), {k: v[i] for k, v in values.items()})
+                      for name, (t, values) in candidates.items()}))
+    scores = resynth.score_all(jobs, args.workers)
+    by = {name: np.array([s[name] for s in scores]) for name in candidates}
+    right = predicted_types == true_types
+    correct_median = resynth.summarise(by["predicted"][right])["median"] or 0.0
+    families = []
+    for t in np.unique(true_types):
+        rows_t = true_types == t
+        wrong = rows_t & ~right
+        families.append({
+            "family": names[t], "examples": int(rows_t.sum()),
+            **{f"{name}_median": resynth.summarise(by[name][rows_t])["median"] for name in candidates},
+            "wrong_family": int(wrong.sum()),
+            "wrong_family_median": resynth.summarise(by["predicted"][wrong])["median"] if wrong.any() else None,
+            "wrong_but_close": int((wrong & (by["predicted"] <= correct_median)).sum())})
+    wrong = ~right
+    result = {
+        "examples": len(chosen), "distance": "mean |log STFT| L1, unit-RMS stereo, FFT 2048/1024/512/256",
+        "candidates": {name: resynth.summarise(values) for name, values in by.items()},
+        "predicted_when_family_right": resynth.summarise(by["predicted"][right]),
+        "predicted_when_family_wrong": resynth.summarise(by["predicted"][wrong]),
+        "wrong_family_but_at_most_correct_median": int((wrong & (by["predicted"] <= correct_median)).sum()),
+        "wrong_family_total": int(wrong.sum()),
+        "families": sorted(families, key=lambda f: -(f["predicted_median"] or 0)),
+    }
+    def fmt(value):
+        return "  n/a" if value is None else f"{value:.3f}"
+
+    print(f"  resynthesis ({len(chosen)} examples; {result['distance']}):")
+    for name, summary in result["candidates"].items():
+        print(f"    {name:<14} median {fmt(summary['median'])} mean {fmt(summary['mean'])} failed {summary['failed']}")
+    print(f"    family right: median {fmt(result['predicted_when_family_right']['median'])};"
+          f" family wrong: median {fmt(result['predicted_when_family_wrong']['median'])};"
+          f" wrong family but within the correct median: {result['wrong_family_but_at_most_correct_median']}"
+          f"/{result['wrong_family_total']}")
+    for f in result["families"]:
+        print(f"    {f['family']:<24} predicted {fmt(f['predicted_median'])} true-family {fmt(f['true_family_median'])}"
+              f" centre {fmt(f['family_centre_median'])} | wrong family {f['wrong_family']}"
+              f" (close {f['wrong_but_close']})")
+    return result
 
 
 def main(argv=None):
@@ -42,6 +125,9 @@ def main(argv=None):
     parser.add_argument("--protocol", default="originals", choices=("originals", "unseen_topology"))
     parser.add_argument("--batch-size", type=int, default=2048)
     parser.add_argument("--out", type=Path, default=None, help="write the JSON report here")
+    parser.add_argument("--resynth", type=int, default=0,
+                        help="render the predicted construction for up to N examples per family (0 = off)")
+    parser.add_argument("--workers", type=int, default=os.cpu_count() or 1, help="render processes")
     args = parser.parse_args(argv)
 
     package = torch.load(args.model, map_location="cpu", weights_only=False)
@@ -61,8 +147,9 @@ def main(argv=None):
     model.load_state_dict(package["model"])
     model.to(device).eval()
 
-    raw = load_split(args.corpus, args.split, args.protocol, corpus_keys())
+    raw = load_split(args.corpus, args.split, args.protocol, corpus_keys() + ["id"])
     conditions = raw["conditions"]
+    ids = raw["id"]
     data = to_device(encode_split(raw, stats), device)
     del raw
     defaults = parse([str(args.corpus), "unused"])
@@ -129,6 +216,9 @@ def main(argv=None):
               "type_acc_by_sample_rate": by_rate, "most_confused_pairs": pairs[:15],
               "families": sorted(families, key=lambda f: f["type_acc"]),
               "family_names": names, "confusion": confusion.tolist()}
+    if args.resynth:
+        report["resynthesis"] = resynthesis(model, data, ids, truth, predicted, stats, widths, names,
+                                            args, amp_dtype)
 
     print(f"{args.split}: {count} examples, model epoch {package.get('epoch')}")
     print("  " + " | ".join(f"{k} {v:.4f}" for k, v in metrics.items()
