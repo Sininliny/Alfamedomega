@@ -1,0 +1,572 @@
+{
+  "schema": "amo.corpus-perceptual-weights/1",
+  "corpus": "/tmp/corpus/corpus-v3",
+  "per_type": 64,
+  "delta": 0.25,
+  "floor": 0.05,
+  "cap": 8.0,
+  "instances": 2048,
+  "renders": 40832,
+  "minutes": 17.9248747587204,
+  "families": [
+    {
+      "family": "additive_sparse4",
+      "learnable": 8,
+      "measured": 8,
+      "mean_sensitivity": 0.11852957740070749,
+      "weights": {
+        "parameters[1]": 2.247,
+        "parameters[4]": 1.441,
+        "parameters[2]": 1.023,
+        "parameters[3]": 0.996,
+        "parameters[16]": 0.834,
+        "routing[10]": 0.601,
+        "routing[8]": 0.464,
+        "routing[6]": 0.393
+      }
+    },
+    {
+      "family": "additive_dense12",
+      "learnable": 16,
+      "measured": 16,
+      "mean_sensitivity": 0.1066364899737679,
+      "weights": {
+        "parameters[1]": 2.837,
+        "parameters[4]": 2.397,
+        "parameters[3]": 1.482,
+        "routing[26]": 1.12,
+        "parameters[32]": 1.084,
+        "routing[24]": 1.017,
+        "parameters[2]": 1.006,
+        "routing[22]": 0.864,
+        "routing[20]": 0.753,
+        "routing[18]": 0.684,
+        "routing[16]": 0.573,
+        "routing[14]": 0.527,
+        "routing[12]": 0.5,
+        "routing[10]": 0.437,
+        "routing[8]": 0.384,
+        "routing[6]": 0.336
+      }
+    },
+    {
+      "family": "additive_inharmonic8",
+      "learnable": 19,
+      "measured": 19,
+      "mean_sensitivity": 0.2225747097341475,
+      "weights": {
+        "routing[5]": 2.707,
+        "routing[7]": 2.476,
+        "routing[11]": 1.865,
+        "routing[9]": 1.643,
+        "routing[15]": 1.427,
+        "routing[13]": 1.392,
+        "parameters[1]": 1.204,
+        "routing[17]": 1.148,
+        "parameters[4]": 0.934,
+        "parameters[3]": 0.774,
+        "parameters[2]": 0.602,
+        "parameters[24]": 0.537,
+        "routing[12]": 0.373,
+        "routing[16]": 0.369,
+        "routing[8]": 0.323,
+        "routing[14]": 0.322,
+        "routing[18]": 0.313,
+        "routing[6]": 0.304,
+        "routing[10]": 0.286
+      }
+    },
+    {
+      "family": "saw_lowpass",
+      "learnable": 8,
+      "measured": 8,
+      "mean_sensitivity": 0.23203253137527105,
+      "weights": {
+        "parameters[4]": 2.539,
+        "parameters[7]": 2.459,
+        "parameters[1]": 0.832,
+        "parameters[12]": 0.746,
+        "parameters[3]": 0.39,
+        "modulation[0]": 0.378,
+        "parameters[8]": 0.332,
+        "parameters[2]": 0.324
+      }
+    },
+    {
+      "family": "saw_bandpass",
+      "learnable": 8,
+      "measured": 8,
+      "mean_sensitivity": 0.21410264203836304,
+      "weights": {
+        "parameters[4]": 3.314,
+        "parameters[7]": 1.95,
+        "parameters[12]": 0.829,
+        "parameters[1]": 0.524,
+        "parameters[3]": 0.408,
+        "parameters[8]": 0.361,
+        "modulation[0]": 0.356,
+        "parameters[2]": 0.259
+      }
+    },
+    {
+      "family": "saw_highpass",
+      "learnable": 8,
+      "measured": 8,
+      "mean_sensitivity": 0.20090039349218497,
+      "weights": {
+        "parameters[4]": 4.221,
+        "parameters[7]": 1.283,
+        "parameters[12]": 0.782,
+        "parameters[1]": 0.509,
+        "parameters[8]": 0.385,
+        "parameters[3]": 0.384,
+        "parameters[2]": 0.25,
+        "modulation[0]": 0.187
+      }
+    },
+    {
+      "family": "saw_lp_tanh",
+      "learnable": 9,
+      "measured": 9,
+      "mean_sensitivity": 0.28505453793810326,
+      "weights": {
+        "parameters[4]": 2.438,
+        "parameters[7]": 2.139,
+        "parameters[1]": 0.851,
+        "parameters[8]": 0.848,
+        "parameters[9]": 0.822,
+        "parameters[13]": 0.653,
+        "modulation[0]": 0.537,
+        "parameters[3]": 0.416,
+        "parameters[2]": 0.296
+      }
+    },
+    {
+      "family": "saw_tanh_lp",
+      "learnable": 9,
+      "measured": 9,
+      "mean_sensitivity": 0.2198543455129371,
+      "weights": {
+        "parameters[4]": 2.719,
+        "parameters[8]": 2.525,
+        "parameters[1]": 0.814,
+        "parameters[13]": 0.788,
+        "modulation[0]": 0.502,
+        "parameters[3]": 0.484,
+        "parameters[9]": 0.423,
+        "parameters[7]": 0.411,
+        "parameters[2]": 0.335
+      }
+    },
+    {
+      "family": "wavetable_lowpass",
+      "learnable": 9,
+      "measured": 9,
+      "mean_sensitivity": 0.1577382247362881,
+      "weights": {
+        "parameters[4]": 2.474,
+        "parameters[1]": 1.707,
+        "parameters[7]": 1.287,
+        "parameters[12]": 0.838,
+        "parameters[2]": 0.79,
+        "parameters[3]": 0.707,
+        "parameters[8]": 0.448,
+        "parameters[6]": 0.387,
+        "modulation[0]": 0.362
+      }
+    },
+    {
+      "family": "sine_ring",
+      "learnable": 7,
+      "measured": 7,
+      "mean_sensitivity": 0.3596031237913411,
+      "weights": {
+        "routing[3]": 3.919,
+        "parameters[4]": 1.12,
+        "parameters[1]": 0.755,
+        "parameters[12]": 0.362,
+        "parameters[2]": 0.342,
+        "parameters[3]": 0.274,
+        "modulation[0]": 0.228
+      }
+    },
+    {
+      "family": "sine_fm",
+      "learnable": 7,
+      "measured": 7,
+      "mean_sensitivity": 0.3955162171936392,
+      "weights": {
+        "routing[3]": 3.553,
+        "parameters[4]": 1.018,
+        "modulation[0]": 0.856,
+        "parameters[1]": 0.659,
+        "parameters[12]": 0.363,
+        "parameters[2]": 0.32,
+        "parameters[3]": 0.232
+      }
+    },
+    {
+      "family": "sine_am",
+      "learnable": 7,
+      "measured": 7,
+      "mean_sensitivity": 0.36093594289747183,
+      "weights": {
+        "routing[3]": 3.872,
+        "parameters[4]": 1.04,
+        "parameters[1]": 0.775,
+        "modulation[0]": 0.37,
+        "parameters[12]": 0.342,
+        "parameters[2]": 0.335,
+        "parameters[3]": 0.266
+      }
+    },
+    {
+      "family": "saw_chorus",
+      "learnable": 10,
+      "measured": 10,
+      "mean_sensitivity": 0.3106279832407392,
+      "weights": {
+        "parameters[4]": 2.576,
+        "parameters[7]": 2.466,
+        "parameters[9]": 1.942,
+        "modulation[0]": 1.195,
+        "parameters[14]": 0.603,
+        "parameters[8]": 0.321,
+        "parameters[1]": 0.317,
+        "parameters[3]": 0.277,
+        "parameters[2]": 0.174,
+        "routing[6]": 0.13
+      }
+    },
+    {
+      "family": "saw_phaser",
+      "learnable": 7,
+      "measured": 7,
+      "mean_sensitivity": 0.20231593446377852,
+      "weights": {
+        "parameters[4]": 3.665,
+        "parameters[12]": 0.944,
+        "parameters[1]": 0.658,
+        "parameters[8]": 0.568,
+        "parameters[7]": 0.484,
+        "parameters[3]": 0.413,
+        "parameters[2]": 0.268
+      }
+    },
+    {
+      "family": "saw_comb",
+      "learnable": 7,
+      "measured": 7,
+      "mean_sensitivity": 0.2531932897625488,
+      "weights": {
+        "parameters[4]": 3.026,
+        "parameters[7]": 1.878,
+        "parameters[12]": 0.689,
+        "parameters[8]": 0.554,
+        "parameters[1]": 0.39,
+        "parameters[3]": 0.27,
+        "parameters[2]": 0.192
+      }
+    },
+    {
+      "family": "noise_bandpass",
+      "learnable": 8,
+      "measured": 8,
+      "mean_sensitivity": 0.19402141731594927,
+      "weights": {
+        "parameters[4]": 3.98,
+        "parameters[5]": 1.476,
+        "parameters[10]": 0.809,
+        "parameters[1]": 0.568,
+        "parameters[6]": 0.38,
+        "parameters[3]": 0.374,
+        "parameters[2]": 0.261,
+        "modulation[0]": 0.153
+      }
+    },
+    {
+      "family": "noise_modal",
+      "learnable": 16,
+      "measured": 16,
+      "mean_sensitivity": 0.2879467523095428,
+      "weights": {
+        "parameters[4]": 3.179,
+        "routing[5]": 2.94,
+        "routing[6]": 2.931,
+        "routing[4]": 2.756,
+        "parameters[20]": 0.64,
+        "parameters[13]": 0.39,
+        "parameters[7]": 0.382,
+        "parameters[15]": 0.377,
+        "parameters[16]": 0.374,
+        "parameters[10]": 0.367,
+        "parameters[12]": 0.347,
+        "parameters[9]": 0.339,
+        "parameters[6]": 0.318,
+        "parameters[3]": 0.271,
+        "parameters[1]": 0.241,
+        "parameters[2]": 0.148
+      }
+    },
+    {
+      "family": "impulse_modal4",
+      "learnable": 16,
+      "measured": 16,
+      "mean_sensitivity": 0.1286191367466236,
+      "weights": {
+        "routing[7]": 2.72,
+        "routing[5]": 2.445,
+        "routing[6]": 2.224,
+        "parameters[1]": 1.86,
+        "parameters[4]": 0.96,
+        "parameters[17]": 0.831,
+        "parameters[22]": 0.728,
+        "parameters[11]": 0.721,
+        "parameters[14]": 0.71,
+        "parameters[8]": 0.631,
+        "parameters[2]": 0.541,
+        "parameters[3]": 0.405,
+        "parameters[18]": 0.327,
+        "parameters[12]": 0.323,
+        "parameters[15]": 0.3,
+        "parameters[9]": 0.273
+      }
+    },
+    {
+      "family": "impulse_modal12",
+      "learnable": 40,
+      "measured": 40,
+      "mean_sensitivity": 0.08982155722563272,
+      "weights": {
+        "routing[10]": 2.474,
+        "routing[6]": 2.379,
+        "routing[7]": 2.341,
+        "routing[13]": 2.294,
+        "routing[12]": 2.05,
+        "routing[5]": 2.047,
+        "routing[14]": 2.008,
+        "routing[8]": 1.993,
+        "parameters[1]": 1.927,
+        "routing[11]": 1.878,
+        "routing[15]": 1.79,
+        "routing[9]": 1.692,
+        "parameters[4]": 1.512,
+        "parameters[46]": 1.056,
+        "parameters[2]": 0.69,
+        "parameters[14]": 0.688,
+        "parameters[26]": 0.668,
+        "parameters[17]": 0.657,
+        "parameters[11]": 0.63,
+        "parameters[35]": 0.627,
+        "parameters[38]": 0.605,
+        "parameters[29]": 0.604,
+        "parameters[32]": 0.592,
+        "parameters[20]": 0.555,
+        "parameters[3]": 0.548,
+        "parameters[23]": 0.547,
+        "parameters[41]": 0.537,
+        "parameters[8]": 0.514,
+        "parameters[27]": 0.388,
+        "parameters[18]": 0.372,
+        "parameters[21]": 0.358,
+        "parameters[15]": 0.356,
+        "parameters[39]": 0.348,
+        "parameters[12]": 0.344,
+        "parameters[33]": 0.339,
+        "parameters[36]": 0.334,
+        "parameters[30]": 0.331,
+        "parameters[9]": 0.32,
+        "parameters[24]": 0.313,
+        "parameters[42]": 0.293
+      }
+    },
+    {
+      "family": "impulse_waveguide",
+      "learnable": 8,
+      "measured": 8,
+      "mean_sensitivity": 0.2201283987911758,
+      "weights": {
+        "parameters[9]": 3.358,
+        "parameters[10]": 1.223,
+        "parameters[4]": 1.013,
+        "parameters[8]": 0.831,
+        "parameters[1]": 0.589,
+        "parameters[14]": 0.535,
+        "parameters[3]": 0.233,
+        "parameters[2]": 0.219
+      }
+    },
+    {
+      "family": "additive_resonator",
+      "learnable": 13,
+      "measured": 13,
+      "mean_sensitivity": 0.3232697128453634,
+      "weights": {
+        "routing[15]": 5.093,
+        "parameters[1]": 1.498,
+        "parameters[4]": 1.211,
+        "parameters[19]": 1.067,
+        "parameters[3]": 0.8,
+        "parameters[18]": 0.648,
+        "parameters[2]": 0.632,
+        "routing[6]": 0.584,
+        "routing[8]": 0.548,
+        "parameters[23]": 0.415,
+        "routing[10]": 0.19,
+        "routing[14]": 0.161,
+        "routing[12]": 0.152
+      }
+    },
+    {
+      "family": "fm_lowpass",
+      "learnable": 10,
+      "measured": 10,
+      "mean_sensitivity": 0.24172818847681934,
+      "weights": {
+        "routing[3]": 3.939,
+        "parameters[4]": 1.533,
+        "parameters[1]": 1.103,
+        "modulation[0]": 1.005,
+        "parameters[9]": 0.515,
+        "parameters[14]": 0.498,
+        "parameters[2]": 0.465,
+        "parameters[3]": 0.411,
+        "parameters[10]": 0.299,
+        "modulation[1]": 0.231
+      }
+    },
+    {
+      "family": "additive_cubic",
+      "learnable": 11,
+      "measured": 11,
+      "mean_sensitivity": 0.14475202495829223,
+      "weights": {
+        "parameters[1]": 2.25,
+        "parameters[4]": 1.456,
+        "parameters[3]": 1.207,
+        "routing[14]": 1.081,
+        "parameters[17]": 1.015,
+        "parameters[2]": 0.891,
+        "parameters[21]": 0.821,
+        "routing[12]": 0.734,
+        "routing[10]": 0.656,
+        "routing[8]": 0.472,
+        "routing[6]": 0.417
+      }
+    },
+    {
+      "family": "additive_feedback",
+      "learnable": 12,
+      "measured": 12,
+      "mean_sensitivity": 0.13182928431684113,
+      "weights": {
+        "parameters[1]": 2.775,
+        "parameters[4]": 1.575,
+        "parameters[3]": 1.207,
+        "parameters[2]": 1.121,
+        "routing[14]": 0.918,
+        "parameters[22]": 0.864,
+        "parameters[18]": 0.809,
+        "parameters[17]": 0.729,
+        "routing[12]": 0.671,
+        "routing[10]": 0.531,
+        "routing[8]": 0.424,
+        "routing[6]": 0.378
+      }
+    },
+    {
+      "family": "fx_lowpass",
+      "learnable": 2,
+      "measured": 2,
+      "mean_sensitivity": 0.1990521841209009,
+      "weights": {
+        "parameters[0]": 1.635,
+        "parameters[1]": 0.365
+      }
+    },
+    {
+      "family": "fx_highpass",
+      "learnable": 2,
+      "measured": 2,
+      "mean_sensitivity": 0.24896960138645455,
+      "weights": {
+        "parameters[0]": 1.732,
+        "parameters[1]": 0.268
+      }
+    },
+    {
+      "family": "fx_bandpass",
+      "learnable": 2,
+      "measured": 2,
+      "mean_sensitivity": 0.19174674186037932,
+      "weights": {
+        "parameters[0]": 1.597,
+        "parameters[1]": 0.403
+      }
+    },
+    {
+      "family": "fx_tanh",
+      "learnable": 3,
+      "measured": 3,
+      "mean_sensitivity": 0.32248860512801614,
+      "weights": {
+        "parameters[1]": 1.62,
+        "parameters[0]": 1.289,
+        "parameters[2]": 0.091
+      }
+    },
+    {
+      "family": "fx_phaser",
+      "learnable": 2,
+      "measured": 2,
+      "mean_sensitivity": 0.1040658778854762,
+      "weights": {
+        "parameters[1]": 1.157,
+        "parameters[0]": 0.843
+      }
+    },
+    {
+      "family": "fx_stereo_width",
+      "learnable": 1,
+      "measured": 1,
+      "mean_sensitivity": 0.10556133705732572,
+      "weights": {
+        "parameters[0]": 1.0
+      }
+    },
+    {
+      "family": "fx_ring_delay",
+      "learnable": 2,
+      "measured": 2,
+      "mean_sensitivity": 1.2675141135056962,
+      "weights": {
+        "parameters[0]": 1.354,
+        "parameters[1]": 0.646
+      }
+    },
+    {
+      "family": "fx_fir",
+      "learnable": 16,
+      "measured": 16,
+      "mean_sensitivity": 0.04296996660437338,
+      "weights": {
+        "assets[1]": 1.406,
+        "assets[2]": 1.313,
+        "assets[3]": 1.235,
+        "assets[4]": 1.16,
+        "assets[5]": 1.081,
+        "assets[0]": 1.041,
+        "assets[6]": 1.021,
+        "assets[7]": 0.972,
+        "assets[8]": 0.928,
+        "assets[9]": 0.898,
+        "assets[10]": 0.868,
+        "assets[11]": 0.846,
+        "assets[12]": 0.827,
+        "assets[13]": 0.812,
+        "assets[14]": 0.8,
+        "assets[15]": 0.79
+      }
+    }
+  ]
+}

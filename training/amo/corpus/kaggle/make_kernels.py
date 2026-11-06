@@ -16,6 +16,10 @@ This writes three folders, each a valid `kaggle kernels push -p DIR` target:
   alternate: each mounts the other's latest output and resumes from the newest
   ``last.pt``, so an interrupted or time-limited run continues where it stopped.
   ``kaggle_push.py`` sets the sources for each push.
+- ``sensitivity``: CPU kernel, internet on (builds libalfa_tensor_c). Mounts the
+  generate output and measures how audible each (family, coordinate) is
+  (``sensitivity.py``); outputs ``sensitivity.npz``. With ``--perceptual`` the
+  train kernels mount it and pass ``--perceptual-weights`` to the trainer.
 - ``evaluate``: GPU kernel, internet on (builds libalfa_tensor_c). Scores the newest
   mounted ``run/model.pt`` on the test and validation splits and renders the
   predicted constructions of ``--resynth`` test examples per family.
@@ -37,6 +41,7 @@ EXCLUDE = {"__pycache__", "reports"}
 GENERATE_SLUG = "amo-corpus-generate"
 TRAIN_SLUGS = ("amo-corpus-train-a", "amo-corpus-train-b")
 EVALUATE_SLUG = "amo-corpus-evaluate"
+SENSITIVITY_SLUG = "amo-corpus-sensitivity"
 
 
 def bundle():
@@ -127,6 +132,7 @@ main()
 
 TRAIN = r'''
 TRAIN_ARGS = {train_args!r}
+PERCEPTUAL = {perceptual!r}
 
 
 def find_corpus():
@@ -146,8 +152,14 @@ def main():
     corpus = find_corpus()
     run(["nvidia-smi"])
     output = Path("/kaggle/working/run")
+    extra = []
+    if PERCEPTUAL:
+        found = sorted(Path("/kaggle/input").rglob("sensitivity.npz"))
+        if not found:
+            raise SystemExit("sensitivity.npz not found under /kaggle/input: add the amo-corpus-sensitivity output")
+        extra = ["--perceptual-weights", found[0]]
     command = [sys.executable, "-m", "training.amo.corpus.train", corpus, output,
-               "--resume", "auto", "--resume-search", "/kaggle/input", *TRAIN_ARGS]
+               "--resume", "auto", "--resume-search", "/kaggle/input", *extra, *TRAIN_ARGS]
     print("$", " ".join(map(str, command)), flush=True)
     code = subprocess.run(list(map(str, command)), cwd=CODE).returncode
     # Exit code 2 = stopped by the time budget with last.pt saved: a normal partial run.
@@ -156,6 +168,18 @@ def main():
           .get(code, f"training failed with exit code {{code}}"), flush=True)
     if code not in (0, 2):
         raise SystemExit(code)
+
+
+main()
+'''
+
+SENSITIVITY = r'''
+def main():
+    unpack()
+    corpus = find_corpus()
+    build_library()
+    run([sys.executable, "-m", "training.amo.corpus.sensitivity", corpus, "/kaggle/working/sensitivity.npz",
+         "--per-type", SENSITIVITY_PER_TYPE, "--workers", os.cpu_count() or 4], cwd=CODE)
 
 
 main()
@@ -171,7 +195,8 @@ def main():
     build_library()
     output = Path("/kaggle/working")
     run([sys.executable, "-m", "training.amo.corpus.evaluate", corpus, models[-1], "--split", "test",
-         "--resynth", RESYNTH, "--out", output / "evaluation-test.json"], cwd=CODE)
+         "--resynth", RESYNTH, "--listen", LISTEN, "--listen-dir", output / "listen",
+         "--out", output / "evaluation-test.json"], cwd=CODE)
     run([sys.executable, "-m", "training.amo.corpus.evaluate", corpus, models[-1], "--split", "validation",
          "--out", output / "evaluation-validation.json"], cwd=CODE)
 
@@ -203,6 +228,12 @@ def main():
                         help="stop and save before Kaggle's 12 h session limit")
     parser.add_argument("--resynth", type=int, default=256,
                         help="evaluate kernel: render predictions for N test examples per family")
+    parser.add_argument("--listen", type=int, default=2,
+                        help="evaluate kernel: listening WAVs (target/predicted/centre) per family")
+    parser.add_argument("--perceptual", action="store_true",
+                        help="train kernels mount amo-corpus-sensitivity and weight the value loss by audibility")
+    parser.add_argument("--sensitivity-per-type", type=int, default=64,
+                        help="sensitivity kernel: training instances probed per family")
     parser.add_argument("train_args", nargs=argparse.REMAINDER,
                         help="extra arguments for training.amo.corpus.train after --, e.g. -- --epochs 150")
     args = parser.parse_args()
@@ -215,17 +246,24 @@ def main():
                  header + common + GENERATE.format(canonical_per_type=args.canonical_per_type),
                  gpu=False, internet=True)
     train_args = ["--time-budget-hours", str(args.time_budget_hours), *extra]
+    train_sources = [f"{args.user}/{GENERATE_SLUG}"]
+    if args.perceptual:
+        train_sources.append(f"{args.user}/{SENSITIVITY_SLUG}")
     for slug in TRAIN_SLUGS:
         write_kernel(args.out / f"train-{slug[-1]}", slug,
                      "AMO corpus train " + slug[-1].upper(), args.user,
-                     header + common + TRAIN.format(train_args=train_args),
-                     gpu=True, internet=False, kernel_sources=[f"{args.user}/{GENERATE_SLUG}"])
+                     header + common + TRAIN.format(train_args=train_args, perceptual=args.perceptual),
+                     gpu=True, internet=False, kernel_sources=train_sources)
     # Evaluates the newest run/model.pt among the mounted train outputs; kaggle_push.py
     # `evaluate` mounts the train kernel that ran last.
     find_corpus = TRAIN[TRAIN.index("def find_corpus"):TRAIN.index("def main")]
     build_library = GENERATE[GENERATE.index("def build_library"):GENERATE.index("def main")]
+    write_kernel(args.out / "sensitivity", SENSITIVITY_SLUG, "AMO corpus sensitivity", args.user,
+                 header + common + f"SENSITIVITY_PER_TYPE = {args.sensitivity_per_type}\n"
+                 + (find_corpus + build_library + SENSITIVITY).format(), gpu=False, internet=True,
+                 kernel_sources=[f"{args.user}/{GENERATE_SLUG}"])
     write_kernel(args.out / "evaluate", EVALUATE_SLUG, "AMO corpus evaluate", args.user,
-                 header + common + f"RESYNTH = {args.resynth}\n"
+                 header + common + f"RESYNTH = {args.resynth}\nLISTEN = {args.listen}\n"
                  + (find_corpus + build_library + EVALUATE).format(), gpu=True, internet=True,
                  kernel_sources=[f"{args.user}/{GENERATE_SLUG}"])
     size = len(header) / 1024

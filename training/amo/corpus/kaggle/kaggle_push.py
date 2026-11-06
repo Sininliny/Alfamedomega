@@ -46,6 +46,8 @@ def credentials():
 
 def request(method, path, body=None, query=None):
     _, headers = credentials()
+    # Kaggle answers 404 to Python's default "Python-urllib" User-Agent (seen 2026-11).
+    headers = {**headers, "User-Agent": "amo-kaggle-push/1"}
     url = API + path + ("?" + urllib.parse.urlencode(query) if query else "")
     data = None
     if body is not None:
