@@ -23,8 +23,8 @@ Turn a sample into a sound: WAV to Preset
    one-shots work best: one note, a clean start, no reverb, no other instruments.
 3. The pitch of the sample is detected automatically. If it's wrong, choose the sample's
    note under "Sample pitch".
-4. When it's done, open the plugin's (or the standalone's) sound library and press the
-   refresh button. The new sounds are in the "WAV import" category.
+4. When it's done, open the plugin's (or the standalone's) sound library and press
+   "Refresh library". The new sounds are in the "WAV import" category.
    The preset files are saved in %APPDATA%\Alfamedomega\TensorPresets.
 
 Good to know
