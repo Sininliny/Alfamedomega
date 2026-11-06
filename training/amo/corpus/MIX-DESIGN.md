@@ -203,3 +203,13 @@ $$
 - 手动数量介于两个层级之间时（例如 L0=3、L2=6，用户要 4 个）的标签需要离线搜索（舍弃/合并 + 原生渲染比较），还没实现，放在训练器那一步。
 - 输出：`shards/<start>/scenes.npz`（`mix` [N,376,160] fp16、`frames`、`stems` [N,8,95,64] 原子粗谱、`atom_levels` [N,8,3]、`counts` [N,3]、`split`）和 `scenes.jsonl`（完整场景描述，可以确定性地重建每个 preset 文档和音符）。`listen` 子命令写出混音和每个 L0 乐器的干声 WAV。
 
+
+## 10. 训练器实现说明（`mixtargets.py`、`mixtrain.py`）
+
+- **目标空间**（`mixtargets.py`）：每个槽 = 两层构造（结构族 + 64 维 u 坐标；`prepare.make_document(family, u)` 能逐位重建构造，只监督该族真正读取的 u 维度）、第二层移调、插入 FX 集合及参数（归一到 [0,1]）、note echo、电平、钢琴卷帘（onset / sustain / 力度 / 帧内 onset 偏移 / 时长）、辅助 stem。总线 = 6 种 FX 的有无 + 参数。混响改成由 (T60, size, damping, wet) 完全确定，所以可以精确学习。
+- **反向解码**：`decode_scene` 把槽预测变回 `mixscene` 场景描述，用生成数据的同一套代码渲染、打分。测试：真值目标解码后重渲染，与原混音的距离基本为 0（20 个场景的三个层级里最差 0.05，来自八度叠层拆开后超出音域的个别音符）。
+- **模型**（`mixtrain.py`，默认 11.7 M 参数）：输入谱图 → 线性 + 局部卷积 → 6 层 Transformer 编码器（第 0 个 token 是数量 token：0 = 自动，1–8 = 指定数量）→ 8 个查询槽的 4 层解码器。卷帘和 stem 头是“帧特征 × 槽特征”的乘积，保持小巧。
+- **训练**：每个样本 30% 用自动 token + L0 目标，其余随机选一个层级，数量 token = 该层级的乐器数。Hungarian 匹配代价 = 结构族 CE + stem L1 + 2 × (1 − onset Dice)。损失权重见 `DEFAULT_WEIGHTS`，可用 `--loss-weights` 覆盖。
+- **评估**：`mixtrain evaluate` 对每个场景跑自动和三种指定数量，解码、原生渲染，报告重渲染距离中位数、自动数量准确率，以及 echo 场景里自动数量等于 L0 的比例（§6 的 echo 指标，λ 调参用）。
+- **Kaggle**：`make_kernels.py --mix` 写出 `mix-generate`（CPU，生成场景语料，`--mix-generate-args "--count-weights 1"` 可只生成单乐器）、`mix-train-a/-b`（T4，轮流续训：`kaggle_push.py mix-train build/kaggle`）和 `mix-smoke`（384 个场景的端到端检查：生成 → 训练 2 epoch → 续训 1 epoch → 重渲染评估）。冒烟测试 2026-11-06 在 T4 上通过。
+- 尚未实现：介于层级之间的手动数量标签（离线搜索）、推理时多候选重打分（§5 第 3–4 步）、λ 调参、导出 MIDI / preset 文件夹给 AMO Centre。
