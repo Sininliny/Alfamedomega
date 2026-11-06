@@ -1,31 +1,41 @@
-﻿Alfamedomega 套件（插件 + 独立版 + AMO Centre）
-================================================
+﻿Alfamedomega Suite (plugin + standalone + AMO Centre)
+=====================================================
 
-安装（Windows 10/11，64 位）
-1. 把整个压缩包解压到任意文件夹（不要直接在压缩包里双击）。
-2. 双击 Install.bat。第一次安装会下载 Python、PyTorch 等，约 400 MB，需要几分钟。
-   中途 Windows 会询问管理员权限：这是把 VST3 插件复制到
-   C:\Program Files\Common Files\VST3。点"是"。
-3. 看到 "Done." 就装好了。解压出来的文件夹之后可以删掉。
+Install (Windows 10/11, 64-bit)
+1. Unzip the whole archive into any folder (don't run it from inside the zip).
+2. Double-click Install.bat. The first install downloads Python, PyTorch and a few other
+   parts, about 400 MB, so it takes a few minutes.
+   Windows will ask for administrator rights once: that is only to copy the VST3 plugin
+   into C:\Program Files\Common Files\VST3. Click "Yes".
+3. When the window says "Done." you're finished. You can delete the unzipped folder.
 
-装好之后
-- 桌面上有两个图标：
-  Alfamedomega   独立版合成器（不用宿主就能弹，可在设置里选声卡和 MIDI 键盘）
-  AMO Centre     控制中心
-- 在宿主（FL Studio、Ableton、Reaper 等）里重新扫描插件，就能找到 Alfamedomega（VST3）。
+After installing
+- Two icons appear on your desktop:
+  Alfamedomega   the standalone synth (plays without a DAW; pick your audio device and
+                 MIDI keyboard in its settings)
+  AMO Centre     the control centre
+- In your DAW (FL Studio, Ableton Live, Reaper, ...) rescan plugins and load
+  Alfamedomega (VST3).
 
-把采样变成音色：WAV to Preset
-1. 打开 AMO Centre，左边第一项就是 "WAV to Preset"，模型已经内置好了。
-2. 把 .wav 采样拖进虚线框（也可以点框选择文件）。单音的 one-shot 效果最好：
-   一个音符、开头干净、没有混响和别的乐器。
-3. 音高默认自动识别；识别不准时，在 "Sample pitch" 里手动选采样的音高。
-4. 转换完成后，打开插件（或独立版）的音色库，点刷新按钮，新音色在 "WAV import" 分类里。
-   音色文件保存在 %APPDATA%\Alfamedomega\TensorPresets。
+Turn a sample into a sound: WAV to Preset
+1. Open AMO Centre. "WAV to Preset" is the first page; the model is already built in.
+2. Drag .wav files onto the dashed box (or click it to choose files). Single-note
+   one-shots work best: one note, a clean start, no reverb, no other instruments.
+3. The pitch of the sample is detected automatically. If it's wrong, choose the sample's
+   note under "Sample pitch".
+4. When it's done, open the plugin's (or the standalone's) sound library and press the
+   refresh button. The new sounds are in the "WAV import" category.
+   The preset files are saved in %APPDATA%\Alfamedomega\TensorPresets.
 
-须知
-- 模型做的是"用我们自己的合成结构，找最接近这个采样的那一个"，不是采样回放。
-  合成器能做的声音越接近采样，结果越像；人声、整段音乐、复杂真实乐器只会得到大致相近的音色。
-- 转换在 CPU 上跑，每个采样十几秒到一分钟，期间只用两个线程，电脑不会太吵。
-- 卸载：开始菜单 → Alfamedomega → Uninstall Alfamedomega。你做的音色会保留。
+Good to know
+- This is not sample playback. The model looks for the closest sound that our own synth
+  structures can make, then builds a playable preset from it. The more a sample sounds
+  like a synth, the closer the result; voices, full songs and complex acoustic
+  instruments only come out roughly similar.
+- Very low notes (below about F#1 / MIDI 34) give weaker results.
+- Conversion runs on the CPU and takes from a few seconds to about a minute per sample.
+  It only uses two threads, so the computer stays quiet.
+- Start AMO Centre from its desktop or Start-menu shortcut.
+- Uninstall: Start menu > Alfamedomega > Uninstall Alfamedomega. Presets you made are kept.
 
-遇到问题请把窗口截图发给 Sinin。
+If something goes wrong, send a screenshot of the window to Sinin.

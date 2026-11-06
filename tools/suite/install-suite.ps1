@@ -33,7 +33,7 @@ New-Item -ItemType Directory -Force -Path $dest, $runtime | Out-Null
 Mirror (Join-Path $src 'app') $app
 Mirror (Join-Path $src 'plugin') (Join-Path $dest 'plugin')
 Copy-Item -Force (Join-Path $src 'Alfamedomega.exe') $dest
-Copy-Item -Force (Join-Path $src 'uninstall-suite.ps1'), (Join-Path $src 'README.txt') $dest
+Copy-Item -Force (Join-Path $src 'uninstall-suite.ps1'), (Join-Path $src 'README.txt'), (Join-Path $src 'README.zh.txt') $dest
 
 if (-not (Test-Path $uv)) {
     Step 'Downloading uv (Python installer, about 15 MB)'
@@ -105,4 +105,4 @@ Shortcut (Join-Path $menu 'Uninstall Alfamedomega.lnk') 'powershell.exe' "-NoPro
 
 Write-Host ""
 Write-Host 'Done. Desktop shortcuts: Alfamedomega (standalone) and AMO Centre.' -ForegroundColor Green
-Write-Host 'In AMO Centre open "WAV to Preset" and drop one-shot samples; then press Refresh in the plugin''s sound library.' -ForegroundColor Green
+Write-Host 'In AMO Centre open "WAV to Preset" and drop one-shot samples; then press "Refresh library" in the plugin.' -ForegroundColor Green
