@@ -171,8 +171,26 @@ def fit_statistics(train, types):
     return stats
 
 
-def encode_split(raw, stats):
-    """Model-ready float32/int64 arrays; all normalisation happens once here."""
+def load_perceptual_weights(path, types, widths):
+    """Per (family, coordinate) value-loss weights written by ``sensitivity.py``."""
+    from training.amo.corpus.sensitivity import SCHEMA
+    with np.load(path) as stored:
+        if str(stored["schema"]) != SCHEMA:
+            raise ValueError(f"{path} is not an {SCHEMA} file")
+        weights = {name: stored[f"weight_{name}"].astype(np.float32) for name in VALUE_TENSORS}
+    for name in VALUE_TENSORS:
+        if weights[name].shape != (types, widths[name]):
+            raise ValueError(f"{path}: weight_{name} has shape {weights[name].shape},"
+                             f" this corpus needs {(types, widths[name])}")
+    return weights
+
+
+def encode_split(raw, stats, perceptual=None):
+    """Model-ready float32/int64 arrays; all normalisation happens once here.
+
+    ``perceptual`` (from ``load_perceptual_weights``) scales each value-loss weight
+    by how audible that (family, coordinate) is; None keeps uniform weights.
+    """
     type_id = raw["type_id"].astype(np.int64)
     out = {
         "x": stats["X_audio"](raw["X_audio"]),
@@ -186,7 +204,10 @@ def encode_split(raw, stats):
         for head in HEADS:
             mask = raw[f"{head}_{name}_mask"]
             out[f"{head}_{name}_z"] = stats[name].encode(type_id, raw[f"{head}_{name}"], mask)
-            out[f"{head}_{name}_w"] = stats[name].weight(type_id, mask)
+            weight = stats[name].weight(type_id, mask)
+            if perceptual is not None:
+                weight = weight * perceptual[name][type_id]
+            out[f"{head}_{name}_w"] = weight
     out["presence"] = np.concatenate(presence, axis=1).astype(np.float32)
     return out
 
@@ -453,6 +474,8 @@ def train(args):
     identity = {"corpus": corpus_fingerprint(root, args.protocol), "protocol": args.protocol,
                 "model": {k: getattr(args, k) for k in ("width", "layers", "heads", "ff", "dropout")},
                 "types": types, "operations": operations}
+    if args.perceptual_weights:
+        identity["perceptual_weights"] = hashlib.sha256(Path(args.perceptual_weights).read_bytes()).hexdigest()
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -501,8 +524,14 @@ def train(args):
     learnable = {name: int(stats[name].learnable.sum()) for name in VALUE_TENSORS}
     log(f"value widths {widths}; learnable (family, coordinate) pairs {learnable}", log_path)
 
-    train_data = to_device(encode_split(raw_train, stats), device if args.data_on_device else "cpu")
-    val_data = to_device(encode_split(raw_val, stats), device if args.data_on_device else "cpu")
+    perceptual = None
+    if args.perceptual_weights:
+        perceptual = load_perceptual_weights(args.perceptual_weights, types, widths)
+        used = np.concatenate([perceptual[n][stats[n].learnable] for n in VALUE_TENSORS])
+        log(f"perceptual value weights {args.perceptual_weights}: learnable pairs {used.size},"
+            f" min {used.min():.3f} median {np.median(used):.3f} max {used.max():.3f}", log_path)
+    train_data = to_device(encode_split(raw_train, stats, perceptual), device if args.data_on_device else "cpu")
+    val_data = to_device(encode_split(raw_val, stats, perceptual), device if args.data_on_device else "cpu")
     del raw_train, raw_val
     if not args.data_on_device:
         train_data = {k: v.pin_memory() if device.type == "cuda" else v for k, v in train_data.items()}
@@ -719,6 +748,9 @@ def parse(argv=None):
     parser.add_argument("--presence-weight", type=float, default=0.2)
     parser.add_argument("--canonical-weight", type=float, default=2.0)
     parser.add_argument("--instance-weight", type=float, default=1.0)
+    parser.add_argument("--perceptual-weights", type=Path, default=None,
+                        help="sensitivity.npz from sensitivity.py: weight the value loss by audibility"
+                             " (validation loss is weighted the same way; evaluate.py stays unweighted)")
     parser.add_argument("--device", default="auto", help="auto, cpu or cuda:N")
     parser.add_argument("--no-amp", dest="amp", action="store_false")
     parser.add_argument("--data-on-device", action=argparse.BooleanOptionalAction, default=True,
