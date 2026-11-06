@@ -93,12 +93,12 @@ def test_amo_centre_puts_tensor_work_first_and_checks_inputs(qapp, ctx):
     win = MainWindow(ctx)
     win.show()
     assert win.windowTitle() == "AMO Centre"
-    assert win.stack.currentWidget() is win.import_page
+    assert win.stack.currentWidget() is win.wav_preset_page
     names = [win.nav.item(i).text() for i in range(win.nav.count())]
-    assert names.index("Import sound") < names.index("Jobs") < names.index("LEGACY") < names.index("Models")
+    assert names.index("WAV to Preset") < names.index("Import sound") < names.index("Jobs") < names.index("LEGACY") < names.index("Models")
     # Section headings cannot be selected and do not change the page.
     win.nav.setCurrentRow(names.index("LEGACY"))
-    assert win.stack.currentWidget() is win.import_page
+    assert win.stack.currentWidget() is win.wav_preset_page
     # A task with missing inputs says which ones instead of queuing a job.
     win.show_page(win.evaluate_page)
     win.evaluate_page.evaluate()
@@ -126,4 +126,32 @@ def test_amo_centre_puts_tensor_work_first_and_checks_inputs(qapp, ctx):
     job = ctx.jobs.get(win.rank_page.job_id)
     assert job["title"] == "Rank sound controls"
     assert job["steps"][0]["argv"][-2:] == ["--layer", "1"]
+    win.close()
+
+
+def test_wav_to_preset_defaults_to_bundled_model_and_queues_a_job(qapp, ctx, tmp_path):
+    from alfacc.amo import DEFAULT_WAV_PRESET_MODEL
+    from alfacc.gui.app import MainWindow
+    win = MainWindow(ctx)
+    page = win.wav_preset_page
+    page.fill()
+    assert page.model.text().replace("\\", "/").endswith(DEFAULT_WAV_PRESET_MODEL.as_posix())
+    assert page.folder.text().replace("\\", "/").endswith("Alfamedomega/TensorPresets")
+    # A missing model is reported instead of queuing a job.
+    page.model.setText(str(tmp_path / "missing.pt"))
+    page.convert([str(tmp_path / "a.wav")])
+    assert page.job_id is None and "Model not found" in page.panel.status.text()
+    # A changed model path is remembered; the default is stored as empty.
+    model = tmp_path / "model.pt"
+    model.write_bytes(b"x")
+    page.model.setText(str(model))
+    page.remember_model()
+    assert ctx.settings.extra["wav_preset_model"] == str(model)
+    page.folder.setText(str(tmp_path / "presets"))
+    page.convert([str(tmp_path / "a.wav")])
+    job = ctx.jobs.get(page.job_id)
+    argv = job["steps"][0]["argv"]
+    assert argv[3:5] == ["training.amo", "wav-to-preset"]
+    assert argv[5] == str(model.resolve()) and argv[6] == str(tmp_path / "a.wav")
+    assert argv[argv.index("--out") + 1] == str((tmp_path / "presets").resolve())
     win.close()

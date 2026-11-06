@@ -13,6 +13,10 @@ def main():
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
+    if len(sys.argv) > 1 and sys.argv[1] == "wav-to-preset":
+        # Structure-encoder WAV to Preset (AMO Centre page of the same name).
+        from .corpus.wav_to_preset import main as wav_to_preset
+        sys.exit(wav_to_preset(sys.argv[2:]))
     parser = argparse.ArgumentParser(description="AMO dual-supervised WAV tensor learner")
     commands = parser.add_subparsers(dest="command", required=True)
     training = commands.add_parser("train")

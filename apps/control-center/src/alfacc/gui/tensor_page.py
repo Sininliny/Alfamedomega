@@ -6,9 +6,10 @@ Import sound. Fields the user already filled are never overwritten.
 """
 from pathlib import Path
 
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QHBoxLayout,
-                               QPlainTextEdit, QProgressBar, QSpinBox)
+from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
+                               QHBoxLayout, QPlainTextEdit, QProgressBar, QSpinBox, QVBoxLayout)
 
 from ..amo import create_tensor_job
 from ..jobs import FINISHED
@@ -253,6 +254,119 @@ class ImportSoundPage(AmoPage):
             self.run_task("import-wav", [*paths.values(), "--head", self.head.currentData(),
                                          "--mask-threshold", str(self.threshold.value()),
                                          "--sample-rate", str(self.rate.value())])
+
+
+class DropArea(QFrame):
+    """A large target that accepts dropped WAV files (and opens a file dialog when clicked)."""
+
+    def __init__(self, on_files):
+        super().__init__()
+        self.on_files = on_files
+        self.setObjectName("dropArea")
+        self.setAcceptDrops(True)
+        self.setMinimumHeight(150)
+        self.setStyleSheet("#dropArea { border: 2px dashed palette(mid); border-radius: 10px; }"
+                           "#dropArea[hover=\"true\"] { border-color: palette(highlight); }")
+        lay = QVBoxLayout(self)
+        lay.addStretch(1)
+        text = label("Drop WAV samples here\nOne-shots work best: one note, about 1 to 2 seconds", "muted", wrap=True)
+        text.setAlignment(Qt.AlignCenter)
+        lay.addWidget(text)
+        lay.addStretch(1)
+
+    @staticmethod
+    def _wavs(event):
+        urls = event.mimeData().urls() if event.mimeData().hasUrls() else []
+        return [u.toLocalFile() for u in urls if u.toLocalFile().lower().endswith(".wav")]
+
+    def _hover(self, on):
+        self.setProperty("hover", on)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def dragEnterEvent(self, event):
+        if self._wavs(event):
+            self._hover(True)
+            event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self._hover(False)
+
+    def dropEvent(self, event):
+        self._hover(False)
+        files = self._wavs(event)
+        if files:
+            event.acceptProposedAction()
+            self.on_files(files)
+
+    def mousePressEvent(self, event):
+        files, _ = QFileDialog.getOpenFileNames(self, "Choose WAV samples", "", "Audio (*.wav)")
+        if files:
+            self.on_files(files)
+
+
+class WavToPresetPage(AmoPage):
+    """Drop samples, get presets: the bundled structure encoder guesses each sample's construction."""
+
+    def __init__(self, win):
+        super().__init__(win, "WAV to Preset",
+                         "Drop one-shot samples. The built-in model guesses which of the synthesizer's structures "
+                         "and settings make the closest sound, and saves each one as a preset. Open the plugin's "
+                         "sound library to play them (category WAV import).")
+        frame, lay = card()
+        self.drop = DropArea(self.convert)
+        lay.addWidget(self.drop)
+        form = QFormLayout()
+        form.setHorizontalSpacing(16)
+        self.model = PathField(filter="PyTorch model (*.pt)", placeholder="built-in structure encoder")
+        self.model.edit.editingFinished.connect(self.remember_model)
+        form.addRow("Model", self.model)
+        self.folder = PathField(folder=True, placeholder="the plugin's sound library")
+        form.addRow("Save presets to", self.folder)
+        self.note = QComboBox()
+        self.note.addItem("Detect automatically", "auto")
+        for midi in range(36, 73):
+            name = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][midi % 12] + str(midi // 12 - 1)
+            self.note.addItem(f"{name} (MIDI {midi})", str(midi))
+        form.addRow("Sample pitch", self.note)
+        self.preview = QCheckBox("Also save a preview WAV of each result")
+        form.addRow("", self.preview)
+        lay.addLayout(form)
+        self.actions(lay, button("Open preset folder", self.open_folder))
+        self.lay.addWidget(frame)
+        self.finish()
+
+    def fill(self):
+        from ..amo import default_wav_preset_model, preset_library
+        if not self.model.text():
+            saved = self.ctx.settings.extra.get("wav_preset_model", "")
+            self.model.setText(saved or str(default_wav_preset_model(default_repository(self.win))))
+        if not self.folder.text():
+            self.folder.setText(str(preset_library()))
+
+    def remember_model(self):
+        from ..amo import default_wav_preset_model
+        value = self.model.text()
+        default = str(default_wav_preset_model(default_repository(self.win)))
+        self.ctx.settings.extra["wav_preset_model"] = "" if value == default else value
+        self.ctx.save_settings()
+
+    def open_folder(self):
+        folder = Path(self.folder.text() or ".").expanduser()
+        folder.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+    def convert(self, files):
+        self.fill()
+        model = Path(self.model.text()).expanduser()
+        if not model.is_file():
+            self.panel.message(f"Model not found: {model}. Choose the model file above.")
+            return
+        args = [str(model.resolve()), *files, "--out", str(Path(self.folder.text()).expanduser().resolve()),
+                "--note", self.note.currentData()]
+        if self.preview.isChecked():
+            args.append("--preview")
+        self.run_task("wav-to-preset", args)
 
 
 class DatasetsPage(AmoPage):

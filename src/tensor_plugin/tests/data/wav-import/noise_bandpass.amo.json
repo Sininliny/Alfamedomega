@@ -1,0 +1,2048 @@
+{
+ "schema": "amo.tensor/1",
+ "ontology": "amo.math/1",
+ "tensors": {
+  "activation": {
+   "axes": [
+    "primitive"
+   ],
+   "shape": [
+    40
+   ],
+   "values": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "presence": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ]
+  },
+  "parameters": {
+   "axes": [
+    "parameter"
+   ],
+   "shape": [
+    88
+   ],
+   "values": [
+    0.0,
+    0.005704610249033382,
+    0.38038434023269946,
+    0.34408154212686093,
+    0.2251588935601862,
+    3594.0139247668994,
+    1.9317463599248086,
+    0.7,
+    0.0,
+    0.0,
+    -0.005112552354061384,
+    0.0,
+    0.005704610249033382,
+    0.38038434023269946,
+    0.34408154212686093,
+    0.2251588935601862,
+    3594.0139247668994,
+    1.9317463599248086,
+    0.7,
+    0.0,
+    0.0,
+    -0.005112552354061384,
+    0.0,
+    0.005704610249033382,
+    0.38038434023269946,
+    0.34408154212686093,
+    0.2251588935601862,
+    3594.0139247668994,
+    1.9317463599248086,
+    0.7,
+    0.0,
+    0.0,
+    -0.005112552354061384,
+    0.0,
+    0.005704610249033382,
+    0.38038434023269946,
+    0.34408154212686093,
+    0.2251588935601862,
+    3594.0139247668994,
+    1.9317463599248086,
+    0.7,
+    0.0,
+    0.0,
+    -0.005112552354061384,
+    0.0,
+    0.005704610249033382,
+    0.38038434023269946,
+    0.34408154212686093,
+    0.2251588935601862,
+    3594.0139247668994,
+    1.9317463599248086,
+    0.7,
+    0.0,
+    0.0,
+    -0.005112552354061384,
+    0.0,
+    0.005704610249033382,
+    0.38038434023269946,
+    0.34408154212686093,
+    0.2251588935601862,
+    3594.0139247668994,
+    1.9317463599248086,
+    0.7,
+    0.0,
+    0.0,
+    -0.005112552354061384,
+    0.0,
+    0.005704610249033382,
+    0.38038434023269946,
+    0.34408154212686093,
+    0.2251588935601862,
+    3594.0139247668994,
+    1.9317463599248086,
+    0.7,
+    0.0,
+    0.0,
+    -0.005112552354061384,
+    0.0,
+    0.005704610249033382,
+    0.38038434023269946,
+    0.34408154212686093,
+    0.2251588935601862,
+    3594.0139247668994,
+    1.9317463599248086,
+    0.7,
+    0.0,
+    0.0,
+    -0.005112552354061384
+   ],
+   "presence": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ]
+  },
+  "routing": {
+   "axes": [
+    "coefficient"
+   ],
+   "shape": [
+    56
+   ],
+   "values": [
+    1.0,
+    -0.002,
+    0.018,
+    1.0,
+    1.0,
+    0.25,
+    1.0,
+    1.0,
+    -0.002,
+    0.018,
+    1.0,
+    1.0,
+    0.25,
+    1.0,
+    1.0,
+    -0.002,
+    0.018,
+    1.0,
+    1.0,
+    0.25,
+    1.0,
+    1.0,
+    -0.002,
+    0.018,
+    1.0,
+    1.0,
+    0.25,
+    1.0,
+    1.0,
+    -0.002,
+    0.018,
+    1.0,
+    1.0,
+    0.25,
+    1.0,
+    1.0,
+    -0.002,
+    0.018,
+    1.0,
+    1.0,
+    0.25,
+    1.0,
+    1.0,
+    -0.002,
+    0.018,
+    1.0,
+    1.0,
+    0.25,
+    1.0,
+    1.0,
+    -0.002,
+    0.018,
+    1.0,
+    1.0,
+    0.25,
+    1.0
+   ],
+   "presence": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ]
+  },
+  "modulation": {
+   "axes": [
+    "relationship"
+   ],
+   "shape": [
+    8
+   ],
+   "values": [
+    246.01123368114216,
+    246.01123368114216,
+    246.01123368114216,
+    246.01123368114216,
+    246.01123368114216,
+    246.01123368114216,
+    246.01123368114216,
+    246.01123368114216
+   ],
+   "presence": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ]
+  }
+ },
+ "instances": [
+  {
+   "primitive": "control.adsr",
+   "instance_id": "node-0-v0",
+   "activation": 0,
+   "parameters": {
+    "offset": 0,
+    "count": 5
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "excitation.white_noise",
+   "instance_id": "node-1-v0",
+   "activation": 1,
+   "parameters": {
+    "offset": 5,
+    "count": 0
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 2,
+   "initial_state": [
+    12345.0,
+    54321.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "filter.biquad_bandpass",
+   "instance_id": "node-2-v0",
+   "activation": 2,
+   "parameters": {
+    "offset": 5,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 1,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 3,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "nonlinear.tanh.v1",
+   "instance_id": "node-3-v0",
+   "activation": 3,
+   "parameters": {
+    "offset": 7,
+    "count": 3
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 2,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 4,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "spatial.constant_power_pan",
+   "instance_id": "node-4-v0",
+   "activation": 4,
+   "parameters": {
+    "offset": 10,
+    "count": 1
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 3,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 6,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "control.adsr",
+   "instance_id": "node-0-v1",
+   "activation": 5,
+   "parameters": {
+    "offset": 11,
+    "count": 5
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "excitation.white_noise",
+   "instance_id": "node-1-v1",
+   "activation": 6,
+   "parameters": {
+    "offset": 16,
+    "count": 0
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 2,
+   "initial_state": [
+    12345.0,
+    54321.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "filter.biquad_bandpass",
+   "instance_id": "node-2-v1",
+   "activation": 7,
+   "parameters": {
+    "offset": 16,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 7,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 10,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "nonlinear.tanh.v1",
+   "instance_id": "node-3-v1",
+   "activation": 8,
+   "parameters": {
+    "offset": 18,
+    "count": 3
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 8,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 11,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "spatial.constant_power_pan",
+   "instance_id": "node-4-v1",
+   "activation": 9,
+   "parameters": {
+    "offset": 21,
+    "count": 1
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 9,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 13,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "control.adsr",
+   "instance_id": "node-0-v2",
+   "activation": 10,
+   "parameters": {
+    "offset": 22,
+    "count": 5
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "excitation.white_noise",
+   "instance_id": "node-1-v2",
+   "activation": 11,
+   "parameters": {
+    "offset": 27,
+    "count": 0
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 2,
+   "initial_state": [
+    12345.0,
+    54321.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "filter.biquad_bandpass",
+   "instance_id": "node-2-v2",
+   "activation": 12,
+   "parameters": {
+    "offset": 27,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 13,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 17,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "nonlinear.tanh.v1",
+   "instance_id": "node-3-v2",
+   "activation": 13,
+   "parameters": {
+    "offset": 29,
+    "count": 3
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 14,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 18,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "spatial.constant_power_pan",
+   "instance_id": "node-4-v2",
+   "activation": 14,
+   "parameters": {
+    "offset": 32,
+    "count": 1
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 15,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 20,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "control.adsr",
+   "instance_id": "node-0-v3",
+   "activation": 15,
+   "parameters": {
+    "offset": 33,
+    "count": 5
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "excitation.white_noise",
+   "instance_id": "node-1-v3",
+   "activation": 16,
+   "parameters": {
+    "offset": 38,
+    "count": 0
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 2,
+   "initial_state": [
+    12345.0,
+    54321.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "filter.biquad_bandpass",
+   "instance_id": "node-2-v3",
+   "activation": 17,
+   "parameters": {
+    "offset": 38,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 19,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 24,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "nonlinear.tanh.v1",
+   "instance_id": "node-3-v3",
+   "activation": 18,
+   "parameters": {
+    "offset": 40,
+    "count": 3
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 20,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 25,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "spatial.constant_power_pan",
+   "instance_id": "node-4-v3",
+   "activation": 19,
+   "parameters": {
+    "offset": 43,
+    "count": 1
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 21,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 27,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "control.adsr",
+   "instance_id": "node-0-v4",
+   "activation": 20,
+   "parameters": {
+    "offset": 44,
+    "count": 5
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "excitation.white_noise",
+   "instance_id": "node-1-v4",
+   "activation": 21,
+   "parameters": {
+    "offset": 49,
+    "count": 0
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 2,
+   "initial_state": [
+    12345.0,
+    54321.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "filter.biquad_bandpass",
+   "instance_id": "node-2-v4",
+   "activation": 22,
+   "parameters": {
+    "offset": 49,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 25,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 31,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "nonlinear.tanh.v1",
+   "instance_id": "node-3-v4",
+   "activation": 23,
+   "parameters": {
+    "offset": 51,
+    "count": 3
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 26,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 32,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "spatial.constant_power_pan",
+   "instance_id": "node-4-v4",
+   "activation": 24,
+   "parameters": {
+    "offset": 54,
+    "count": 1
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 27,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 34,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "control.adsr",
+   "instance_id": "node-0-v5",
+   "activation": 25,
+   "parameters": {
+    "offset": 55,
+    "count": 5
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "excitation.white_noise",
+   "instance_id": "node-1-v5",
+   "activation": 26,
+   "parameters": {
+    "offset": 60,
+    "count": 0
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 2,
+   "initial_state": [
+    12345.0,
+    54321.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "filter.biquad_bandpass",
+   "instance_id": "node-2-v5",
+   "activation": 27,
+   "parameters": {
+    "offset": 60,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 31,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 38,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "nonlinear.tanh.v1",
+   "instance_id": "node-3-v5",
+   "activation": 28,
+   "parameters": {
+    "offset": 62,
+    "count": 3
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 32,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 39,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "spatial.constant_power_pan",
+   "instance_id": "node-4-v5",
+   "activation": 29,
+   "parameters": {
+    "offset": 65,
+    "count": 1
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 33,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 41,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "control.adsr",
+   "instance_id": "node-0-v6",
+   "activation": 30,
+   "parameters": {
+    "offset": 66,
+    "count": 5
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "excitation.white_noise",
+   "instance_id": "node-1-v6",
+   "activation": 31,
+   "parameters": {
+    "offset": 71,
+    "count": 0
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 2,
+   "initial_state": [
+    12345.0,
+    54321.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "filter.biquad_bandpass",
+   "instance_id": "node-2-v6",
+   "activation": 32,
+   "parameters": {
+    "offset": 71,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 37,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 45,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "nonlinear.tanh.v1",
+   "instance_id": "node-3-v6",
+   "activation": 33,
+   "parameters": {
+    "offset": 73,
+    "count": 3
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 38,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 46,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "spatial.constant_power_pan",
+   "instance_id": "node-4-v6",
+   "activation": 34,
+   "parameters": {
+    "offset": 76,
+    "count": 1
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 39,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 48,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "control.adsr",
+   "instance_id": "node-0-v7",
+   "activation": 35,
+   "parameters": {
+    "offset": 77,
+    "count": 5
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "excitation.white_noise",
+   "instance_id": "node-1-v7",
+   "activation": 36,
+   "parameters": {
+    "offset": 82,
+    "count": 0
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 2,
+   "initial_state": [
+    12345.0,
+    54321.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "filter.biquad_bandpass",
+   "instance_id": "node-2-v7",
+   "activation": 37,
+   "parameters": {
+    "offset": 82,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 43,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 52,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "nonlinear.tanh.v1",
+   "instance_id": "node-3-v7",
+   "activation": 38,
+   "parameters": {
+    "offset": 84,
+    "count": 3
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 44,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 53,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "spatial.constant_power_pan",
+   "instance_id": "node-4-v7",
+   "activation": 39,
+   "parameters": {
+    "offset": 87,
+    "count": 1
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 45,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 55,
+     "missing_source": "zero"
+    }
+   ]
+  }
+ ],
+ "projections": [
+  {
+   "source": "midi",
+   "source_element": 2,
+   "parameter_element": 0,
+   "weights": "routing",
+   "weight_element": 0,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 1,
+   "parameter_element": 1,
+   "weights": "routing",
+   "weight_element": 1,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 1,
+   "parameter_element": 2,
+   "weights": "routing",
+   "weight_element": 2,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 0,
+   "parameter_element": 5,
+   "weights": "modulation",
+   "weight_element": 0,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 0,
+   "parameter_element": 9,
+   "weights": "routing",
+   "weight_element": 5,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 12,
+   "parameter_element": 11,
+   "weights": "routing",
+   "weight_element": 7,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 11,
+   "parameter_element": 12,
+   "weights": "routing",
+   "weight_element": 8,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 11,
+   "parameter_element": 13,
+   "weights": "routing",
+   "weight_element": 9,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 10,
+   "parameter_element": 16,
+   "weights": "modulation",
+   "weight_element": 1,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 10,
+   "parameter_element": 20,
+   "weights": "routing",
+   "weight_element": 12,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 22,
+   "parameter_element": 22,
+   "weights": "routing",
+   "weight_element": 14,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 21,
+   "parameter_element": 23,
+   "weights": "routing",
+   "weight_element": 15,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 21,
+   "parameter_element": 24,
+   "weights": "routing",
+   "weight_element": 16,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 20,
+   "parameter_element": 27,
+   "weights": "modulation",
+   "weight_element": 2,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 20,
+   "parameter_element": 31,
+   "weights": "routing",
+   "weight_element": 19,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 32,
+   "parameter_element": 33,
+   "weights": "routing",
+   "weight_element": 21,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 31,
+   "parameter_element": 34,
+   "weights": "routing",
+   "weight_element": 22,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 31,
+   "parameter_element": 35,
+   "weights": "routing",
+   "weight_element": 23,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 30,
+   "parameter_element": 38,
+   "weights": "modulation",
+   "weight_element": 3,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 30,
+   "parameter_element": 42,
+   "weights": "routing",
+   "weight_element": 26,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 42,
+   "parameter_element": 44,
+   "weights": "routing",
+   "weight_element": 28,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 41,
+   "parameter_element": 45,
+   "weights": "routing",
+   "weight_element": 29,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 41,
+   "parameter_element": 46,
+   "weights": "routing",
+   "weight_element": 30,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 40,
+   "parameter_element": 49,
+   "weights": "modulation",
+   "weight_element": 4,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 40,
+   "parameter_element": 53,
+   "weights": "routing",
+   "weight_element": 33,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 52,
+   "parameter_element": 55,
+   "weights": "routing",
+   "weight_element": 35,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 51,
+   "parameter_element": 56,
+   "weights": "routing",
+   "weight_element": 36,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 51,
+   "parameter_element": 57,
+   "weights": "routing",
+   "weight_element": 37,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 50,
+   "parameter_element": 60,
+   "weights": "modulation",
+   "weight_element": 5,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 50,
+   "parameter_element": 64,
+   "weights": "routing",
+   "weight_element": 40,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 62,
+   "parameter_element": 66,
+   "weights": "routing",
+   "weight_element": 42,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 61,
+   "parameter_element": 67,
+   "weights": "routing",
+   "weight_element": 43,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 61,
+   "parameter_element": 68,
+   "weights": "routing",
+   "weight_element": 44,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 60,
+   "parameter_element": 71,
+   "weights": "modulation",
+   "weight_element": 6,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 60,
+   "parameter_element": 75,
+   "weights": "routing",
+   "weight_element": 47,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 72,
+   "parameter_element": 77,
+   "weights": "routing",
+   "weight_element": 49,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 71,
+   "parameter_element": 78,
+   "weights": "routing",
+   "weight_element": 50,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 71,
+   "parameter_element": 79,
+   "weights": "routing",
+   "weight_element": 51,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 70,
+   "parameter_element": 82,
+   "weights": "modulation",
+   "weight_element": 7,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 70,
+   "parameter_element": 86,
+   "weights": "routing",
+   "weight_element": 54,
+   "missing_source": "zero"
+  }
+ ],
+ "parameter_locks": [
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false
+ ],
+ "shared_initial_state": [],
+ "outputMix": [
+  [
+   4,
+   0,
+   0.5
+  ],
+  [
+   5,
+   1,
+   0.5
+  ],
+  [
+   10,
+   0,
+   0.5
+  ],
+  [
+   11,
+   1,
+   0.5
+  ],
+  [
+   16,
+   0,
+   0.5
+  ],
+  [
+   17,
+   1,
+   0.5
+  ],
+  [
+   22,
+   0,
+   0.5
+  ],
+  [
+   23,
+   1,
+   0.5
+  ],
+  [
+   28,
+   0,
+   0.5
+  ],
+  [
+   29,
+   1,
+   0.5
+  ],
+  [
+   34,
+   0,
+   0.5
+  ],
+  [
+   35,
+   1,
+   0.5
+  ],
+  [
+   40,
+   0,
+   0.5
+  ],
+  [
+   41,
+   1,
+   0.5
+  ],
+  [
+   46,
+   0,
+   0.5
+  ],
+  [
+   47,
+   1,
+   0.5
+  ]
+ ],
+ "budget": {
+  "active_primitives": 40,
+  "state_elements": 80,
+  "parameter_elements": 88,
+  "routing_elements": 56,
+  "modulation_elements": 8,
+  "output_elements": 48,
+  "stored_tensor_elements": 216,
+  "projection_terms": 64,
+  "sparse_state_writes": 2048,
+  "scratch_elements": 4096
+ },
+ "performance": {
+  "mode": "instrument",
+  "midi_layout": "voice_indexed",
+  "voice_capacity": 8,
+  "release_seconds": 0.8754766806805585,
+  "bend_range_semitones": 2
+ },
+ "preferred_mode": 0,
+ "preset": {
+  "schema": "amo.preset/1",
+  "id": "wav-import-fixture-noise_bandpass",
+  "name": "Fixture noise_bandpass",
+  "category": "WAV import"
+ },
+ "description": "Imported from noise_bandpass.wav by the AMO structure encoder: nearest noise_bandpass construction",
+ "authoring": {
+  "kind": "wav to preset (corpus encoder guess)",
+  "family": "noise_bandpass",
+  "source": "noise_bandpass.wav",
+  "semantic_mappings": false
+ }
+}

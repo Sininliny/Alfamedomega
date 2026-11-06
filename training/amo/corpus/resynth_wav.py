@@ -63,8 +63,10 @@ class Encoder:
         self.model = build_model(package["config"], self.widths, self.types, operations)
         self.model.load_state_dict(package["model"])
         self.model.eval()
+        # Mean log RMS of the training renders (last of the output-feature block).
+        self.typical_log_rms = float(self.stats["X_audio"].mean[32 * 35 + 1])
 
-    def guess(self, x, conditions, instruments_only=True):
+    def guess(self, x, conditions, instruments_only=True, exclude=()):
         torch = self.torch
         xs = torch.from_numpy(self.stats["X_audio"](x[None]))
         cs = torch.from_numpy(self.stats["conditions"](conditions[None]))
@@ -73,6 +75,8 @@ class Encoder:
             logits = self.model.type_head(h)
             if instruments_only:
                 logits[:, INSTRUMENT_TYPES:] = -1e9
+            for t in exclude:
+                logits[:, t] = -1e9
             probabilities = torch.softmax(logits.float(), 1)[0].numpy()
             type_id = int(probabilities.argmax())
             values = self.model(xs, cs, torch.tensor([type_id]))["values"][0, list(HEADS).index("instance")]
@@ -225,46 +229,62 @@ def run_demo(encoder, out, count, seed):
     return results
 
 
+def guess_wav(encoder, path, note_arg="auto", velocity=0.7, exclude=()):
+    """Guess one WAV: returns construction, original, resynth audio and an info dict."""
+    audio, rate = read_wav(path)
+    audio = resample(audio, rate)
+    threshold = 0.01 * np.abs(audio).max()
+    loud = np.flatnonzero(np.abs(audio).max(1) > threshold)
+    if loud.size == 0:
+        raise ValueError("the file is silent")
+    audio = audio[max(0, loud[0] - int(0.005 * SAMPLE_RATE)):]
+    frames = int(np.clip(len(audio), MIN_SECONDS * SAMPLE_RATE, MAX_SECONDS * SAMPLE_RATE))
+    audio = np.pad(audio, ((0, max(0, frames - len(audio))), (0, 0)))[:frames]
+    warnings = []
+    if note_arg == "auto":
+        pitch = estimate_pitch(audio, SAMPLE_RATE)
+        if pitch is None:
+            pitch = 57.0
+            warnings.append("no clear pitch found; assumed A3 (57). Pass --note to set it.")
+    else:
+        pitch = float(note_arg)
+    note = int(round(pitch))
+    cents = float(np.clip((pitch - note) * 100, -12, 12))
+    if not NOTE_RANGE[0] <= note <= NOTE_RANGE[1]:
+        warnings.append(f"note {note} is outside the trained range {NOTE_RANGE}; expect a weaker guess")
+    note_off = float(np.clip(estimate_note_off(audio, SAMPLE_RATE), 0.32, 0.62))
+    perf = performance(note, cents, velocity, note_off, frames)
+    # Level is a model input (log RMS, last output feature): bring the file to the training median,
+    # since a user's sample level says nothing about the construction.
+    rms = float(np.sqrt(np.mean(audio ** 2)))
+    if rms > 1e-9:
+        audio = audio * min(np.exp(encoder.typical_log_rms) / rms, 0.9 / float(np.abs(audio).max()))
+    x, conditions, decoded = model_input(audio, perf)
+    guessed, values, probabilities = encoder.guess(x, conditions, exclude=exclude)
+    construction = resynth.assemble(guessed, values)
+    rendered = resynth.render(construction, perf)
+    info = {"input": str(path), **describe(encoder, guessed, probabilities, decoded, rendered),
+            "assumed_performance": perf, "warnings": warnings}
+    return {"construction": construction, "original": decoded, "resynth": rendered, "info": info}
+
+
 def run_wav(encoder, out, paths, note_arg, velocity):
     results = []
     for path in paths:
-        audio, rate = read_wav(path)
-        audio = resample(audio, rate)
-        threshold = 0.01 * np.abs(audio).max()
-        loud = np.flatnonzero(np.abs(audio).max(1) > threshold)
-        if loud.size == 0:
-            print(f"skip {path}: silent")
+        try:
+            guess = guess_wav(encoder, path, note_arg, velocity)
+        except ValueError as error:
+            print(f"skip {path}: {error}")
             continue
-        audio = audio[max(0, loud[0] - int(0.005 * SAMPLE_RATE)):]
-        frames = int(np.clip(len(audio), MIN_SECONDS * SAMPLE_RATE, MAX_SECONDS * SAMPLE_RATE))
-        audio = np.pad(audio, ((0, max(0, frames - len(audio))), (0, 0)))[:frames]
-        warnings = []
-        if note_arg == "auto":
-            pitch = estimate_pitch(audio, SAMPLE_RATE)
-            if pitch is None:
-                pitch = 57.0
-                warnings.append("no clear pitch found; assumed A3 (57). Pass --note to set it.")
-        else:
-            pitch = float(note_arg)
-        note = int(round(pitch))
-        cents = float(np.clip((pitch - note) * 100, -12, 12))
-        if not NOTE_RANGE[0] <= note <= NOTE_RANGE[1]:
-            warnings.append(f"note {note} is outside the trained range {NOTE_RANGE}; expect a weaker guess")
-        note_off = float(np.clip(estimate_note_off(audio, SAMPLE_RATE), 0.32, 0.62))
-        perf = performance(note, cents, velocity, note_off, frames)
-        x, conditions, decoded = model_input(audio, perf)
-        guessed, values, probabilities = encoder.guess(x, conditions)
-        guess_doc = resynth.assemble(guessed, values)
-        rendered = resynth.render(guess_doc, perf)
-        info = {"input": str(path), **describe(encoder, guessed, probabilities, decoded, rendered),
-                "assumed_performance": perf, "warnings": warnings}
+        info = guess["info"]
         folder = out / Path(path).stem
         if folder.exists():
             folder = out / f"{Path(path).stem}-{len(results) + 1}"
-        save(folder, decoded, rendered, guess_doc, info, SAMPLE_RATE)
+        save(folder, guess["original"], guess["resynth"], guess["construction"], info, SAMPLE_RATE)
         results.append(info)
-        print(f"{folder.name}: note {note}, guessed {info['guessed_family']}, distance {info['spectral_distance']}"
-              + "".join(f"\n  warning: {w}" for w in warnings), flush=True)
+        print(f"{folder.name}: note {info['assumed_performance']['midi_note']}, guessed {info['guessed_family']},"
+              f" distance {info['spectral_distance']}" + "".join(f"\n  warning: {w}" for w in info["warnings"]),
+              flush=True)
     return results
 
 

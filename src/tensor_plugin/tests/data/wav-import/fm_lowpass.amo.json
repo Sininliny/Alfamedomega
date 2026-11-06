@@ -1,0 +1,2560 @@
+{
+ "schema": "amo.tensor/1",
+ "ontology": "amo.math/1",
+ "tensors": {
+  "activation": {
+   "axes": [
+    "primitive"
+   ],
+   "shape": [
+    48
+   ],
+   "values": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "presence": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ]
+  },
+  "parameters": {
+   "axes": [
+    "parameter"
+   ],
+   "shape": [
+    120
+   ],
+   "values": [
+    0.0,
+    0.00899739028405199,
+    0.07445552859997288,
+    0.5058498752073041,
+    0.23648429809972302,
+    0.0,
+    1.0,
+    0.0,
+    0.6,
+    610.3112766437628,
+    1.0972605194980114,
+    0.7,
+    0.0,
+    0.0,
+    0.3307266247467342,
+    0.0,
+    0.00899739028405199,
+    0.07445552859997288,
+    0.5058498752073041,
+    0.23648429809972302,
+    0.0,
+    1.0,
+    0.0,
+    0.6,
+    610.3112766437628,
+    1.0972605194980114,
+    0.7,
+    0.0,
+    0.0,
+    0.3307266247467342,
+    0.0,
+    0.00899739028405199,
+    0.07445552859997288,
+    0.5058498752073041,
+    0.23648429809972302,
+    0.0,
+    1.0,
+    0.0,
+    0.6,
+    610.3112766437628,
+    1.0972605194980114,
+    0.7,
+    0.0,
+    0.0,
+    0.3307266247467342,
+    0.0,
+    0.00899739028405199,
+    0.07445552859997288,
+    0.5058498752073041,
+    0.23648429809972302,
+    0.0,
+    1.0,
+    0.0,
+    0.6,
+    610.3112766437628,
+    1.0972605194980114,
+    0.7,
+    0.0,
+    0.0,
+    0.3307266247467342,
+    0.0,
+    0.00899739028405199,
+    0.07445552859997288,
+    0.5058498752073041,
+    0.23648429809972302,
+    0.0,
+    1.0,
+    0.0,
+    0.6,
+    610.3112766437628,
+    1.0972605194980114,
+    0.7,
+    0.0,
+    0.0,
+    0.3307266247467342,
+    0.0,
+    0.00899739028405199,
+    0.07445552859997288,
+    0.5058498752073041,
+    0.23648429809972302,
+    0.0,
+    1.0,
+    0.0,
+    0.6,
+    610.3112766437628,
+    1.0972605194980114,
+    0.7,
+    0.0,
+    0.0,
+    0.3307266247467342,
+    0.0,
+    0.00899739028405199,
+    0.07445552859997288,
+    0.5058498752073041,
+    0.23648429809972302,
+    0.0,
+    1.0,
+    0.0,
+    0.6,
+    610.3112766437628,
+    1.0972605194980114,
+    0.7,
+    0.0,
+    0.0,
+    0.3307266247467342,
+    0.0,
+    0.00899739028405199,
+    0.07445552859997288,
+    0.5058498752073041,
+    0.23648429809972302,
+    0.0,
+    1.0,
+    0.0,
+    0.6,
+    610.3112766437628,
+    1.0972605194980114,
+    0.7,
+    0.0,
+    0.0,
+    0.3307266247467342
+   ],
+   "presence": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ]
+  },
+  "routing": {
+   "axes": [
+    "coefficient"
+   ],
+   "shape": [
+    72
+   ],
+   "values": [
+    1.0,
+    -0.002,
+    0.018,
+    4.574648954637442,
+    1.0,
+    1.0,
+    1.0,
+    0.25,
+    1.0,
+    1.0,
+    -0.002,
+    0.018,
+    4.574648954637442,
+    1.0,
+    1.0,
+    1.0,
+    0.25,
+    1.0,
+    1.0,
+    -0.002,
+    0.018,
+    4.574648954637442,
+    1.0,
+    1.0,
+    1.0,
+    0.25,
+    1.0,
+    1.0,
+    -0.002,
+    0.018,
+    4.574648954637442,
+    1.0,
+    1.0,
+    1.0,
+    0.25,
+    1.0,
+    1.0,
+    -0.002,
+    0.018,
+    4.574648954637442,
+    1.0,
+    1.0,
+    1.0,
+    0.25,
+    1.0,
+    1.0,
+    -0.002,
+    0.018,
+    4.574648954637442,
+    1.0,
+    1.0,
+    1.0,
+    0.25,
+    1.0,
+    1.0,
+    -0.002,
+    0.018,
+    4.574648954637442,
+    1.0,
+    1.0,
+    1.0,
+    0.25,
+    1.0,
+    1.0,
+    -0.002,
+    0.018,
+    4.574648954637442,
+    1.0,
+    1.0,
+    1.0,
+    0.25,
+    1.0
+   ],
+   "presence": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ]
+  },
+  "modulation": {
+   "axes": [
+    "relationship"
+   ],
+   "shape": [
+    16
+   ],
+   "values": [
+    293.3926792337756,
+    973.5194012608653,
+    293.3926792337756,
+    973.5194012608653,
+    293.3926792337756,
+    973.5194012608653,
+    293.3926792337756,
+    973.5194012608653,
+    293.3926792337756,
+    973.5194012608653,
+    293.3926792337756,
+    973.5194012608653,
+    293.3926792337756,
+    973.5194012608653,
+    293.3926792337756,
+    973.5194012608653
+   ],
+   "presence": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ]
+  }
+ },
+ "instances": [
+  {
+   "primitive": "control.adsr",
+   "instance_id": "node-0-v0",
+   "activation": 0,
+   "parameters": {
+    "offset": 0,
+    "count": 5
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "math.sine",
+   "instance_id": "node-1-v0",
+   "activation": 1,
+   "parameters": {
+    "offset": 5,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 1,
+   "initial_state": [
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "math.sine",
+   "instance_id": "node-2-v0",
+   "activation": 2,
+   "parameters": {
+    "offset": 7,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 1,
+   "initial_state": [
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "filter.biquad_lowpass",
+   "instance_id": "node-3-v0",
+   "activation": 3,
+   "parameters": {
+    "offset": 9,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 2,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 5,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "nonlinear.tanh.v1",
+   "instance_id": "node-4-v0",
+   "activation": 4,
+   "parameters": {
+    "offset": 11,
+    "count": 3
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 3,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 6,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "spatial.constant_power_pan",
+   "instance_id": "node-5-v0",
+   "activation": 5,
+   "parameters": {
+    "offset": 14,
+    "count": 1
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 4,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 8,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "control.adsr",
+   "instance_id": "node-0-v1",
+   "activation": 6,
+   "parameters": {
+    "offset": 15,
+    "count": 5
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "math.sine",
+   "instance_id": "node-1-v1",
+   "activation": 7,
+   "parameters": {
+    "offset": 20,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 1,
+   "initial_state": [
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "math.sine",
+   "instance_id": "node-2-v1",
+   "activation": 8,
+   "parameters": {
+    "offset": 22,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 1,
+   "initial_state": [
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "filter.biquad_lowpass",
+   "instance_id": "node-3-v1",
+   "activation": 9,
+   "parameters": {
+    "offset": 24,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 9,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 14,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "nonlinear.tanh.v1",
+   "instance_id": "node-4-v1",
+   "activation": 10,
+   "parameters": {
+    "offset": 26,
+    "count": 3
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 10,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 15,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "spatial.constant_power_pan",
+   "instance_id": "node-5-v1",
+   "activation": 11,
+   "parameters": {
+    "offset": 29,
+    "count": 1
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 11,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 17,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "control.adsr",
+   "instance_id": "node-0-v2",
+   "activation": 12,
+   "parameters": {
+    "offset": 30,
+    "count": 5
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "math.sine",
+   "instance_id": "node-1-v2",
+   "activation": 13,
+   "parameters": {
+    "offset": 35,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 1,
+   "initial_state": [
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "math.sine",
+   "instance_id": "node-2-v2",
+   "activation": 14,
+   "parameters": {
+    "offset": 37,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 1,
+   "initial_state": [
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "filter.biquad_lowpass",
+   "instance_id": "node-3-v2",
+   "activation": 15,
+   "parameters": {
+    "offset": 39,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 16,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 23,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "nonlinear.tanh.v1",
+   "instance_id": "node-4-v2",
+   "activation": 16,
+   "parameters": {
+    "offset": 41,
+    "count": 3
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 17,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 24,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "spatial.constant_power_pan",
+   "instance_id": "node-5-v2",
+   "activation": 17,
+   "parameters": {
+    "offset": 44,
+    "count": 1
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 18,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 26,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "control.adsr",
+   "instance_id": "node-0-v3",
+   "activation": 18,
+   "parameters": {
+    "offset": 45,
+    "count": 5
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "math.sine",
+   "instance_id": "node-1-v3",
+   "activation": 19,
+   "parameters": {
+    "offset": 50,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 1,
+   "initial_state": [
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "math.sine",
+   "instance_id": "node-2-v3",
+   "activation": 20,
+   "parameters": {
+    "offset": 52,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 1,
+   "initial_state": [
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "filter.biquad_lowpass",
+   "instance_id": "node-3-v3",
+   "activation": 21,
+   "parameters": {
+    "offset": 54,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 23,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 32,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "nonlinear.tanh.v1",
+   "instance_id": "node-4-v3",
+   "activation": 22,
+   "parameters": {
+    "offset": 56,
+    "count": 3
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 24,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 33,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "spatial.constant_power_pan",
+   "instance_id": "node-5-v3",
+   "activation": 23,
+   "parameters": {
+    "offset": 59,
+    "count": 1
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 25,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 35,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "control.adsr",
+   "instance_id": "node-0-v4",
+   "activation": 24,
+   "parameters": {
+    "offset": 60,
+    "count": 5
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "math.sine",
+   "instance_id": "node-1-v4",
+   "activation": 25,
+   "parameters": {
+    "offset": 65,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 1,
+   "initial_state": [
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "math.sine",
+   "instance_id": "node-2-v4",
+   "activation": 26,
+   "parameters": {
+    "offset": 67,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 1,
+   "initial_state": [
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "filter.biquad_lowpass",
+   "instance_id": "node-3-v4",
+   "activation": 27,
+   "parameters": {
+    "offset": 69,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 30,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 41,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "nonlinear.tanh.v1",
+   "instance_id": "node-4-v4",
+   "activation": 28,
+   "parameters": {
+    "offset": 71,
+    "count": 3
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 31,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 42,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "spatial.constant_power_pan",
+   "instance_id": "node-5-v4",
+   "activation": 29,
+   "parameters": {
+    "offset": 74,
+    "count": 1
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 32,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 44,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "control.adsr",
+   "instance_id": "node-0-v5",
+   "activation": 30,
+   "parameters": {
+    "offset": 75,
+    "count": 5
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "math.sine",
+   "instance_id": "node-1-v5",
+   "activation": 31,
+   "parameters": {
+    "offset": 80,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 1,
+   "initial_state": [
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "math.sine",
+   "instance_id": "node-2-v5",
+   "activation": 32,
+   "parameters": {
+    "offset": 82,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 1,
+   "initial_state": [
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "filter.biquad_lowpass",
+   "instance_id": "node-3-v5",
+   "activation": 33,
+   "parameters": {
+    "offset": 84,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 37,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 50,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "nonlinear.tanh.v1",
+   "instance_id": "node-4-v5",
+   "activation": 34,
+   "parameters": {
+    "offset": 86,
+    "count": 3
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 38,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 51,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "spatial.constant_power_pan",
+   "instance_id": "node-5-v5",
+   "activation": 35,
+   "parameters": {
+    "offset": 89,
+    "count": 1
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 39,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 53,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "control.adsr",
+   "instance_id": "node-0-v6",
+   "activation": 36,
+   "parameters": {
+    "offset": 90,
+    "count": 5
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "math.sine",
+   "instance_id": "node-1-v6",
+   "activation": 37,
+   "parameters": {
+    "offset": 95,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 1,
+   "initial_state": [
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "math.sine",
+   "instance_id": "node-2-v6",
+   "activation": 38,
+   "parameters": {
+    "offset": 97,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 1,
+   "initial_state": [
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "filter.biquad_lowpass",
+   "instance_id": "node-3-v6",
+   "activation": 39,
+   "parameters": {
+    "offset": 99,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 44,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 59,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "nonlinear.tanh.v1",
+   "instance_id": "node-4-v6",
+   "activation": 40,
+   "parameters": {
+    "offset": 101,
+    "count": 3
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 45,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 60,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "spatial.constant_power_pan",
+   "instance_id": "node-5-v6",
+   "activation": 41,
+   "parameters": {
+    "offset": 104,
+    "count": 1
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 46,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 62,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "control.adsr",
+   "instance_id": "node-0-v7",
+   "activation": 42,
+   "parameters": {
+    "offset": 105,
+    "count": 5
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "math.sine",
+   "instance_id": "node-1-v7",
+   "activation": 43,
+   "parameters": {
+    "offset": 110,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 1,
+   "initial_state": [
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "math.sine",
+   "instance_id": "node-2-v7",
+   "activation": 44,
+   "parameters": {
+    "offset": 112,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 1,
+   "initial_state": [
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 0,
+   "audio_bindings": []
+  },
+  {
+   "primitive": "filter.biquad_lowpass",
+   "instance_id": "node-3-v7",
+   "activation": 45,
+   "parameters": {
+    "offset": 114,
+    "count": 2
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 4,
+   "initial_state": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 51,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 68,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "nonlinear.tanh.v1",
+   "instance_id": "node-4-v7",
+   "activation": 46,
+   "parameters": {
+    "offset": 116,
+    "count": 3
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 52,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 69,
+     "missing_source": "zero"
+    }
+   ]
+  },
+  {
+   "primitive": "spatial.constant_power_pan",
+   "instance_id": "node-5-v7",
+   "activation": 47,
+   "parameters": {
+    "offset": 119,
+    "count": 1
+   },
+   "clock": {
+    "period_samples": 1,
+    "phase_samples": 0
+   },
+   "output_between_updates": "hold",
+   "state_size": 0,
+   "initial_state": [],
+   "assets": [],
+   "input_channels": 1,
+   "audio_bindings": [
+    {
+     "source": "output_history",
+     "source_element": 53,
+     "destination_element": 0,
+     "weights": "routing",
+     "weight_element": 71,
+     "missing_source": "zero"
+    }
+   ]
+  }
+ ],
+ "projections": [
+  {
+   "source": "midi",
+   "source_element": 2,
+   "parameter_element": 0,
+   "weights": "routing",
+   "weight_element": 0,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 1,
+   "parameter_element": 1,
+   "weights": "routing",
+   "weight_element": 1,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 1,
+   "parameter_element": 2,
+   "weights": "routing",
+   "weight_element": 2,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 0,
+   "parameter_element": 5,
+   "weights": "routing",
+   "weight_element": 3,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 0,
+   "parameter_element": 7,
+   "weights": "routing",
+   "weight_element": 4,
+   "missing_source": "zero"
+  },
+  {
+   "source": "output_history",
+   "source_element": 1,
+   "parameter_element": 7,
+   "weights": "modulation",
+   "weight_element": 0,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 0,
+   "parameter_element": 9,
+   "weights": "modulation",
+   "weight_element": 1,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 0,
+   "parameter_element": 13,
+   "weights": "routing",
+   "weight_element": 7,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 12,
+   "parameter_element": 15,
+   "weights": "routing",
+   "weight_element": 9,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 11,
+   "parameter_element": 16,
+   "weights": "routing",
+   "weight_element": 10,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 11,
+   "parameter_element": 17,
+   "weights": "routing",
+   "weight_element": 11,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 10,
+   "parameter_element": 20,
+   "weights": "routing",
+   "weight_element": 12,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 10,
+   "parameter_element": 22,
+   "weights": "routing",
+   "weight_element": 13,
+   "missing_source": "zero"
+  },
+  {
+   "source": "output_history",
+   "source_element": 8,
+   "parameter_element": 22,
+   "weights": "modulation",
+   "weight_element": 2,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 10,
+   "parameter_element": 24,
+   "weights": "modulation",
+   "weight_element": 3,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 10,
+   "parameter_element": 28,
+   "weights": "routing",
+   "weight_element": 16,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 22,
+   "parameter_element": 30,
+   "weights": "routing",
+   "weight_element": 18,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 21,
+   "parameter_element": 31,
+   "weights": "routing",
+   "weight_element": 19,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 21,
+   "parameter_element": 32,
+   "weights": "routing",
+   "weight_element": 20,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 20,
+   "parameter_element": 35,
+   "weights": "routing",
+   "weight_element": 21,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 20,
+   "parameter_element": 37,
+   "weights": "routing",
+   "weight_element": 22,
+   "missing_source": "zero"
+  },
+  {
+   "source": "output_history",
+   "source_element": 15,
+   "parameter_element": 37,
+   "weights": "modulation",
+   "weight_element": 4,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 20,
+   "parameter_element": 39,
+   "weights": "modulation",
+   "weight_element": 5,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 20,
+   "parameter_element": 43,
+   "weights": "routing",
+   "weight_element": 25,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 32,
+   "parameter_element": 45,
+   "weights": "routing",
+   "weight_element": 27,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 31,
+   "parameter_element": 46,
+   "weights": "routing",
+   "weight_element": 28,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 31,
+   "parameter_element": 47,
+   "weights": "routing",
+   "weight_element": 29,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 30,
+   "parameter_element": 50,
+   "weights": "routing",
+   "weight_element": 30,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 30,
+   "parameter_element": 52,
+   "weights": "routing",
+   "weight_element": 31,
+   "missing_source": "zero"
+  },
+  {
+   "source": "output_history",
+   "source_element": 22,
+   "parameter_element": 52,
+   "weights": "modulation",
+   "weight_element": 6,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 30,
+   "parameter_element": 54,
+   "weights": "modulation",
+   "weight_element": 7,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 30,
+   "parameter_element": 58,
+   "weights": "routing",
+   "weight_element": 34,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 42,
+   "parameter_element": 60,
+   "weights": "routing",
+   "weight_element": 36,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 41,
+   "parameter_element": 61,
+   "weights": "routing",
+   "weight_element": 37,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 41,
+   "parameter_element": 62,
+   "weights": "routing",
+   "weight_element": 38,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 40,
+   "parameter_element": 65,
+   "weights": "routing",
+   "weight_element": 39,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 40,
+   "parameter_element": 67,
+   "weights": "routing",
+   "weight_element": 40,
+   "missing_source": "zero"
+  },
+  {
+   "source": "output_history",
+   "source_element": 29,
+   "parameter_element": 67,
+   "weights": "modulation",
+   "weight_element": 8,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 40,
+   "parameter_element": 69,
+   "weights": "modulation",
+   "weight_element": 9,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 40,
+   "parameter_element": 73,
+   "weights": "routing",
+   "weight_element": 43,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 52,
+   "parameter_element": 75,
+   "weights": "routing",
+   "weight_element": 45,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 51,
+   "parameter_element": 76,
+   "weights": "routing",
+   "weight_element": 46,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 51,
+   "parameter_element": 77,
+   "weights": "routing",
+   "weight_element": 47,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 50,
+   "parameter_element": 80,
+   "weights": "routing",
+   "weight_element": 48,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 50,
+   "parameter_element": 82,
+   "weights": "routing",
+   "weight_element": 49,
+   "missing_source": "zero"
+  },
+  {
+   "source": "output_history",
+   "source_element": 36,
+   "parameter_element": 82,
+   "weights": "modulation",
+   "weight_element": 10,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 50,
+   "parameter_element": 84,
+   "weights": "modulation",
+   "weight_element": 11,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 50,
+   "parameter_element": 88,
+   "weights": "routing",
+   "weight_element": 52,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 62,
+   "parameter_element": 90,
+   "weights": "routing",
+   "weight_element": 54,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 61,
+   "parameter_element": 91,
+   "weights": "routing",
+   "weight_element": 55,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 61,
+   "parameter_element": 92,
+   "weights": "routing",
+   "weight_element": 56,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 60,
+   "parameter_element": 95,
+   "weights": "routing",
+   "weight_element": 57,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 60,
+   "parameter_element": 97,
+   "weights": "routing",
+   "weight_element": 58,
+   "missing_source": "zero"
+  },
+  {
+   "source": "output_history",
+   "source_element": 43,
+   "parameter_element": 97,
+   "weights": "modulation",
+   "weight_element": 12,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 60,
+   "parameter_element": 99,
+   "weights": "modulation",
+   "weight_element": 13,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 60,
+   "parameter_element": 103,
+   "weights": "routing",
+   "weight_element": 61,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 72,
+   "parameter_element": 105,
+   "weights": "routing",
+   "weight_element": 63,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 71,
+   "parameter_element": 106,
+   "weights": "routing",
+   "weight_element": 64,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 71,
+   "parameter_element": 107,
+   "weights": "routing",
+   "weight_element": 65,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 70,
+   "parameter_element": 110,
+   "weights": "routing",
+   "weight_element": 66,
+   "missing_source": "zero"
+  },
+  {
+   "source": "midi",
+   "source_element": 70,
+   "parameter_element": 112,
+   "weights": "routing",
+   "weight_element": 67,
+   "missing_source": "zero"
+  },
+  {
+   "source": "output_history",
+   "source_element": 50,
+   "parameter_element": 112,
+   "weights": "modulation",
+   "weight_element": 14,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 70,
+   "parameter_element": 114,
+   "weights": "modulation",
+   "weight_element": 15,
+   "missing_source": "zero"
+  },
+  {
+   "source": "state",
+   "source_element": 70,
+   "parameter_element": 118,
+   "weights": "routing",
+   "weight_element": 70,
+   "missing_source": "zero"
+  }
+ ],
+ "parameter_locks": [
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false
+ ],
+ "shared_initial_state": [],
+ "outputMix": [
+  [
+   5,
+   0,
+   0.5
+  ],
+  [
+   6,
+   1,
+   0.5
+  ],
+  [
+   12,
+   0,
+   0.5
+  ],
+  [
+   13,
+   1,
+   0.5
+  ],
+  [
+   19,
+   0,
+   0.5
+  ],
+  [
+   20,
+   1,
+   0.5
+  ],
+  [
+   26,
+   0,
+   0.5
+  ],
+  [
+   27,
+   1,
+   0.5
+  ],
+  [
+   33,
+   0,
+   0.5
+  ],
+  [
+   34,
+   1,
+   0.5
+  ],
+  [
+   40,
+   0,
+   0.5
+  ],
+  [
+   41,
+   1,
+   0.5
+  ],
+  [
+   47,
+   0,
+   0.5
+  ],
+  [
+   48,
+   1,
+   0.5
+  ],
+  [
+   54,
+   0,
+   0.5
+  ],
+  [
+   55,
+   1,
+   0.5
+  ]
+ ],
+ "budget": {
+  "active_primitives": 48,
+  "state_elements": 80,
+  "parameter_elements": 120,
+  "routing_elements": 72,
+  "modulation_elements": 16,
+  "output_elements": 56,
+  "stored_tensor_elements": 280,
+  "projection_terms": 88,
+  "sparse_state_writes": 2048,
+  "scratch_elements": 4096
+ },
+ "performance": {
+  "mode": "instrument",
+  "midi_layout": "voice_indexed",
+  "voice_capacity": 8,
+  "release_seconds": 0.9094528942991691,
+  "bend_range_semitones": 2
+ },
+ "preferred_mode": 0,
+ "preset": {
+  "schema": "amo.preset/1",
+  "id": "wav-import-fixture-fm_lowpass",
+  "name": "Fixture fm_lowpass",
+  "category": "WAV import"
+ },
+ "description": "Imported from fm_lowpass.wav by the AMO structure encoder: nearest fm_lowpass construction",
+ "authoring": {
+  "kind": "wav to preset (corpus encoder guess)",
+  "family": "fm_lowpass",
+  "source": "fm_lowpass.wav",
+  "semantic_mappings": false
+ }
+}

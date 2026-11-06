@@ -26,11 +26,18 @@ from training.amo.dataset import (
 from training.amo.analysis import extract, AnalysisProfile
 
 SEED = 2026101402
-LIB = Path(
-    os.environ.get(
-        "AMO_TENSOR_LIBRARY", ROOT / "build/data-release/src/tensor/libalfa_tensor_c.so"
-    )
-)
+def _default_library():
+    data_release = ROOT / "build/data-release/src/tensor/libalfa_tensor_c.so"
+    if data_release.is_file():
+        return data_release
+    try:  # an installed suite keeps it in bin/, a dev build under build/
+        from training.amo.native import _library_path
+        return _library_path()
+    except FileNotFoundError:
+        return data_release
+
+
+LIB = Path(os.environ.get("AMO_TENSOR_LIBRARY") or _default_library())
 NAMES = [
     "additive_sparse4",
     "additive_dense12",
