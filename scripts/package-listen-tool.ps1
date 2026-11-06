@@ -27,6 +27,9 @@ $build = Join-Path $repo $BuildDir
 
 function Invoke-Native {
     param([string]$Exe, [string[]]$Arguments)
+    # Windows PowerShell 5.1 turns native stderr (e.g. CMake warnings) into terminating
+    # errors under 'Stop' when output is redirected; rely on the exit code instead.
+    $ErrorActionPreference = 'Continue'
     & $Exe @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Exe $($Arguments -join ' ') failed with exit code $LASTEXITCODE" }
 }
