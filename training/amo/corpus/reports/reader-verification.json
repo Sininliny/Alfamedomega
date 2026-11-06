@@ -1,0 +1,1 @@
+[{"protocol":"originals","split":"train","batch_examples":64,"device":"cpu"},{"protocol":"originals","split":"test","batch_examples":48,"device":"cpu"},{"protocol":"unseen_topology","split":"train","batch_examples":64,"device":"cpu"},{"protocol":"unseen_topology","split":"topology_test","batch_examples":64,"device":"cpu"}]
