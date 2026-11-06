@@ -30,6 +30,7 @@ import base64
 import io
 import json
 import os
+import shlex
 from pathlib import Path
 import subprocess
 import tarfile
@@ -42,6 +43,9 @@ GENERATE_SLUG = "amo-corpus-generate"
 TRAIN_SLUGS = ("amo-corpus-train-a", "amo-corpus-train-b")
 EVALUATE_SLUG = "amo-corpus-evaluate"
 SENSITIVITY_SLUG = "amo-corpus-sensitivity"
+MIX_GENERATE_SLUG = "amo-mix-generate"
+MIX_TRAIN_SLUGS = ("amo-mix-train-a", "amo-mix-train-b")
+MIX_SMOKE_SLUG = "amo-mix-smoke"
 
 
 def bundle():
@@ -205,6 +209,82 @@ main()
 '''
 
 
+MIX_FIND = r'''
+def find_mix_corpus():
+    target = Path("/tmp/mix")
+    if (target / "mix-corpus" / "report.json").exists():
+        return target / "mix-corpus"
+    for archive in sorted(Path("/kaggle/input").rglob("mix-corpus.tar")):
+        target.mkdir(parents=True, exist_ok=True)
+        print(f"extracting {{archive}}", flush=True)
+        with tarfile.open(archive) as stream:
+            stream.extractall(target)
+        return target / "mix-corpus"
+    raise SystemExit("mix-corpus.tar not found under /kaggle/input: add the amo-mix-generate output")
+'''
+
+MIX_GENERATE = r'''
+def main():
+    began = time.time()
+    unpack()
+    build_library()
+    corpus = Path("/tmp/mix/mix-corpus")
+    run([sys.executable, "-m", "training.amo.corpus.mixscene", "build", corpus, "--scenes", MIX_SCENES,
+         "--per-shard", 250, "--workers", os.cpu_count() or 4, *MIX_GENERATE_ARGS], cwd=CODE)
+    output = Path("/kaggle/working")
+    with tarfile.open(output / "mix-corpus.tar", "w") as archive:
+        archive.add(corpus, arcname="mix-corpus")
+    shutil.copy(corpus / "report.json", output / "report.json")
+    print(f"mix-corpus.tar {{(output / 'mix-corpus.tar').stat().st_size / 2**30:.2f}} GiB "
+          f"in {{(time.time() - began) / 60:.1f}} min", flush=True)
+
+
+main()
+'''
+
+MIX_TRAIN = r'''
+def main():
+    unpack()
+    corpus = find_mix_corpus()
+    run(["nvidia-smi"])
+    command = [sys.executable, "-m", "training.amo.corpus.mixtrain", "train", corpus, "/kaggle/working/run",
+               "--resume", "auto", "--resume-search", "/kaggle/input", "--workers", os.cpu_count() or 2,
+               *MIX_TRAIN_ARGS]
+    print("$", " ".join(map(str, command)), flush=True)
+    code = subprocess.run(list(map(str, command)), cwd=CODE).returncode
+    print({{0: "training finished; run/model.pt exported",
+           2: "stopped early with run/last.pt saved; push the other mix train kernel to continue"}}
+          .get(code, f"training failed with exit code {{code}}"), flush=True)
+    if code not in (0, 2):
+        raise SystemExit(code)
+
+
+main()
+'''
+
+MIX_SMOKE = r'''
+def main():
+    # End-to-end check on a tiny corpus: generate -> train -> resume -> evaluate (resynthesis).
+    unpack()
+    build_library()
+    corpus = Path("/tmp/mix/mix-corpus")
+    run([sys.executable, "-m", "training.amo.corpus.mixscene", "build", corpus, "--scenes", MIX_SCENES,
+         "--per-shard", 64, "--workers", os.cpu_count() or 4], cwd=CODE)
+    run(["nvidia-smi"])
+    output = Path("/kaggle/working/run")
+    common = [sys.executable, "-m", "training.amo.corpus.mixtrain", "train", corpus, output,
+              "--workers", 2, "--log-every", 10, "--batch-size", 16, "--warmup", 50]
+    run(common + ["--epochs", 2])
+    run(common + ["--epochs", 3])  # resumes from last.pt
+    run([sys.executable, "-m", "training.amo.corpus.mixtrain", "evaluate", corpus, output / "model.pt",
+         "--split", "validation", "--resynth", 16, "--listen", 2, "--listen-dir", "/kaggle/working/listen",
+         "--out", "/kaggle/working/mix-evaluation.json"], cwd=CODE)
+
+
+main()
+'''
+
+
 def write_kernel(directory, slug, title, user, source, *, gpu, internet, kernel_sources=()):
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "kernel.py").write_text(source, encoding="utf-8")
@@ -234,6 +314,13 @@ def main():
                         help="train kernels mount amo-corpus-sensitivity and weight the value loss by audibility")
     parser.add_argument("--sensitivity-per-type", type=int, default=64,
                         help="sensitivity kernel: training instances probed per family")
+    parser.add_argument("--mix", action="store_true",
+                        help="also write the mix-decomposition kernels (mix-generate, mix-train-a/b, mix-smoke); "
+                             "extra arguments after -- then go to mixtrain.py train")
+    parser.add_argument("--mix-scenes", type=int, default=100000)
+    parser.add_argument("--mix-smoke-scenes", type=int, default=384)
+    parser.add_argument("--mix-generate-args", default="",
+                        help="extra mixscene build arguments as one string, e.g. '--count-weights 1' (stage S1)")
     parser.add_argument("train_args", nargs=argparse.REMAINDER,
                         help="extra arguments for training.amo.corpus.train after --, e.g. -- --epochs 150")
     args = parser.parse_args()
@@ -266,6 +353,19 @@ def main():
                  header + common + f"RESYNTH = {args.resynth}\nLISTEN = {args.listen}\n"
                  + (find_corpus + build_library + EVALUATE).format(), gpu=True, internet=True,
                  kernel_sources=[f"{args.user}/{GENERATE_SLUG}"])
+    if args.mix:
+        mix_common = header + common + f"MIX_SCENES = {args.mix_scenes}\n"
+        write_kernel(args.out / "mix-generate", MIX_GENERATE_SLUG, "AMO mix generate", args.user,
+                     mix_common + f"MIX_GENERATE_ARGS = {shlex.split(args.mix_generate_args)!r}\n"
+                     + (build_library + MIX_GENERATE).format(), gpu=False, internet=True)
+        mix_train_args = ["--time-budget-hours", str(args.time_budget_hours), *extra]
+        for slug in MIX_TRAIN_SLUGS:
+            write_kernel(args.out / f"mix-train-{slug[-1]}", slug, "AMO mix train " + slug[-1].upper(), args.user,
+                         mix_common + f"MIX_TRAIN_ARGS = {mix_train_args!r}\n" + (MIX_FIND + MIX_TRAIN).format(),
+                         gpu=True, internet=False, kernel_sources=[f"{args.user}/{MIX_GENERATE_SLUG}"])
+        write_kernel(args.out / "mix-smoke", MIX_SMOKE_SLUG, "AMO mix smoke", args.user,
+                     header + common + f"MIX_SCENES = {args.mix_smoke_scenes}\n"
+                     + (build_library + MIX_SMOKE).format(), gpu=True, internet=True)
     size = len(header) / 1024
     print(f"wrote {args.out} (embedded code {size:.0f} KiB, commit {commit()})")
 
