@@ -1,0 +1,2195 @@
+{
+  "model": "/kaggle/input/notebooks/sininzhang/amo-corpus-train-a/run/model.pt",
+  "epoch": 15,
+  "split": "test",
+  "examples": 65536,
+  "metrics": {
+    "test_type": 0.31335693374194307,
+    "test_ops": 0.0761688165829355,
+    "test_presence": 0.013249705758084929,
+    "test_canonical": 0.2622597536537796,
+    "test_instance": 0.269396209216211,
+    "test_total": 1.1480070096440613,
+    "test_type_acc": 0.8660736083984375,
+    "test_ops_slot_acc": 0.9664840698242188,
+    "test_ops_graph_acc": 0.864349365234375,
+    "test_presence_acc": 0.9946361541748047,
+    "test_mae_z_canonical_parameters": 0.44771148515148806,
+    "test_mae_z_canonical_routing": 0.5557730254350286,
+    "test_mae_z_canonical_modulation": 0.6407442643092229,
+    "test_mae_z_canonical_assets": 0.780559241771698,
+    "test_mae_z_instance_parameters": 0.4460845857930298,
+    "test_mae_z_instance_routing": 0.6110659639040629,
+    "test_mae_z_instance_modulation": 0.6405052221738375,
+    "test_mae_z_instance_assets": 0.7933810353279114,
+    "test_mae_z_canonical_e2e": 0.564858946223857
+  },
+  "type_acc_by_case": {
+    "held": 0.8663330078125,
+    "staccato": 0.87841796875,
+    "two_notes": 0.8802490234375,
+    "vibrato": 0.8321533203125
+  },
+  "type_acc_by_sample_rate": {
+    "16000": 0.873291015625,
+    "24000": 0.85528564453125
+  },
+  "most_confused_pairs": [
+    [
+      "sine_fm",
+      "fm_lowpass",
+      1879
+    ],
+    [
+      "saw_phaser",
+      "saw_comb",
+      945
+    ],
+    [
+      "additive_cubic",
+      "additive_feedback",
+      793
+    ],
+    [
+      "fx_lowpass",
+      "fx_phaser",
+      744
+    ],
+    [
+      "saw_lp_tanh",
+      "saw_tanh_lp",
+      706
+    ],
+    [
+      "saw_lowpass",
+      "saw_phaser",
+      299
+    ],
+    [
+      "additive_sparse4",
+      "additive_dense12",
+      292
+    ],
+    [
+      "additive_sparse4",
+      "additive_feedback",
+      278
+    ],
+    [
+      "saw_chorus",
+      "saw_comb",
+      215
+    ],
+    [
+      "impulse_modal4",
+      "impulse_modal12",
+      214
+    ],
+    [
+      "additive_dense12",
+      "additive_feedback",
+      191
+    ],
+    [
+      "saw_lowpass",
+      "saw_tanh_lp",
+      169
+    ],
+    [
+      "wavetable_lowpass",
+      "fm_lowpass",
+      145
+    ],
+    [
+      "wavetable_lowpass",
+      "sine_fm",
+      140
+    ],
+    [
+      "saw_chorus",
+      "saw_phaser",
+      139
+    ]
+  ],
+  "families": [
+    {
+      "family": "fm_lowpass",
+      "examples": 2048,
+      "type_acc": 0.44189453125,
+      "graph_acc": 0.31103515625,
+      "mae_z_canonical_e2e": 0.7297476536339673,
+      "confused_with": [
+        [
+          "sine_fm",
+          991
+        ],
+        [
+          "wavetable_lowpass",
+          114
+        ],
+        [
+          "sine_am",
+          11
+        ]
+      ]
+    },
+    {
+      "family": "sine_fm",
+      "examples": 2048,
+      "type_acc": 0.51318359375,
+      "graph_acc": 0.5126953125,
+      "mae_z_canonical_e2e": 0.5885592779400213,
+      "confused_with": [
+        [
+          "fm_lowpass",
+          888
+        ],
+        [
+          "wavetable_lowpass",
+          94
+        ],
+        [
+          "additive_feedback",
+          6
+        ]
+      ]
+    },
+    {
+      "family": "saw_comb",
+      "examples": 2048,
+      "type_acc": 0.56201171875,
+      "graph_acc": 0.5576171875,
+      "mae_z_canonical_e2e": 0.6612910915199401,
+      "confused_with": [
+        [
+          "saw_phaser",
+          680
+        ],
+        [
+          "saw_lowpass",
+          105
+        ],
+        [
+          "saw_chorus",
+          99
+        ]
+      ]
+    },
+    {
+      "family": "fx_lowpass",
+      "examples": 2048,
+      "type_acc": 0.63037109375,
+      "graph_acc": 0.63818359375,
+      "mae_z_canonical_e2e": 0.5368195445480524,
+      "confused_with": [
+        [
+          "fx_phaser",
+          661
+        ],
+        [
+          "fx_bandpass",
+          61
+        ],
+        [
+          "fx_highpass",
+          18
+        ]
+      ]
+    },
+    {
+      "family": "saw_lp_tanh",
+      "examples": 2048,
+      "type_acc": 0.642578125,
+      "graph_acc": 0.60498046875,
+      "mae_z_canonical_e2e": 0.5922175144993768,
+      "confused_with": [
+        [
+          "saw_tanh_lp",
+          587
+        ],
+        [
+          "saw_lowpass",
+          62
+        ],
+        [
+          "saw_chorus",
+          40
+        ]
+      ]
+    },
+    {
+      "family": "additive_feedback",
+      "examples": 2048,
+      "type_acc": 0.70654296875,
+      "graph_acc": 0.68115234375,
+      "mae_z_canonical_e2e": 0.5162581970253086,
+      "confused_with": [
+        [
+          "additive_cubic",
+          351
+        ],
+        [
+          "additive_sparse4",
+          130
+        ],
+        [
+          "additive_dense12",
+          77
+        ]
+      ]
+    },
+    {
+      "family": "additive_cubic",
+      "examples": 2048,
+      "type_acc": 0.75341796875,
+      "graph_acc": 0.75390625,
+      "mae_z_canonical_e2e": 0.46947630392969586,
+      "confused_with": [
+        [
+          "additive_feedback",
+          442
+        ],
+        [
+          "saw_tanh_lp",
+          22
+        ],
+        [
+          "wavetable_lowpass",
+          14
+        ]
+      ]
+    },
+    {
+      "family": "saw_phaser",
+      "examples": 2048,
+      "type_acc": 0.75830078125,
+      "graph_acc": 0.74169921875,
+      "mae_z_canonical_e2e": 0.5244429125512917,
+      "confused_with": [
+        [
+          "saw_comb",
+          265
+        ],
+        [
+          "saw_lowpass",
+          182
+        ],
+        [
+          "saw_chorus",
+          38
+        ]
+      ]
+    },
+    {
+      "family": "additive_dense12",
+      "examples": 2048,
+      "type_acc": 0.826171875,
+      "graph_acc": 0.91943359375,
+      "mae_z_canonical_e2e": 0.3786208116866874,
+      "confused_with": [
+        [
+          "additive_sparse4",
+          183
+        ],
+        [
+          "additive_feedback",
+          114
+        ],
+        [
+          "additive_inharmonic8",
+          44
+        ]
+      ]
+    },
+    {
+      "family": "additive_sparse4",
+      "examples": 2048,
+      "type_acc": 0.853515625,
+      "graph_acc": 0.9130859375,
+      "mae_z_canonical_e2e": 0.3758112493255794,
+      "confused_with": [
+        [
+          "additive_feedback",
+          148
+        ],
+        [
+          "additive_dense12",
+          109
+        ],
+        [
+          "additive_inharmonic8",
+          20
+        ]
+      ]
+    },
+    {
+      "family": "saw_tanh_lp",
+      "examples": 2048,
+      "type_acc": 0.85546875,
+      "graph_acc": 0.8203125,
+      "mae_z_canonical_e2e": 0.4482254551009343,
+      "confused_with": [
+        [
+          "saw_lp_tanh",
+          119
+        ],
+        [
+          "saw_lowpass",
+          116
+        ],
+        [
+          "additive_cubic",
+          18
+        ]
+      ]
+    },
+    {
+      "family": "saw_chorus",
+      "examples": 2048,
+      "type_acc": 0.87353515625,
+      "graph_acc": 0.8515625,
+      "mae_z_canonical_e2e": 0.5597892293624682,
+      "confused_with": [
+        [
+          "saw_comb",
+          116
+        ],
+        [
+          "saw_phaser",
+          101
+        ],
+        [
+          "saw_lowpass",
+          14
+        ]
+      ]
+    },
+    {
+      "family": "saw_lowpass",
+      "examples": 2048,
+      "type_acc": 0.88818359375,
+      "graph_acc": 0.84228515625,
+      "mae_z_canonical_e2e": 0.4183645628458237,
+      "confused_with": [
+        [
+          "saw_phaser",
+          117
+        ],
+        [
+          "saw_tanh_lp",
+          53
+        ],
+        [
+          "additive_feedback",
+          14
+        ]
+      ]
+    },
+    {
+      "family": "additive_inharmonic8",
+      "examples": 2048,
+      "type_acc": 0.91064453125,
+      "graph_acc": 0.935546875,
+      "mae_z_canonical_e2e": 0.5957327992992328,
+      "confused_with": [
+        [
+          "sine_am",
+          70
+        ],
+        [
+          "additive_dense12",
+          46
+        ],
+        [
+          "additive_sparse4",
+          38
+        ]
+      ]
+    },
+    {
+      "family": "wavetable_lowpass",
+      "examples": 2048,
+      "type_acc": 0.91748046875,
+      "graph_acc": 0.87158203125,
+      "mae_z_canonical_e2e": 0.48271807314773063,
+      "confused_with": [
+        [
+          "sine_am",
+          65
+        ],
+        [
+          "sine_fm",
+          46
+        ],
+        [
+          "fm_lowpass",
+          31
+        ]
+      ]
+    },
+    {
+      "family": "impulse_modal12",
+      "examples": 2048,
+      "type_acc": 0.9365234375,
+      "graph_acc": 1.0,
+      "mae_z_canonical_e2e": 0.8267538123822306,
+      "confused_with": [
+        [
+          "impulse_modal4",
+          129
+        ],
+        [
+          "impulse_waveguide",
+          1
+        ]
+      ]
+    },
+    {
+      "family": "fx_highpass",
+      "examples": 2048,
+      "type_acc": 0.939453125,
+      "graph_acc": 0.93896484375,
+      "mae_z_canonical_e2e": 0.35769266772194896,
+      "confused_with": [
+        [
+          "fx_bandpass",
+          77
+        ],
+        [
+          "fx_phaser",
+          28
+        ],
+        [
+          "fx_lowpass",
+          14
+        ]
+      ]
+    },
+    {
+      "family": "fx_phaser",
+      "examples": 2048,
+      "type_acc": 0.93994140625,
+      "graph_acc": 0.93359375,
+      "mae_z_canonical_e2e": 0.7190817037262605,
+      "confused_with": [
+        [
+          "fx_lowpass",
+          83
+        ],
+        [
+          "fx_ring_delay",
+          25
+        ],
+        [
+          "fx_bandpass",
+          14
+        ]
+      ]
+    },
+    {
+      "family": "additive_resonator",
+      "examples": 2048,
+      "type_acc": 0.94775390625,
+      "graph_acc": 0.9384765625,
+      "mae_z_canonical_e2e": 0.5334696301120297,
+      "confused_with": [
+        [
+          "additive_cubic",
+          45
+        ],
+        [
+          "additive_feedback",
+          23
+        ],
+        [
+          "saw_tanh_lp",
+          16
+        ]
+      ]
+    },
+    {
+      "family": "sine_am",
+      "examples": 2048,
+      "type_acc": 0.951171875,
+      "graph_acc": 0.9443359375,
+      "mae_z_canonical_e2e": 0.3539851107917847,
+      "confused_with": [
+        [
+          "additive_inharmonic8",
+          49
+        ],
+        [
+          "wavetable_lowpass",
+          13
+        ],
+        [
+          "fm_lowpass",
+          12
+        ]
+      ]
+    },
+    {
+      "family": "fx_bandpass",
+      "examples": 2048,
+      "type_acc": 0.95361328125,
+      "graph_acc": 0.95263671875,
+      "mae_z_canonical_e2e": 0.3609837206602151,
+      "confused_with": [
+        [
+          "fx_highpass",
+          44
+        ],
+        [
+          "fx_lowpass",
+          27
+        ],
+        [
+          "fx_phaser",
+          23
+        ]
+      ]
+    },
+    {
+      "family": "impulse_modal4",
+      "examples": 2048,
+      "type_acc": 0.95849609375,
+      "graph_acc": 1.0,
+      "mae_z_canonical_e2e": 0.6862725412447617,
+      "confused_with": [
+        [
+          "impulse_modal12",
+          85
+        ]
+      ]
+    },
+    {
+      "family": "saw_bandpass",
+      "examples": 2048,
+      "type_acc": 0.96923828125,
+      "graph_acc": 0.96923828125,
+      "mae_z_canonical_e2e": 0.38683292838379657,
+      "confused_with": [
+        [
+          "saw_highpass",
+          35
+        ],
+        [
+          "saw_lowpass",
+          19
+        ],
+        [
+          "additive_dense12",
+          2
+        ]
+      ]
+    },
+    {
+      "family": "saw_highpass",
+      "examples": 2048,
+      "type_acc": 0.9716796875,
+      "graph_acc": 0.9619140625,
+      "mae_z_canonical_e2e": 0.4022195886996087,
+      "confused_with": [
+        [
+          "saw_chorus",
+          39
+        ],
+        [
+          "saw_comb",
+          7
+        ],
+        [
+          "saw_bandpass",
+          5
+        ]
+      ]
+    },
+    {
+      "family": "fx_ring_delay",
+      "examples": 2048,
+      "type_acc": 0.9794921875,
+      "graph_acc": 0.978515625,
+      "mae_z_canonical_e2e": 0.5055645564443694,
+      "confused_with": [
+        [
+          "fx_phaser",
+          25
+        ],
+        [
+          "fx_bandpass",
+          7
+        ],
+        [
+          "fx_lowpass",
+          6
+        ]
+      ]
+    },
+    {
+      "family": "sine_ring",
+      "examples": 2048,
+      "type_acc": 0.98095703125,
+      "graph_acc": 0.99462890625,
+      "mae_z_canonical_e2e": 0.3263418995549208,
+      "confused_with": [
+        [
+          "sine_am",
+          33
+        ],
+        [
+          "impulse_modal4",
+          4
+        ],
+        [
+          "impulse_modal12",
+          2
+        ]
+      ]
+    },
+    {
+      "family": "fx_stereo_width",
+      "examples": 2048,
+      "type_acc": 0.99560546875,
+      "graph_acc": 0.99560546875,
+      "mae_z_canonical_e2e": 0.12737472005005657,
+      "confused_with": [
+        [
+          "fx_bandpass",
+          7
+        ],
+        [
+          "fx_lowpass",
+          1
+        ],
+        [
+          "fx_phaser",
+          1
+        ]
+      ]
+    },
+    {
+      "family": "noise_bandpass",
+      "examples": 2048,
+      "type_acc": 1.0,
+      "graph_acc": 0.99951171875,
+      "mae_z_canonical_e2e": 0.35508357195413964,
+      "confused_with": []
+    },
+    {
+      "family": "noise_modal",
+      "examples": 2048,
+      "type_acc": 1.0,
+      "graph_acc": 0.99853515625,
+      "mae_z_canonical_e2e": 0.6571128053519715,
+      "confused_with": []
+    },
+    {
+      "family": "impulse_waveguide",
+      "examples": 2048,
+      "type_acc": 1.0,
+      "graph_acc": 1.0,
+      "mae_z_canonical_e2e": 0.4905427579760726,
+      "confused_with": []
+    },
+    {
+      "family": "fx_tanh",
+      "examples": 2048,
+      "type_acc": 1.0,
+      "graph_acc": 1.0,
+      "mae_z_canonical_e2e": 0.45936221269948874,
+      "confused_with": []
+    },
+    {
+      "family": "fx_fir",
+      "examples": 2048,
+      "type_acc": 1.0,
+      "graph_acc": 1.0,
+      "mae_z_canonical_e2e": 0.7821571323875105,
+      "confused_with": []
+    }
+  ],
+  "family_names": [
+    "additive_sparse4",
+    "additive_dense12",
+    "additive_inharmonic8",
+    "saw_lowpass",
+    "saw_bandpass",
+    "saw_highpass",
+    "saw_lp_tanh",
+    "saw_tanh_lp",
+    "wavetable_lowpass",
+    "sine_ring",
+    "sine_fm",
+    "sine_am",
+    "saw_chorus",
+    "saw_phaser",
+    "saw_comb",
+    "noise_bandpass",
+    "noise_modal",
+    "impulse_modal4",
+    "impulse_modal12",
+    "impulse_waveguide",
+    "additive_resonator",
+    "fm_lowpass",
+    "additive_cubic",
+    "additive_feedback",
+    "fx_lowpass",
+    "fx_highpass",
+    "fx_bandpass",
+    "fx_tanh",
+    "fx_phaser",
+    "fx_stereo_width",
+    "fx_ring_delay",
+    "fx_fir"
+  ],
+  "confusion": [
+    [
+      1748,
+      109,
+      20,
+      1,
+      0,
+      0,
+      0,
+      0,
+      4,
+      0,
+      0,
+      10,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      5,
+      0,
+      3,
+      148,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      183,
+      1692,
+      44,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      5,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      9,
+      114,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      38,
+      46,
+      1865,
+      1,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0,
+      0,
+      70,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      23,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      10,
+      6,
+      0,
+      1819,
+      0,
+      0,
+      9,
+      53,
+      4,
+      0,
+      0,
+      2,
+      0,
+      117,
+      13,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      14,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      1,
+      2,
+      0,
+      19,
+      1985,
+      35,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      5,
+      1990,
+      1,
+      0,
+      0,
+      2,
+      0,
+      0,
+      39,
+      0,
+      7,
+      4,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      62,
+      0,
+      0,
+      1316,
+      587,
+      0,
+      0,
+      0,
+      0,
+      40,
+      22,
+      8,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      7,
+      2,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      116,
+      0,
+      0,
+      119,
+      1752,
+      5,
+      0,
+      1,
+      1,
+      7,
+      14,
+      3,
+      0,
+      0,
+      0,
+      0,
+      0,
+      7,
+      3,
+      18,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      2,
+      1,
+      5,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1879,
+      0,
+      46,
+      65,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      31,
+      4,
+      15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2009,
+      0,
+      33,
+      0,
+      0,
+      0,
+      0,
+      0,
+      4,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      2,
+      94,
+      0,
+      1051,
+      5,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      888,
+      1,
+      6,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      2,
+      2,
+      49,
+      1,
+      2,
+      0,
+      0,
+      0,
+      13,
+      4,
+      11,
+      1948,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      12,
+      0,
+      4,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      14,
+      1,
+      1,
+      13,
+      12,
+      0,
+      0,
+      1,
+      0,
+      1789,
+      101,
+      116,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      3,
+      0,
+      182,
+      0,
+      0,
+      3,
+      4,
+      0,
+      0,
+      0,
+      0,
+      38,
+      1553,
+      265,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      105,
+      3,
+      2,
+      6,
+      2,
+      0,
+      0,
+      0,
+      0,
+      99,
+      680,
+      1151,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2048,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2048,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1963,
+      85,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      129,
+      1918,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2048,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      8,
+      0,
+      1,
+      6,
+      1,
+      0,
+      0,
+      16,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0,
+      0,
+      0,
+      1941,
+      3,
+      45,
+      23,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      9,
+      1,
+      0,
+      0,
+      0,
+      4,
+      114,
+      0,
+      991,
+      11,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      905,
+      4,
+      9,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      9,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      22,
+      14,
+      0,
+      2,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      11,
+      3,
+      1543,
+      442,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      130,
+      77,
+      10,
+      2,
+      0,
+      0,
+      0,
+      13,
+      11,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      3,
+      351,
+      1447,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1291,
+      18,
+      61,
+      0,
+      661,
+      0,
+      17,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      14,
+      1924,
+      77,
+      0,
+      28,
+      0,
+      5,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      27,
+      44,
+      1953,
+      0,
+      23,
+      0,
+      1,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2048,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      83,
+      0,
+      14,
+      0,
+      1925,
+      0,
+      25,
+      1
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      7,
+      0,
+      1,
+      2039,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      6,
+      4,
+      7,
+      0,
+      25,
+      0,
+      2006,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2048
+    ]
+  ],
+  "resynthesis": {
+    "examples": 8192,
+    "distance": "mean |log STFT| L1, unit-RMS stereo, FFT 2048/1024/512/256",
+    "candidates": {
+      "predicted": {
+        "count": 8192,
+        "failed": 0,
+        "median": 0.18039455719725295,
+        "mean": 0.24571772103015133
+      },
+      "true_family": {
+        "count": 8192,
+        "failed": 0,
+        "median": 0.16990287188204278,
+        "mean": 0.23160594828902692
+      },
+      "family_centre": {
+        "count": 8192,
+        "failed": 0,
+        "median": 0.514368195351026,
+        "mean": 0.6126474735026476
+      }
+    },
+    "predicted_when_family_right": {
+      "count": 7068,
+      "failed": 0,
+      "median": 0.17044662213273618,
+      "mean": 0.23313141600823797
+    },
+    "predicted_when_family_wrong": {
+      "count": 1124,
+      "failed": 0,
+      "median": 0.2570649486853952,
+      "mean": 0.3248636319686597
+    },
+    "wrong_family_but_at_most_correct_median": 352,
+    "wrong_family_total": 1124,
+    "families": [
+      {
+        "family": "impulse_modal12",
+        "examples": 256,
+        "predicted_median": 0.3679760418956221,
+        "true_family_median": 0.36209805222557745,
+        "family_centre_median": 0.5486362110077583,
+        "wrong_family": 22,
+        "wrong_family_median": 0.41369785375009904,
+        "wrong_but_close": 3
+      },
+      {
+        "family": "additive_resonator",
+        "examples": 256,
+        "predicted_median": 0.35694460283645024,
+        "true_family_median": 0.33051828429687413,
+        "family_centre_median": 0.9117461718519331,
+        "wrong_family": 19,
+        "wrong_family_median": 0.40341876299096496,
+        "wrong_but_close": 2
+      },
+      {
+        "family": "fx_ring_delay",
+        "examples": 256,
+        "predicted_median": 0.34912213020485383,
+        "true_family_median": 0.34971078529122435,
+        "family_centre_median": 0.49477384675329905,
+        "wrong_family": 4,
+        "wrong_family_median": 0.22400994579026187,
+        "wrong_but_close": 1
+      },
+      {
+        "family": "sine_fm",
+        "examples": 256,
+        "predicted_median": 0.3418845864957209,
+        "true_family_median": 0.3519122430392288,
+        "family_centre_median": 0.5782686427614794,
+        "wrong_family": 141,
+        "wrong_family_median": 0.338365486222182,
+        "wrong_but_close": 26
+      },
+      {
+        "family": "additive_inharmonic8",
+        "examples": 256,
+        "predicted_median": 0.3339236925717579,
+        "true_family_median": 0.3350510211513193,
+        "family_centre_median": 0.5493265092300903,
+        "wrong_family": 21,
+        "wrong_family_median": 0.36471180076312004,
+        "wrong_but_close": 4
+      },
+      {
+        "family": "noise_modal",
+        "examples": 256,
+        "predicted_median": 0.3339088706049513,
+        "true_family_median": 0.3252700386864329,
+        "family_centre_median": 0.750701679199532,
+        "wrong_family": 0,
+        "wrong_family_median": null,
+        "wrong_but_close": 0
+      },
+      {
+        "family": "sine_am",
+        "examples": 256,
+        "predicted_median": 0.3326755802835182,
+        "true_family_median": 0.31862453428393167,
+        "family_centre_median": 0.6045216591745698,
+        "wrong_family": 12,
+        "wrong_family_median": 0.27213703744069817,
+        "wrong_but_close": 4
+      },
+      {
+        "family": "fm_lowpass",
+        "examples": 256,
+        "predicted_median": 0.32118094449222223,
+        "true_family_median": 0.29812037482162634,
+        "family_centre_median": 0.5496875256694387,
+        "wrong_family": 140,
+        "wrong_family_median": 0.3325104098768386,
+        "wrong_but_close": 32
+      },
+      {
+        "family": "sine_ring",
+        "examples": 256,
+        "predicted_median": 0.31715218200189765,
+        "true_family_median": 0.3073620614469272,
+        "family_centre_median": 0.6151857402540841,
+        "wrong_family": 4,
+        "wrong_family_median": 0.339777591378317,
+        "wrong_but_close": 0
+      },
+      {
+        "family": "saw_chorus",
+        "examples": 256,
+        "predicted_median": 0.2785301242867303,
+        "true_family_median": 0.2718745198994711,
+        "family_centre_median": 0.6730147456368711,
+        "wrong_family": 36,
+        "wrong_family_median": 0.26251305168539163,
+        "wrong_but_close": 6
+      },
+      {
+        "family": "fx_tanh",
+        "examples": 256,
+        "predicted_median": 0.25198646199573566,
+        "true_family_median": 0.2558969498618481,
+        "family_centre_median": 0.7962469741338198,
+        "wrong_family": 0,
+        "wrong_family_median": null,
+        "wrong_but_close": 0
+      },
+      {
+        "family": "impulse_modal4",
+        "examples": 256,
+        "predicted_median": 0.24432766875696021,
+        "true_family_median": 0.23527724100937059,
+        "family_centre_median": 0.3631387561013797,
+        "wrong_family": 15,
+        "wrong_family_median": 0.5504135500754135,
+        "wrong_but_close": 1
+      },
+      {
+        "family": "saw_lp_tanh",
+        "examples": 256,
+        "predicted_median": 0.2310403242909391,
+        "true_family_median": 0.18927817455766424,
+        "family_centre_median": 0.7999249626019189,
+        "wrong_family": 83,
+        "wrong_family_median": 0.27767847290955305,
+        "wrong_but_close": 17
+      },
+      {
+        "family": "saw_comb",
+        "examples": 256,
+        "predicted_median": 0.2141453189055611,
+        "true_family_median": 0.20400292501356082,
+        "family_centre_median": 0.6756048369414638,
+        "wrong_family": 106,
+        "wrong_family_median": 0.25021542463152247,
+        "wrong_but_close": 22
+      },
+      {
+        "family": "saw_phaser",
+        "examples": 256,
+        "predicted_median": 0.2046376756240477,
+        "true_family_median": 0.17477365634552272,
+        "family_centre_median": 0.6488803255370835,
+        "wrong_family": 67,
+        "wrong_family_median": 0.2843257140285034,
+        "wrong_but_close": 16
+      },
+      {
+        "family": "impulse_waveguide",
+        "examples": 256,
+        "predicted_median": 0.20150063400466683,
+        "true_family_median": 0.2028383875282055,
+        "family_centre_median": 0.6230197628203343,
+        "wrong_family": 0,
+        "wrong_family_median": null,
+        "wrong_but_close": 0
+      },
+      {
+        "family": "saw_tanh_lp",
+        "examples": 256,
+        "predicted_median": 0.18855421402913206,
+        "true_family_median": 0.17719736705330946,
+        "family_centre_median": 0.7969969480190526,
+        "wrong_family": 34,
+        "wrong_family_median": 0.3330886013526712,
+        "wrong_but_close": 8
+      },
+      {
+        "family": "wavetable_lowpass",
+        "examples": 256,
+        "predicted_median": 0.17796688850523462,
+        "true_family_median": 0.1733642694710106,
+        "family_centre_median": 0.4484142179526741,
+        "wrong_family": 21,
+        "wrong_family_median": 0.5195932311437254,
+        "wrong_but_close": 0
+      },
+      {
+        "family": "saw_lowpass",
+        "examples": 256,
+        "predicted_median": 0.17709414188178768,
+        "true_family_median": 0.15611078649988397,
+        "family_centre_median": 0.8120737378025933,
+        "wrong_family": 32,
+        "wrong_family_median": 0.22303315148361852,
+        "wrong_but_close": 11
+      },
+      {
+        "family": "saw_bandpass",
+        "examples": 256,
+        "predicted_median": 0.162363958799135,
+        "true_family_median": 0.15052689157383034,
+        "family_centre_median": 0.781545638892384,
+        "wrong_family": 9,
+        "wrong_family_median": 0.594853736257489,
+        "wrong_but_close": 0
+      },
+      {
+        "family": "additive_dense12",
+        "examples": 256,
+        "predicted_median": 0.1506735943801865,
+        "true_family_median": 0.14543695759541833,
+        "family_centre_median": 0.44450466106799735,
+        "wrong_family": 52,
+        "wrong_family_median": 0.26798143237033983,
+        "wrong_but_close": 16
+      },
+      {
+        "family": "saw_highpass",
+        "examples": 256,
+        "predicted_median": 0.1502487251501599,
+        "true_family_median": 0.16085285302663455,
+        "family_centre_median": 0.7098385526625691,
+        "wrong_family": 5,
+        "wrong_family_median": 0.4733862301878181,
+        "wrong_but_close": 1
+      },
+      {
+        "family": "additive_cubic",
+        "examples": 256,
+        "predicted_median": 0.13515308227577955,
+        "true_family_median": 0.12304664027891188,
+        "family_centre_median": 0.4087296313548541,
+        "wrong_family": 56,
+        "wrong_family_median": 0.18340305918727484,
+        "wrong_but_close": 26
+      },
+      {
+        "family": "additive_feedback",
+        "examples": 256,
+        "predicted_median": 0.12787244109845086,
+        "true_family_median": 0.11762769796489791,
+        "family_centre_median": 0.40857792773873614,
+        "wrong_family": 66,
+        "wrong_family_median": 0.15668023312684276,
+        "wrong_but_close": 38
+      },
+      {
+        "family": "noise_bandpass",
+        "examples": 256,
+        "predicted_median": 0.12487399841375219,
+        "true_family_median": 0.12458111874383682,
+        "family_centre_median": 0.7605198287767276,
+        "wrong_family": 0,
+        "wrong_family_median": null,
+        "wrong_but_close": 0
+      },
+      {
+        "family": "additive_sparse4",
+        "examples": 256,
+        "predicted_median": 0.10339144496837446,
+        "true_family_median": 0.10094384332822523,
+        "family_centre_median": 0.35185616502569195,
+        "wrong_family": 33,
+        "wrong_family_median": 0.3891415052220646,
+        "wrong_but_close": 1
+      },
+      {
+        "family": "fx_lowpass",
+        "examples": 256,
+        "predicted_median": 0.059628558860662345,
+        "true_family_median": 0.04725142281942213,
+        "family_centre_median": 0.13001798459209302,
+        "wrong_family": 101,
+        "wrong_family_median": 0.08695226972589043,
+        "wrong_but_close": 83
+      },
+      {
+        "family": "fx_phaser",
+        "examples": 256,
+        "predicted_median": 0.04950578936261435,
+        "true_family_median": 0.047434893726982945,
+        "family_centre_median": 0.0406687926597382,
+        "wrong_family": 13,
+        "wrong_family_median": 0.14866670052198433,
+        "wrong_but_close": 10
+      },
+      {
+        "family": "fx_fir",
+        "examples": 256,
+        "predicted_median": 0.03706938999288188,
+        "true_family_median": 0.0371959613291392,
+        "family_centre_median": 0.04652224267237467,
+        "wrong_family": 0,
+        "wrong_family_median": null,
+        "wrong_but_close": 0
+      },
+      {
+        "family": "fx_bandpass",
+        "examples": 256,
+        "predicted_median": 0.03606038266201815,
+        "true_family_median": 0.034571272728107325,
+        "family_centre_median": 0.1763844515634183,
+        "wrong_family": 17,
+        "wrong_family_median": 0.12319173098815665,
+        "wrong_but_close": 12
+      },
+      {
+        "family": "fx_highpass",
+        "examples": 256,
+        "predicted_median": 0.031485764929382196,
+        "true_family_median": 0.02974943398215675,
+        "family_centre_median": 0.14444178405179336,
+        "wrong_family": 15,
+        "wrong_family_median": 0.14453556431086223,
+        "wrong_but_close": 12
+      },
+      {
+        "family": "fx_stereo_width",
+        "examples": 256,
+        "predicted_median": 0.014728919649273926,
+        "true_family_median": 0.015020447928064368,
+        "family_centre_median": 0.06351202818252472,
+        "wrong_family": 0,
+        "wrong_family_median": null,
+        "wrong_but_close": 0
+      }
+    ]
+  }
+}
