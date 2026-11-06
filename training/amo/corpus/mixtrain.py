@@ -299,8 +299,8 @@ def compute_losses(out, batch, weights):
     cells = (mask.sum() * T.PITCHES).clamp(min=1)
     losses["onset"] = (onset_bce * mask).sum() / cells
     losses["sustain"] = (sustain_bce * mask).sum() / cells
-    on = target[..., 0] * mask[..., 0]
-    held = target[..., 1] * mask[..., 0]
+    on = target[..., 0] * mask
+    held = target[..., 1] * mask
     losses["velocity"] = ((torch.sigmoid(roll[..., 2]) - target[..., 2]).abs() * held).sum() / held.sum().clamp(min=1)
     timing = (torch.sigmoid(roll[..., 3]) - target[..., 3]).abs() + (torch.sigmoid(roll[..., 4]) - target[..., 4]).abs()
     losses["timing"] = (timing * on).sum() / on.sum().clamp(min=1)
