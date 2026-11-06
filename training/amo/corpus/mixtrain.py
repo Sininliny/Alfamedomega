@@ -326,7 +326,7 @@ def compute_losses(out, batch, weights):
                    "count_acc_auto": float(((out["count"].argmax(-1) == batch["count_class"].long()).float()
                                             * auto).sum() / auto.sum().clamp(min=1)),
                    "exists_acc": float(((out["exists"] > 0).float() == exists).float().mean())}
-    return total, {k: float(v) for k, v in losses.items()}, metrics
+    return total, {k: float(v.detach()) for k, v in losses.items()}, metrics
 
 
 DEFAULT_WEIGHTS = {"onset_pos": 30.0, "u1": 2.0, "u2": 1.0, "family2": 0.5, "transpose2": 0.3,
@@ -366,7 +366,7 @@ def run_validation(model, data, device, amp_dtype, weights, batch_size, workers,
             with torch.autocast(device.type, dtype=amp_dtype, enabled=amp_dtype is not None):
                 out = model(*model_inputs(batch))
             total, losses, metrics = compute_losses(out, batch, weights)
-            for k, v in {"loss": float(total), **losses, **metrics}.items():
+            for k, v in {"loss": float(total.detach()), **losses, **metrics}.items():
                 sums[k] = sums.get(k, 0.0) + v
             count += 1
     model.train()
@@ -399,7 +399,7 @@ def train(args):
     epoch, step, best, history, stale = 0, 0, math.inf, [], 0
     resume = find_resume(output, args.resume, args.resume_search or [])
     if resume:
-        package = torch.load(resume, map_location=device, weights_only=False)
+        package = torch.load(resume, map_location="cpu", weights_only=False)  # RNG states stay CPU tensors
         if package.get("schema") != CHECKPOINT_SCHEMA or package["config"] != config:
             raise SystemExit(f"{resume} has another schema or model size; start a new run directory")
         model.load_state_dict(package["model"])
@@ -447,7 +447,7 @@ def train(args):
             scaler.update()
             step += 1
             seen += 1
-            for k, v in {"loss": float(total), **losses, **metrics}.items():
+            for k, v in {"loss": float(total.detach()), **losses, **metrics}.items():
                 sums[k] = sums.get(k, 0.0) + v
             if step % args.log_every == 0:
                 rate = seen / max(time.monotonic() - epoch_began, 1e-6)
