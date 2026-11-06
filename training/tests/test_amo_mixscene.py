@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from training.amo.corpus import mixscene
+from training.amo.corpus import mixscene, mixtargets
 
 try:
     from training.amo.native import _library_path
@@ -72,6 +72,49 @@ class SceneRenderTests(unittest.TestCase):
         features, rms = mixscene.mix_features(mix)
         self.assertEqual(features.shape[1], mixscene.MID_BANDS + mixscene.SIDE_BANDS)
         self.assertTrue(np.isfinite(features).all())
+
+
+class TargetTests(unittest.TestCase):
+    def test_targets_have_fixed_shapes_and_ladder_counts(self):
+        scene = mixscene.sample_scene(mixscene.SEED, 5)
+        counts = [max(mixscene.ladder(scene, mixscene.atoms_of(scene))[k]) + 1 for k in mixtargets.LEVELS]
+        for level, count in zip(mixtargets.LEVELS, counts):
+            targets = mixtargets.scene_targets(scene, level)
+            self.assertEqual(targets["count"], count)
+            self.assertEqual(targets["roll"].shape, (mixscene.MAX_INSTRUMENTS, mixscene.MAX_FRAMES,
+                                                     mixtargets.PITCHES, len(mixtargets.ROLL_CHANNELS)))
+            self.assertEqual(targets["exists"].sum(), count)
+
+    def test_notes_round_trip_through_the_roll(self):
+        notes = [[0.013, 0.2, 60, 0.8], [0.5, 0.31, 64, 0.6], [1.7, 1.2, 40, 0.9]]
+        roll = mixtargets.piano_roll(notes, mixscene.MAX_FRAMES)
+        decoded = mixtargets.roll_notes(roll)
+        np.testing.assert_allclose(np.asarray(decoded), np.asarray(notes), atol=1e-6)
+
+    def test_used_dims_cover_every_coordinate_a_family_reads(self):
+        for family in mixtargets.FAMILIES:
+            mask = mixtargets.used_dims(family)
+            self.assertTrue(mask.any(), family)
+            u = np.random.default_rng(0).random(64)
+            v = u.copy()
+            v[~mask] = 0.123
+            self.assertEqual(mixscene.prepare.make_document(family, u)[0],
+                             mixscene.prepare.make_document(family, v)[0], family)
+
+
+@unittest.skipUnless(NATIVE, "alfa_tensor_c is not built")
+class DecodeRenderTests(unittest.TestCase):
+    def test_oracle_targets_decode_to_the_same_mix(self):
+        from training.amo.corpus import resynth
+
+        scene, _, mix = mixscene.build_scene(mixscene.SEED, 2)
+        reference = resynth.log_spectra(mix)
+        for level in mixtargets.LEVELS:
+            targets = mixtargets.scene_targets(scene, level)
+            units = [mixtargets.target_as_prediction(targets, k) for k in range(targets["count"])]
+            decoded = mixtargets.decode_scene(units, targets["bus_present"], targets["bus_values"], scene["seconds"])
+            distance = resynth.distance(resynth.log_spectra(mixscene.render_scene(decoded)[1]), reference)
+            self.assertLess(distance, 0.02, level)
 
 
 if __name__ == "__main__":

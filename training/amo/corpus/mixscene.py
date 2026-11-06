@@ -364,8 +364,9 @@ def sample_insert_fx(rng):
         if any(f["type"] == kind for f in chain):
             continue
         chain.append(sample_fx(rng, kind))
-    # Time FX last, the usual insert order; keeps every chain a sequence of mono stages.
-    return sorted(chain, key=lambda f: f["type"] == "echo")
+    # Canonical order (INSERT_FX order, so time FX last): the chain is a set, which keeps
+    # labels identifiable; the construction families already cover tanh->filter orderings.
+    return sorted(chain, key=lambda f: INSERT_FX.index(f["type"]))
 
 
 def sample_fx(rng, kind, bus=False):
@@ -390,13 +391,8 @@ def sample_fx(rng, kind, bus=False):
         return {"type": kind, "width": float(rng.uniform(0.3, 1.8))}
     if kind == "reverb":
         t60 = float(np.exp(rng.uniform(np.log(0.4), np.log(3.5))))
-        primes = [601, 683, 761, 857, 953, 1069, 1201, 1327, 1433, 1601, 1747, 1913, 2111, 2351]
-        delays = sorted(int(d * rng.uniform(0.9, 1.4)) for d in rng.choice(primes, 8, replace=False))
-        gains = [float(10 ** (-3 * d / (SAMPLE_RATE * t60))) for d in delays]
-        signs = rng.choice([-1.0, 1.0], 8)
-        return {"type": kind, "t60": t60, "delays": delays, "gains": gains,
-                "damping": [float(rng.uniform(0.05, 0.6))] * 8,
-                "input": (signs * 0.35).tolist(), "wet": float(rng.uniform(0.08, 0.35))}
+        size = float(rng.uniform(0.7, 1.5))
+        return reverb_spec(t60, size, float(rng.uniform(0.05, 0.6)), float(rng.uniform(0.08, 0.35)))
     if kind == "echo_bus":
         base = rng.uniform(0.12, 0.5)
         return {"type": "echo", "delays": [int(base * SAMPLE_RATE), int(base * rng.uniform(0.6, 1.5) * SAMPLE_RATE)],
@@ -404,15 +400,29 @@ def sample_fx(rng, kind, bus=False):
     raise ValueError(kind)
 
 
-def sample_scene(seed, index):
-    """Scene specification only (no audio). Deterministic in (seed, index)."""
+REVERB_DELAYS = [601, 761, 953, 1201, 1433, 1747, 2111, 2351]  # mutually prime line lengths at size 1
+REVERB_SIGNS = [1, -1, 1, -1, -1, 1, -1, 1]
+
+
+def reverb_spec(t60, size, damping, wet):
+    """FDN reverb fully described by (t60, size, damping, wet), so it is learnable exactly."""
+    delays = [int(round(d * size)) for d in REVERB_DELAYS]
+    return {"type": "reverb", "t60": t60, "size": size, "delays": delays,
+            "gains": [float(10 ** (-3 * d / (SAMPLE_RATE * t60))) for d in delays],
+            "damping": [damping] * 8, "input": [0.35 * s for s in REVERB_SIGNS], "wet": wet}
+
+
+def sample_scene(seed, index, count_weights=None):
+    """Scene specification only (no audio). Deterministic in (seed, index, count_weights)."""
     rng = np.random.default_rng([seed, index])
+    weights = COUNT_WEIGHTS if count_weights is None else np.asarray(count_weights, float)
+    weights = np.pad(weights, (0, MAX_INSTRUMENTS - len(weights)))[:MAX_INSTRUMENTS]
     seconds = float(rng.uniform(*SECONDS))
     bpm = float(rng.uniform(70, 160))
     root = int(rng.integers(12))
     scale_name = str(rng.choice(list(SCALES)))
     scale = SCALES[scale_name]
-    natural = int(rng.choice(np.arange(1, MAX_INSTRUMENTS + 1), p=COUNT_WEIGHTS))
+    natural = int(rng.choice(np.arange(1, MAX_INSTRUMENTS + 1), p=weights / weights.sum()))
     instruments = []
     atoms = 0
     for k in range(natural):
@@ -653,10 +663,10 @@ def split_of(index):
     return "train" if value < 0.75 else "validation" if value < 0.875 else "test"
 
 
-def build_scene(seed, index, attempts=6):
+def build_scene(seed, index, attempts=6, count_weights=None):
     """Sample and render scene ``index``; redraws (index, attempt) if a render is invalid."""
     for attempt in range(attempts):
-        scene = sample_scene(seed + attempt * 7919, index)
+        scene = sample_scene(seed + attempt * 7919, index, count_weights)
         try:
             stems, mix, scales = render_scene(scene)
         except (prepare.InvalidOutput, ValueError) as error:
@@ -669,7 +679,7 @@ def build_scene(seed, index, attempts=6):
 
 
 def generate_shard(task):
-    destination, seed, start, count, keep_wav = task
+    destination, seed, start, count, keep_wav, count_weights = task
     path = Path(destination) / "shards" / f"{start:07d}"
     if (path / "complete.json").exists():
         return json.loads((path / "complete.json").read_text())
@@ -677,7 +687,7 @@ def generate_shard(task):
     began = time.monotonic()
     rows, mixes, lengths, stem_arrays, atom_levels, counts = [], [], [], [], [], []
     for index in range(start, start + count):
-        scene, stems, mix = build_scene(seed, index)
+        scene, stems, mix = build_scene(seed, index, count_weights=count_weights)
         atoms = atoms_of(scene)
         levels = ladder(scene, atoms)
         features, rms = mix_features(mix)
@@ -716,10 +726,10 @@ def generate_shard(task):
     return summary
 
 
-def build(destination, scenes, per_shard, workers, seed, keep_wav):
+def build(destination, scenes, per_shard, workers, seed, keep_wav, count_weights=None):
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
-    tasks = [(str(destination), seed, start, min(per_shard, scenes - start), keep_wav)
+    tasks = [(str(destination), seed, start, min(per_shard, scenes - start), keep_wav, count_weights)
              for start in range(0, scenes, per_shard)]
     began = time.monotonic()
     results = []
@@ -730,6 +740,7 @@ def build(destination, scenes, per_shard, workers, seed, keep_wav):
     counts = np.concatenate([np.asarray(r["counts"]).reshape(-1, 3) for r in results])
     report = {
         "schema": SCHEMA, "seed": seed, "scenes": scenes, "shards": len(tasks),
+        "count_weights": None if count_weights is None else list(map(float, count_weights)),
         "sample_rate": SAMPLE_RATE, "features": {"hop": HOP, "n_fft": N_FFT, "mid_bands": MID_BANDS,
                                                  "side_bands": SIDE_BANDS, "f_low": F_LOW, "f_high": F_HIGH,
                                                  "stem_hop": STEM_HOP, "stem_bands": STEM_BANDS},
@@ -750,7 +761,7 @@ def listen(destination, count, out):
     out.mkdir(parents=True, exist_ok=True)
     report = json.loads((Path(destination) / "report.json").read_text())
     for index in range(count):
-        scene, stems, mix = build_scene(report["seed"], index)
+        scene, stems, mix = build_scene(report["seed"], index, count_weights=report.get("count_weights"))
         folder = out / f"scene-{index:04d}"
         folder.mkdir(exist_ok=True)
         prepare.write_wav(folder / "mix.wav", mix, SAMPLE_RATE)
@@ -772,6 +783,8 @@ def main(argv=None):
     b.add_argument("--workers", type=int, default=2)
     b.add_argument("--seed", type=int, default=SEED)
     b.add_argument("--keep-wav", action="store_true")
+    b.add_argument("--count-weights", type=float, nargs="+",
+                   help="relative weight of 1..8 natural instruments (curriculum: '1' = single instrument)")
     s = sub.add_parser("listen", help="write WAVs of the first scenes of a built corpus")
     s.add_argument("destination")
     s.add_argument("--count", type=int, default=4)
@@ -779,7 +792,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.command == "build":
         print(json.dumps(build(args.destination, args.scenes, args.per_shard, args.workers,
-                               args.seed, args.keep_wav), indent=2))
+                               args.seed, args.keep_wav, args.count_weights), indent=2))
     else:
         listen(args.destination, args.count, args.out)
 

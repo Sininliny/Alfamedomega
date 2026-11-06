@@ -112,20 +112,25 @@ def output(slug, destination):
     return result
 
 
-def train(kernels):
-    """Push the train kernel that did not run last, mounting the other's output."""
+def train(kernels, prefix="train"):
+    """Push the train kernel that did not run last, mounting the other's output.
+
+    ``prefix`` "mix-train" alternates the mix-decomposition kernels the same way.
+    """
     kernels = Path(kernels)
     state_path = kernels / "push-state.json"
     state = json.loads(state_path.read_text()) if state_path.exists() else {}
-    last = state.get("last_train")
+    key = "last_train" if prefix == "train" else f"last_{prefix.replace('-', '_')}"
+    last = state.get(key)
     slot = "b" if last == "a" else "a"
-    directory = kernels / f"train-{slot}"
+    directory = kernels / f"{prefix}-{slot}"
     meta = json.loads((directory / "kernel-metadata.json").read_text())
-    sources = [s for s in meta["kernel_sources"] if "amo-corpus-train" not in s]
+    family = meta["id"].split("/")[1][:-2]  # e.g. amo-corpus-train / amo-mix-train
+    sources = [s for s in meta["kernel_sources"] if family not in s]
     if last:
         sources.append(meta["id"][:-1] + last)
     push(directory, sources)
-    state["last_train"] = slot
+    state[key] = slot
     state_path.write_text(json.dumps(state, indent=2))
 
 
@@ -148,6 +153,7 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("push").add_argument("directory")
     commands.add_parser("train").add_argument("kernels", help="folder written by make_kernels.py")
+    commands.add_parser("mix-train").add_argument("kernels", help="folder written by make_kernels.py --mix")
     commands.add_parser("evaluate").add_argument("kernels", help="folder written by make_kernels.py")
     commands.add_parser("status").add_argument("slug")
     out = commands.add_parser("output")
@@ -158,6 +164,8 @@ def main():
         push(args.directory)
     elif args.command == "train":
         train(args.kernels)
+    elif args.command == "mix-train":
+        train(args.kernels, "mix-train")
     elif args.command == "evaluate":
         evaluate(args.kernels)
     elif args.command == "status":
