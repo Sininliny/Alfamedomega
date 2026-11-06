@@ -1,10 +1,13 @@
 # Alfamedomega suite installer: plugin (VST3), standalone app and AMO Centre with the built-in
 # WAV to Preset model. Installs for the current user into %LOCALAPPDATA%\Programs\Alfamedomega;
 # only the VST3 copy into C:\Program Files\Common Files\VST3 asks for administrator rights.
+# Test switches (not used by Install.bat): -Dest elsewhere, -SkipVst, -NoShortcuts; set
+# ALFA_CC_HOME to keep AMO Centre settings out of the real profile.
+param([string]$Dest = '', [switch]$SkipVst, [switch]$NoShortcuts)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $src = $PSScriptRoot
-$dest = Join-Path $env:LOCALAPPDATA 'Programs\Alfamedomega'
+$dest = if ($Dest) { $Dest } else { Join-Path $env:LOCALAPPDATA 'Programs\Alfamedomega' }
 $runtime = Join-Path $dest 'runtime'
 $uv = Join-Path $runtime 'uv\uv.exe'
 $venv = Join-Path $runtime 'venv'
@@ -53,6 +56,7 @@ Check $LASTEXITCODE 'Writing AMO Centre settings'
 Check $LASTEXITCODE 'The installation check'
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $env:UV_CACHE_DIR
 
+if ($SkipVst) { Write-Host 'Skipping the VST3 copy (-SkipVst)' } else {
 Step "Installing the VST3 plugin into $vstRoot (Windows asks for administrator rights)"
 $plugin = Join-Path $dest 'plugin\Alfamedomega.vst3'
 $command = "New-Item -ItemType Directory -Force -Path '$vstRoot' | Out-Null; " +
@@ -67,7 +71,9 @@ if (-not $vstOk) {
     Write-Host "The VST3 was not copied. In your DAW, add this folder to its plugin search paths instead:" -ForegroundColor Yellow
     Write-Host "  $(Join-Path $dest 'plugin')" -ForegroundColor Yellow
 }
+}
 
+if (-not $NoShortcuts) {
 Step 'Creating shortcuts'
 $shell = New-Object -ComObject WScript.Shell
 $menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Alfamedomega'
@@ -86,6 +92,7 @@ foreach ($folder in $menu, $desktop) {
     Shortcut (Join-Path $folder 'AMO Centre.lnk') $centre '' $app
 }
 Shortcut (Join-Path $menu 'Uninstall Alfamedomega.lnk') 'powershell.exe' "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $dest 'uninstall-suite.ps1')`"" $dest
+}
 
 Write-Host ""
 Write-Host 'Done. Desktop shortcuts: Alfamedomega (standalone) and AMO Centre.' -ForegroundColor Green
