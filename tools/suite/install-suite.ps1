@@ -19,6 +19,9 @@ $env:UV_CACHE_DIR = Join-Path $runtime 'cache'
 
 function Step($text) { Write-Host ""; Write-Host "== $text" -ForegroundColor Cyan }
 function Check($code, $what) { if ($code -ne 0) { throw "$what failed (exit code $code)" } }
+# Windows PowerShell 5.1 turns native stderr (uv's progress lines) into terminating errors
+# under 'Stop' when output is redirected; run native tools with 'Continue' and use Check.
+function Native { $ErrorActionPreference = 'Continue'; $exe, $rest = $args; & $exe @rest }
 function Mirror($from, $to) {
     & robocopy $from $to /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "Copying $from failed (robocopy $LASTEXITCODE)" }
@@ -41,18 +44,18 @@ if (-not (Test-Path $uv)) {
 }
 if (-not (Test-Path $python)) {
     Step 'Installing a private Python 3.12'
-    & $uv venv --python 3.12 $venv
+    Native $uv venv --python-preference only-managed --python 3.12 $venv
     Check $LASTEXITCODE 'Creating the Python environment'
 }
 Step 'Installing AMO Centre, PySide6, numpy and PyTorch (CPU, about 350 MB download; a few minutes)'
-& $uv pip install --python $python --reinstall-package alfamedomega-control-center 'numpy>=1.26' 'torch>=2.2' 'PySide6-Essentials>=6.6' (Join-Path $app 'control-center')
+Native $uv pip install --python $python --reinstall-package alfamedomega-control-center 'numpy>=1.26' 'torch>=2.2' 'PySide6-Essentials>=6.6' (Join-Path $app 'control-center')
 Check $LASTEXITCODE 'Installing the Python packages'
 
 Step 'Pointing AMO Centre at the built-in model'
 $env:PYTHONPATH = $app
-& $python -c "import sys; from alfacc.settings import default_home, load_settings, save_settings; h = default_home(); s = load_settings(h); s.repo_dir = sys.argv[1]; s.training_python = sys.argv[2]; s.extra.pop('wav_preset_model', None); save_settings(h, s); print('settings', h)" $app $python
+Native $python -c "import sys; from alfacc.settings import default_home, load_settings, save_settings; h = default_home(); s = load_settings(h); s.repo_dir = sys.argv[1]; s.training_python = sys.argv[2]; s.extra.pop('wav_preset_model', None); save_settings(h, s); print('settings', h)" $app $python
 Check $LASTEXITCODE 'Writing AMO Centre settings'
-& $python -c "import torch, numpy, PySide6; from training.amo.corpus import wav_to_preset; from training.amo.native import _library_path; print('torch', torch.__version__, '| native', _library_path())"
+Native $python -c "import torch, numpy, PySide6; from training.amo.corpus import wav_to_preset; from training.amo.native import _library_path; print('torch', torch.__version__, '| native', _library_path())"
 Check $LASTEXITCODE 'The installation check'
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $env:UV_CACHE_DIR
 

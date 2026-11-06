@@ -137,9 +137,15 @@ def estimate_pitch(audio, sr):
     low, high = int(sr / 1000), int(sr / 40)
     if high >= len(corr) or corr[0] <= 0:
         return None
-    lag = low + int(np.argmax(corr[low:high]))
-    if corr[lag] < 0.3 * corr[0]:
+    window = corr[low:high]
+    best = float(window.max())
+    if best < 0.3 * corr[0]:
         return None
+    # Peaks at whole multiples of the period are nearly as tall as the first one, so the
+    # global maximum often lands on a subharmonic. Take the earliest strong local peak.
+    peaks = np.flatnonzero((window[1:-1] >= window[:-2]) & (window[1:-1] >= window[2:])
+                           & (window[1:-1] >= 0.85 * best)) + 1
+    lag = low + int(peaks[0] if len(peaks) else np.argmax(window))
     return 69 + 12 * np.log2(sr / lag / 440)
 
 
