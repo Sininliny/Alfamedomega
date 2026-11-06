@@ -134,18 +134,21 @@ def estimate_pitch(audio, sr):
     segment = segment - segment.mean()
     spectrum = np.fft.rfft(segment * np.hanning(len(segment)), n=2 * len(segment))
     corr = np.fft.irfft(np.abs(spectrum) ** 2)[:len(segment)]
-    low, high = int(sr / 1000), int(sr / 40)
+    low, high = int(sr / 1000), int(sr / 25)   # 25 Hz floor: sub basses sit at C1 (32.7 Hz)
     if high >= len(corr) or corr[0] <= 0:
         return None
     window = corr[low:high]
-    best = float(window.max())
+    # Only interior local maxima are periods; the window's left edge is just the decay from
+    # lag 0 and would read as ~1 kHz for a sub bass whose period is longer than the window.
+    peaks = np.flatnonzero((window[1:-1] >= window[:-2]) & (window[1:-1] >= window[2:])) + 1
+    if not len(peaks):
+        return None
+    best = float(window[peaks].max())
     if best < 0.3 * corr[0]:
         return None
     # Peaks at whole multiples of the period are nearly as tall as the first one, so the
-    # global maximum often lands on a subharmonic. Take the earliest strong local peak.
-    peaks = np.flatnonzero((window[1:-1] >= window[:-2]) & (window[1:-1] >= window[2:])
-                           & (window[1:-1] >= 0.85 * best)) + 1
-    lag = low + int(peaks[0] if len(peaks) else np.argmax(window))
+    # highest peak often lands on a subharmonic. Take the earliest strong one.
+    lag = low + int(peaks[window[peaks] >= 0.85 * best][0])
     return 69 + 12 * np.log2(sr / lag / 440)
 
 
