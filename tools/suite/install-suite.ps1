@@ -42,6 +42,12 @@ if (-not (Test-Path $uv)) {
     Expand-Archive -Force -Path $zip -DestinationPath (Join-Path $runtime 'uv')
     Remove-Item $zip
 }
+# A venv from an older setup may sit on a Python already on the machine (e.g. the Microsoft
+# Store one, which silently redirects writes under %APPDATA%); rebuild it on the private Python.
+$cfg = Join-Path $venv 'pyvenv.cfg'
+if ((Test-Path $cfg) -and -not (Select-String -Quiet -SimpleMatch -Path $cfg -Pattern $env:UV_PYTHON_INSTALL_DIR)) {
+    Remove-Item -Recurse -Force $venv
+}
 if (-not (Test-Path $python)) {
     Step 'Installing a private Python 3.12'
     Native $uv venv --python-preference only-managed --python 3.12 $venv
