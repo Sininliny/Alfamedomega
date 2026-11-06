@@ -195,7 +195,8 @@ def main():
     build_library()
     output = Path("/kaggle/working")
     run([sys.executable, "-m", "training.amo.corpus.evaluate", corpus, models[-1], "--split", "test",
-         "--resynth", RESYNTH, "--out", output / "evaluation-test.json"], cwd=CODE)
+         "--resynth", RESYNTH, "--listen", LISTEN, "--listen-dir", output / "listen",
+         "--out", output / "evaluation-test.json"], cwd=CODE)
     run([sys.executable, "-m", "training.amo.corpus.evaluate", corpus, models[-1], "--split", "validation",
          "--out", output / "evaluation-validation.json"], cwd=CODE)
 
@@ -227,6 +228,8 @@ def main():
                         help="stop and save before Kaggle's 12 h session limit")
     parser.add_argument("--resynth", type=int, default=256,
                         help="evaluate kernel: render predictions for N test examples per family")
+    parser.add_argument("--listen", type=int, default=2,
+                        help="evaluate kernel: listening WAVs (target/predicted/centre) per family")
     parser.add_argument("--perceptual", action="store_true",
                         help="train kernels mount amo-corpus-sensitivity and weight the value loss by audibility")
     parser.add_argument("--sensitivity-per-type", type=int, default=64,
@@ -260,7 +263,7 @@ def main():
                  + (find_corpus + build_library + SENSITIVITY).format(), gpu=False, internet=True,
                  kernel_sources=[f"{args.user}/{GENERATE_SLUG}"])
     write_kernel(args.out / "evaluate", EVALUATE_SLUG, "AMO corpus evaluate", args.user,
-                 header + common + f"RESYNTH = {args.resynth}\n"
+                 header + common + f"RESYNTH = {args.resynth}\nLISTEN = {args.listen}\n"
                  + (find_corpus + build_library + EVALUATE).format(), gpu=True, internet=True,
                  kernel_sources=[f"{args.user}/{GENERATE_SLUG}"])
     size = len(header) / 1024

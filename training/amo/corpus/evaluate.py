@@ -88,6 +88,8 @@ def resynthesis(model, data, ids, truth, predicted, stats, widths, names, args, 
             "wrong_family": int(wrong.sum()),
             "wrong_family_median": resynth.summarise(by["predicted"][wrong])["median"] if wrong.any() else None,
             "wrong_but_close": int((wrong & (by["predicted"] <= correct_median)).sum())})
+    if args.listen:
+        write_listening(jobs, chosen, ids, true_types, names, by, args)
     wrong = ~right
     result = {
         "examples": len(chosen), "distance": "mean |log STFT| L1, unit-RMS stereo, FFT 2048/1024/512/256",
@@ -115,6 +117,35 @@ def resynthesis(model, data, ids, truth, predicted, stats, widths, names, args, 
     return result
 
 
+def write_listening(jobs, chosen, ids, true_types, names, by, args):
+    """WAV triples (target, predicted, family centre) for the first ``--listen`` examples per family."""
+    from training.amo.corpus import prepare, resynth
+
+    out = Path(args.listen_dir)
+    index = []
+    for t in np.unique(true_types):
+        for i in np.flatnonzero(true_types == t)[:args.listen]:
+            target_doc, performance, candidates = jobs[i]
+            folder = out / names[t]
+            folder.mkdir(parents=True, exist_ok=True)
+            entry = {"family": names[t], "id": str(ids[chosen[i]]),
+                     "predicted_family": names[candidates["predicted"][0]]}
+            renders = {"target": resynth.render(target_doc, performance)}
+            for name in ("predicted", "family_centre"):
+                type_id, values = candidates[name]
+                renders[name] = resynth.render(resynth.assemble(type_id, values), performance)
+                entry[f"{name}_distance"] = float(by[name][i])
+            for name, audio in renders.items():
+                peak = float(np.abs(audio).max()) if audio is not None else 0.0
+                if peak > 1e-6 and np.isfinite(peak):
+                    # Each file peak-normalised to -6 dBFS: compare timbre, not level.
+                    path = folder / f"{entry['id']}-{name}.wav"
+                    prepare.write_wav(path, audio * (0.5 / peak), performance["sample_rate"])
+            index.append(entry)
+    (out / "listen.json").write_text(json.dumps(index, indent=2))
+    print(f"  wrote {len(index)} listening triples to {out}")
+
+
 def main(argv=None):
     import torch
 
@@ -127,6 +158,9 @@ def main(argv=None):
     parser.add_argument("--out", type=Path, default=None, help="write the JSON report here")
     parser.add_argument("--resynth", type=int, default=0,
                         help="render the predicted construction for up to N examples per family (0 = off)")
+    parser.add_argument("--listen", type=int, default=0,
+                        help="with --resynth: write target/predicted/centre WAVs for N examples per family")
+    parser.add_argument("--listen-dir", type=Path, default=Path("listen"))
     parser.add_argument("--workers", type=int, default=os.cpu_count() or 1, help="render processes")
     args = parser.parse_args(argv)
 
