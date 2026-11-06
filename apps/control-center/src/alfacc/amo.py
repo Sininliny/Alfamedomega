@@ -20,7 +20,7 @@ def create_tensor_job(manager, repository, action, arguments, *, python=None,
     """Queue independent AMO work with durable history and cooperative cancellation."""
     from .jobs import cmd_step, FINISHED
     if action not in (*TRAINING_CATEGORIES, "preflight", "infer", "import-wav", "build-dataset", "evaluate-wav",
-                      "rank-controls"):
+                      "rank-controls", "wav-to-preset"):
         raise ValueError("Unsupported AMO task")
     repository = Path(repository).resolve()
     if not (repository / "training/amo/__main__.py").is_file():
@@ -35,8 +35,12 @@ def create_tensor_job(manager, repository, action, arguments, *, python=None,
              "train-preference": "Train user preference", "train-importance": "Train context importance",
              "preflight": "Check training manifest", "build-dataset": "Build labelled dataset",
              "evaluate-wav": "Evaluate native reconstruction", "infer": "Inspect WAV prediction",
-             "import-wav": "Import editable WAV preset", "rank-controls": "Rank sound controls"}[action]
-    step = cmd_step(argv, cwd=repository, label=title, env={"PYTHONUTF8": "1"})
+             "import-wav": "Import editable WAV preset", "rank-controls": "Rank sound controls",
+             "wav-to-preset": "WAV to Preset"}[action]
+    env = {"PYTHONUTF8": "1"}
+    if action == "wav-to-preset" and (library := bundled_tensor_library(repository)):
+        env["AMO_TENSOR_LIBRARY"] = str(library)
+    step = cmd_step(argv, cwd=repository, label=title, env=env)
     if action in TRAINING_CATEGORIES:
         if len(arguments) != 2:
             raise ValueError("Training requires a manifest and output package")
@@ -56,6 +60,35 @@ def create_tensor_job(manager, repository, action, arguments, *, python=None,
             step["argv"].append("--resume")
         params.update(checkpoint=str(checkpoint), destination=str(destination), manifest=str(Path(arguments[0]).resolve()))
     return manager.create("amo", title, [step], params=params)
+
+
+# The structure-encoder weights shipped with the suite, relative to the repository (or the
+# installed app folder that holds training/). Settings > WAV to Preset model overrides it.
+DEFAULT_WAV_PRESET_MODEL = Path("models/corpus-encoder/run3/model.pt")
+
+
+def default_wav_preset_model(repository) -> Path:
+    return Path(repository) / DEFAULT_WAV_PRESET_MODEL
+
+
+def bundled_tensor_library(repository):
+    """alfa_tensor_c next to an installed suite (bin/), else None so the usual lookup applies."""
+    for name in ("alfa_tensor_c.dll", "libalfa_tensor_c.so", "libalfa_tensor_c.dylib"):
+        candidate = Path(repository) / "bin" / name
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
+def preset_library() -> Path:
+    """The plugin's sound library folder (PresetStore::defaultDirectory)."""
+    if sys.platform == "win32":
+        base = Path(os.environ.get("APPDATA", Path.home() / "AppData/Roaming"))
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library"
+    else:
+        base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return base / "Alfamedomega" / "TensorPresets"
 
 
 def _run_training(repository, manifest, destination, action, *, home=None, python=None):

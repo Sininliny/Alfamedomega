@@ -28,7 +28,7 @@ from ..training import (TrainSpec, check_environment, create_export_job, create_
                         write_colab_notebook)
 from .theme import TOKENS, stylesheet
 from .widgets import Page, PathField, button, card, label
-from .tensor_page import DatasetsPage, EvaluatePage, ImportSoundPage, RankControlsPage, TrainPage
+from .tensor_page import DatasetsPage, EvaluatePage, ImportSoundPage, RankControlsPage, TrainPage, WavToPresetPage
 
 STATUS_TEXT = {jobs.QUEUED: "Queued", jobs.RUNNING: "Running", jobs.SUCCEEDED: "Done",
                jobs.FAILED: "Failed", jobs.CANCELLED: "Cancelled", jobs.INTERRUPTED: "Interrupted"}
@@ -1046,11 +1046,12 @@ class MainWindow(QMainWindow):
         self.import_page, self.datasets_page = ImportSoundPage(self), DatasetsPage(self)
         self.train_page, self.evaluate_page = TrainPage(self), EvaluatePage(self)
         self.rank_page = RankControlsPage(self)
+        self.wav_preset_page = WavToPresetPage(self)
         self.jobs_page, self.settings_page = JobsPage(self), SettingsPage(self)
         self.models_page, self.legacy_training_page = ModelsPage(self), TrainingPage(self)
         self.preference_page, self.plugins_page = PreferencePage(self), PluginsPage(self)
         # Audio Tensor Space work first; the method-era tools keep working under Legacy.
-        sections = [("Audio Tensor Space", [("Import sound", self.import_page), ("Datasets", self.datasets_page),
+        sections = [("Audio Tensor Space", [("WAV to Preset", self.wav_preset_page), ("Import sound", self.import_page), ("Datasets", self.datasets_page),
                                             ("Train", self.train_page), ("Evaluate", self.evaluate_page),
                                             ("Rank controls", self.rank_page)]),
                     ("", [("Jobs", self.jobs_page), ("Settings", self.settings_page)]),
@@ -1098,7 +1099,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         self.job_status = QLabel("")
         self.statusBar().addPermanentWidget(self.job_status)
-        self.show_page(self.import_page)
+        self.show_page(self.wav_preset_page)
         for i, page in enumerate(self.pages[:9]):
             act = QAction(self)
             act.setShortcut(QKeySequence(f"Ctrl+{i + 1}"))

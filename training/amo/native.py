@@ -16,7 +16,7 @@ def _library_path(path=None):
         return Path(configured)
     root = Path(__file__).resolve().parents[2]
     names = ("alfa_tensor_c.dll", "libalfa_tensor_c.so", "libalfa_tensor_c.dylib")
-    for directory in (root / "build/src/tensor/Release", root / "build/src/tensor",
+    for directory in (root / "bin", root / "build/src/tensor/Release", root / "build/src/tensor",
                       root / "build/core/src/tensor", root / "build/release/src/tensor"):
         for name in names:
             candidate = directory / name
