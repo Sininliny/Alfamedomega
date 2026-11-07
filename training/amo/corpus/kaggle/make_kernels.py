@@ -46,6 +46,7 @@ SENSITIVITY_SLUG = "amo-corpus-sensitivity"
 MIX_GENERATE_SLUG = "amo-mix-generate"
 MIX_TRAIN_SLUGS = ("amo-mix-train-a", "amo-mix-train-b")
 MIX_SMOKE_SLUG = "amo-mix-smoke"
+MIX_EVALUATE_SLUG = "amo-mix-evaluate"
 
 
 def bundle():
@@ -287,6 +288,27 @@ main()
 '''
 
 
+MIX_EVALUATE = r'''
+def main():
+    # CPU: rebuilds the first scenes of the corpus (deterministic), scores the newest mounted model.
+    unpack()
+    models = sorted(Path("/kaggle/input").rglob("run/model.pt"), key=lambda p: p.stat().st_mtime)
+    if not models:
+        raise SystemExit("run/model.pt not found under /kaggle/input: add a finished amo-mix-train output")
+    build_library()
+    corpus = Path("/tmp/mix/eval-corpus")
+    run([sys.executable, "-m", "training.amo.corpus.mixscene", "build", corpus, "--scenes", MIX_EVAL_SCENES,
+         "--per-shard", 100, "--workers", os.cpu_count() or 4], cwd=CODE)
+    output = Path("/kaggle/working")
+    run([sys.executable, "-m", "training.amo.corpus.mixtrain", "evaluate", corpus, models[-1], "--split",
+         "validation", "--resynth", MIX_EVAL_RESYNTH, "--listen", 6, "--listen-dir", output / "listen",
+         "--out", output / "mix-evaluation.json"], cwd=CODE)
+
+
+main()
+'''
+
+
 def write_kernel(directory, slug, title, user, source, *, gpu, internet, kernel_sources=()):
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "kernel.py").write_text(source, encoding="utf-8")
@@ -321,6 +343,9 @@ def main():
                              "extra arguments after -- then go to mixtrain.py train")
     parser.add_argument("--mix-scenes", type=int, default=100000)
     parser.add_argument("--mix-smoke-scenes", type=int, default=384)
+    parser.add_argument("--mix-eval-scenes", type=int, default=2000,
+                        help="mix-evaluate: rebuild scenes 0..N-1 and score their validation split")
+    parser.add_argument("--mix-eval-resynth", type=int, default=128)
     parser.add_argument("--mix-generate-args", default="",
                         help="extra mixscene build arguments as one string, e.g. '--count-weights 1' (stage S1)")
     parser.add_argument("train_args", nargs=argparse.REMAINDER,
@@ -365,6 +390,10 @@ def main():
             write_kernel(args.out / f"mix-train-{slug[-1]}", slug, "AMO mix train " + slug[-1].upper(), args.user,
                          mix_common + f"MIX_TRAIN_ARGS = {mix_train_args!r}\n" + (MIX_FIND + MIX_TRAIN).format(),
                          gpu=True, internet=False, kernel_sources=[f"{args.user}/{MIX_GENERATE_SLUG}"])
+        write_kernel(args.out / "mix-evaluate", MIX_EVALUATE_SLUG, "AMO mix evaluate", args.user,
+                     header + common + f"MIX_EVAL_SCENES = {args.mix_eval_scenes}\nMIX_EVAL_RESYNTH = "
+                     f"{args.mix_eval_resynth}\n" + (build_library + MIX_EVALUATE).format(), gpu=False,
+                     internet=True, kernel_sources=[f"{args.user}/{MIX_TRAIN_SLUGS[0]}"])
         write_kernel(args.out / "mix-smoke", MIX_SMOKE_SLUG, "AMO mix smoke", args.user,
                      header + common + f"MIX_SCENES = {args.mix_smoke_scenes}\n"
                      + (build_library + MIX_SMOKE).format(), gpu=True, internet=True)

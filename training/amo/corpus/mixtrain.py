@@ -62,23 +62,46 @@ ROLL = len(T.ROLL_CHANNELS)
 
 
 def load_corpus(root):
-    """All scenes of a mixscene corpus: features in memory (fp16), specs as dicts."""
+    """All scenes of a mixscene corpus: features as read-only memory maps, specs as dicts.
+
+    The first load writes ``cache/mix.npy`` and ``cache/stems.npy`` next to the shards
+    (fp16, about 220 KB per scene), so a 100k-scene corpus does not have to fit in RAM.
+    """
     root = Path(root)
-    mixes, frames, stems, levels, scenes = [], [], [], [], []
-    for shard in sorted((root / "shards").iterdir()):
-        if not (shard / "complete.json").exists():
-            continue
-        data = np.load(shard / "scenes.npz")
-        mixes.append(data["mix"])
-        frames.append(data["frames"])
-        stems.append(data["stems"])
-        levels.append(data["atom_levels"])
+    shards = [s for s in sorted((root / "shards").iterdir()) if (s / "complete.json").exists()]
+    if not shards:
+        raise SystemExit(f"no complete shards under {root / 'shards'}")
+    cache = root / "cache"
+    names = [s.name for s in shards]
+    manifest = cache / "manifest.json"
+    if not (manifest.exists() and json.loads(manifest.read_text()) == names):
+        cache.mkdir(exist_ok=True)
+        sizes = [len(np.load(s / "scenes.npz")["frames"]) for s in shards]
+        total = sum(sizes)
+        mix = np.lib.format.open_memmap(cache / "mix.npy", "w+", np.float16, (total, FRAMES, FEATURES))
+        stems = np.lib.format.open_memmap(cache / "stems.npy", "w+", np.float16,
+                                          (total, SLOTS, STEM_FRAMES, mixscene.STEM_BANDS))
+        frames, levels, row = [], [], 0
+        for shard, size in zip(shards, sizes):
+            data = np.load(shard / "scenes.npz")
+            mix[row:row + size] = data["mix"]
+            stems[row:row + size] = data["stems"]
+            frames.append(data["frames"])
+            levels.append(data["atom_levels"])
+            row += size
+        mix.flush()
+        stems.flush()
+        del mix, stems
+        np.save(cache / "frames.npy", np.concatenate(frames))
+        np.save(cache / "atom_levels.npy", np.concatenate(levels))
+        manifest.write_text(json.dumps(names))
+    scenes = []
+    for shard in shards:
         with open(shard / "scenes.jsonl", encoding="utf-8") as stream:
             scenes += [json.loads(line) for line in stream]
-    if not scenes:
-        raise SystemExit(f"no complete shards under {root / 'shards'}")
-    return {"mix": np.concatenate(mixes), "frames": np.concatenate(frames),
-            "stems": np.concatenate(stems), "atom_levels": np.concatenate(levels), "scenes": scenes}
+    return {"mix": np.load(cache / "mix.npy", mmap_mode="r"), "frames": np.load(cache / "frames.npy"),
+            "stems": np.load(cache / "stems.npy", mmap_mode="r"),
+            "atom_levels": np.load(cache / "atom_levels.npy"), "scenes": scenes}
 
 
 def split_indices(corpus, split):
@@ -329,8 +352,11 @@ def compute_losses(out, batch, weights):
     return total, {k: float(v.detach()) for k, v in losses.items()}, metrics
 
 
-DEFAULT_WEIGHTS = {"onset_pos": 30.0, "u1": 2.0, "u2": 1.0, "family2": 0.5, "transpose2": 0.3,
-                   "sustain": 0.5, "velocity": 0.3, "timing": 0.5, "stem": 0.5, "count": 0.5}
+# Run 1 (20k scenes): the small categorical heads (echo taps/transpose, layer transpose, count)
+# overfit first and stopped training while family/notes/stems still improved, so they weigh less.
+DEFAULT_WEIGHTS = {"onset_pos": 30.0, "u1": 2.0, "u2": 1.0, "family2": 0.5, "transpose2": 0.2,
+                   "sustain": 0.5, "velocity": 0.3, "timing": 0.5, "stem": 0.5, "count": 0.3,
+                   "echo_values": 0.2}
 
 
 # ----------------------------------------------------------------------- training
@@ -619,7 +645,7 @@ def parse(argv=None):
     t.add_argument("--val-batches", type=int, default=0, help="0 = whole validation split")
     t.add_argument("--checkpoint-minutes", type=float, default=20.0)
     t.add_argument("--time-budget-hours", type=float)
-    t.add_argument("--patience", type=int, default=8)
+    t.add_argument("--patience", type=int, default=15)
     t.add_argument("--resume", default="auto")
     t.add_argument("--resume-search", nargs="*")
     t.add_argument("--no-amp", action="store_true")
