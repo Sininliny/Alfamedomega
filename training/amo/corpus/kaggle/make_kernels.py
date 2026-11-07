@@ -214,11 +214,13 @@ def find_mix_corpus():
     target = Path("/tmp/mix")
     if (target / "mix-corpus" / "report.json").exists():
         return target / "mix-corpus"
-    for archive in sorted(Path("/kaggle/input").rglob("mix-corpus.tar")):
+    archives = sorted(Path("/kaggle/input").rglob("mix-corpus.tar"))
+    for archive in archives:  # parts built with --first merge: disjoint shards/ folders
         target.mkdir(parents=True, exist_ok=True)
         print(f"extracting {{archive}}", flush=True)
         with tarfile.open(archive) as stream:
             stream.extractall(target)
+    if archives:
         return target / "mix-corpus"
     raise SystemExit("mix-corpus.tar not found under /kaggle/input: add the amo-mix-generate output")
 '''

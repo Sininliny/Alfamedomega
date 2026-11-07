@@ -726,11 +726,14 @@ def generate_shard(task):
     return summary
 
 
-def build(destination, scenes, per_shard, workers, seed, keep_wav, count_weights=None):
+def build(destination, scenes, per_shard, workers, seed, keep_wav, count_weights=None, first=0):
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
-    tasks = [(str(destination), seed, start, min(per_shard, scenes - start), keep_wav, count_weights)
-             for start in range(0, scenes, per_shard)]
+    # Scene indices first..first+scenes-1: separate jobs can build disjoint parts of one corpus
+    # (Kaggle sessions are limited to 12 h) and their shards/ folders merge by copying.
+    end = first + scenes
+    tasks = [(str(destination), seed, start, min(per_shard, end - start), keep_wav, count_weights)
+             for start in range(first, end, per_shard)]
     began = time.monotonic()
     results = []
     with ProcessPoolExecutor(workers) as pool:
@@ -739,7 +742,7 @@ def build(destination, scenes, per_shard, workers, seed, keep_wav, count_weights
             print(f"shard {results[-1]['start']} done ({len(results)}/{len(tasks)})", flush=True)
     counts = np.concatenate([np.asarray(r["counts"]).reshape(-1, 3) for r in results])
     report = {
-        "schema": SCHEMA, "seed": seed, "scenes": scenes, "shards": len(tasks),
+        "schema": SCHEMA, "seed": seed, "scenes": scenes, "first": first, "shards": len(tasks),
         "count_weights": None if count_weights is None else list(map(float, count_weights)),
         "sample_rate": SAMPLE_RATE, "features": {"hop": HOP, "n_fft": N_FFT, "mid_bands": MID_BANDS,
                                                  "side_bands": SIDE_BANDS, "f_low": F_LOW, "f_high": F_HIGH,
@@ -783,6 +786,7 @@ def main(argv=None):
     b.add_argument("--workers", type=int, default=2)
     b.add_argument("--seed", type=int, default=SEED)
     b.add_argument("--keep-wav", action="store_true")
+    b.add_argument("--first", type=int, default=0, help="index of the first scene (for parallel parts)")
     b.add_argument("--count-weights", type=float, nargs="+",
                    help="relative weight of 1..8 natural instruments (curriculum: '1' = single instrument)")
     s = sub.add_parser("listen", help="write WAVs of the first scenes of a built corpus")
@@ -792,7 +796,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.command == "build":
         print(json.dumps(build(args.destination, args.scenes, args.per_shard, args.workers,
-                               args.seed, args.keep_wav, args.count_weights), indent=2))
+                               args.seed, args.keep_wav, args.count_weights, args.first), indent=2))
     else:
         listen(args.destination, args.count, args.out)
 
