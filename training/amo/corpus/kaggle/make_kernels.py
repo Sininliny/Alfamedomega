@@ -292,9 +292,10 @@ MIX_EVALUATE = r'''
 def main():
     # CPU: rebuilds the first scenes of the corpus (deterministic), scores the newest mounted model.
     unpack()
-    models = sorted(Path("/kaggle/input").rglob("run/model.pt"), key=lambda p: p.stat().st_mtime)
+    models = sorted(Path("/kaggle/input").rglob("run/model.pt"), key=lambda p: p.stat().st_mtime) \
+        or sorted(Path("/kaggle/input").rglob("run/best.pt"), key=lambda p: p.stat().st_mtime)
     if not models:
-        raise SystemExit("run/model.pt not found under /kaggle/input: add a finished amo-mix-train output")
+        raise SystemExit("run/model.pt or best.pt not found under /kaggle/input: add an amo-mix-train output")
     build_library()
     corpus = Path("/tmp/mix/eval-corpus")
     run([sys.executable, "-m", "training.amo.corpus.mixscene", "build", corpus, "--scenes", MIX_EVAL_SCENES,

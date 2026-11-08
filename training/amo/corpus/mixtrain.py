@@ -527,8 +527,8 @@ def train(args):
 def load_model(path, device="cpu"):
     import torch
     package = torch.load(path, map_location=device, weights_only=False)
-    if package.get("schema") != MODEL_SCHEMA:
-        raise ValueError(f"{path} is not an {MODEL_SCHEMA} model")
+    if package.get("schema") not in (MODEL_SCHEMA, CHECKPOINT_SCHEMA):  # best.pt of an unfinished run also works
+        raise ValueError(f"{path} is not an {MODEL_SCHEMA} model or {CHECKPOINT_SCHEMA} checkpoint")
     model = build_model(package["config"]).to(device)
     model.load_state_dict(package["model"])
     model.eval()
