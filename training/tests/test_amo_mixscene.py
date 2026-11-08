@@ -117,5 +117,58 @@ class DecodeRenderTests(unittest.TestCase):
             self.assertLess(distance, 0.02, level)
 
 
+def split_echo_scene(index):
+    """A scene with note echo, decoded at L2 (every echo tap its own instrument)."""
+    scene = mixscene.sample_scene(mixscene.SEED, index)
+    targets = mixtargets.scene_targets(scene, "L2")
+    units = [mixtargets.target_as_prediction(targets, k) for k in range(targets["count"])]
+    return scene, mixtargets.decode_scene(units, targets["bus_present"], targets["bus_values"], scene["seconds"])
+
+
+class EchoMergeTests(unittest.TestCase):
+    def test_merges_fold_split_echo_taps_back_into_their_source(self):
+        from training.amo.corpus import mixinfer
+
+        exact = total = 0
+        for index in range(200):
+            scene, decoded = split_echo_scene(index)
+            final = mixinfer.merge_sequence(decoded["instruments"])[-1]
+            l1 = max(mixscene.ladder(scene, mixscene.atoms_of(scene))["L1"]) + 1
+            total += 1
+            exact += len(final) == l1
+        self.assertGreaterEqual(exact / total, 0.95)  # the rest stay as intermediate candidates
+
+    def test_merge_recovers_delay_transpose_and_taps(self):
+        from training.amo.corpus import mixinfer
+
+        lead = {"layers": [{"family": "saw_lowpass"}], "notes": [[0.1, 0.2, 60, 0.8], [0.6, 0.2, 62, 0.8],
+                                                                 [1.1, 0.2, 64, 0.8]],
+                "insert_fx": [], "note_echo": None, "gain_db": -6.0}
+        taps = [dict(lead, notes=mixscene.echo_notes(lead["notes"], {"delay": 0.25, "transpose": 7}, j),
+                     gain_db=-6.0 + 20 * np.log10(0.5 ** j)) for j in (1, 2)]
+        other = dict(lead, layers=[{"family": "sine_fm"}], notes=taps[0]["notes"])
+        merged = mixinfer.merge_sequence([lead, *taps, other])[-1]
+        self.assertEqual(len(merged), 2)  # the other timbre playing the same notes is kept
+        echo = merged[0]["note_echo"]
+        self.assertEqual((echo["taps"], echo["transpose"]), (2, 7))
+        self.assertAlmostEqual(echo["delay"], 0.25, places=3)
+        self.assertAlmostEqual(echo["decay"], 0.5, places=3)
+
+
+@unittest.skipUnless(NATIVE, "alfa_tensor_c is not built")
+class EchoMergeRenderTests(unittest.TestCase):
+    def test_merged_scene_renders_the_same_mix(self):
+        from training.amo.corpus import mixinfer, resynth
+
+        scene, decoded = split_echo_scene(3)
+        target = resynth.log_spectra(mixscene.render_scene(scene)[1])
+        states = mixinfer.merge_sequence(decoded["instruments"])
+        self.assertGreater(len(states), 1)
+        split, merged = [mixinfer.render_distance(({**decoded, "instruments": s}, target)) for s in states[::len(states) - 1]]
+        self.assertLess(abs(split - merged), 1e-3)
+        self.assertLess(mixinfer.cost_terms({**decoded, "instruments": states[-1]})["N"],
+                        mixinfer.cost_terms(decoded)["N"])
+
+
 if __name__ == "__main__":
     unittest.main()

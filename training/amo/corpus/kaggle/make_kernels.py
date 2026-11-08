@@ -47,6 +47,7 @@ MIX_GENERATE_SLUG = "amo-mix-generate"
 MIX_TRAIN_SLUGS = ("amo-mix-train-a", "amo-mix-train-b")
 MIX_SMOKE_SLUG = "amo-mix-smoke"
 MIX_EVALUATE_SLUG = "amo-mix-evaluate"
+MIX_RESCORE_SLUG = "amo-mix-rescore"
 
 
 def bundle():
@@ -288,6 +289,27 @@ main()
 '''
 
 
+MIX_RESCORE = r'''
+def main():
+    # CPU: candidate rescoring + lambda grid search on the rebuilt eval corpus (MIX-DESIGN.md §11).
+    unpack()
+    models = sorted(Path("/kaggle/input").rglob("run/model.pt"), key=lambda p: p.stat().st_mtime) \
+        or sorted(Path("/kaggle/input").rglob("run/best.pt"), key=lambda p: p.stat().st_mtime)
+    if not models:
+        raise SystemExit("run/model.pt or best.pt not found under /kaggle/input: add an amo-mix-train output")
+    build_library()
+    corpus = Path("/tmp/mix/eval-corpus")
+    run([sys.executable, "-m", "training.amo.corpus.mixscene", "build", corpus, "--scenes", MIX_EVAL_SCENES,
+         "--per-shard", 100, "--workers", os.cpu_count() or 4], cwd=CODE)
+    output = Path("/kaggle/working")
+    run([sys.executable, "-m", "training.amo.corpus.mixinfer", "tune", corpus, models[-1], "--tune-scenes",
+         MIX_RESCORE_SCENES, "--test-scenes", MIX_RESCORE_SCENES, "--workers", os.cpu_count() or 4,
+         "--out", output / "mix-rescore.json"], cwd=CODE)
+
+
+main()
+'''
+
 MIX_EVALUATE = r'''
 def main():
     # CPU: rebuilds the first scenes of the corpus (deterministic), scores the newest mounted model.
@@ -347,6 +369,8 @@ def main():
     parser.add_argument("--mix-eval-scenes", type=int, default=2000,
                         help="mix-evaluate: rebuild scenes 0..N-1 and score their validation split")
     parser.add_argument("--mix-eval-resynth", type=int, default=128)
+    parser.add_argument("--mix-rescore-scenes", type=int, default=200,
+                        help="mix-rescore: validation scenes to tune the lambdas on, and as many test scenes")
     parser.add_argument("--mix-generate-args", default="",
                         help="extra mixscene build arguments as one string, e.g. '--count-weights 1' (stage S1)")
     parser.add_argument("train_args", nargs=argparse.REMAINDER,
@@ -394,6 +418,10 @@ def main():
         write_kernel(args.out / "mix-evaluate", MIX_EVALUATE_SLUG, "AMO mix evaluate", args.user,
                      header + common + f"MIX_EVAL_SCENES = {args.mix_eval_scenes}\nMIX_EVAL_RESYNTH = "
                      f"{args.mix_eval_resynth}\n" + (build_library + MIX_EVALUATE).format(), gpu=False,
+                     internet=True, kernel_sources=[f"{args.user}/{MIX_TRAIN_SLUGS[0]}"])
+        write_kernel(args.out / "mix-rescore", MIX_RESCORE_SLUG, "AMO mix rescore", args.user,
+                     header + common + f"MIX_EVAL_SCENES = {args.mix_eval_scenes}\nMIX_RESCORE_SCENES = "
+                     f"{args.mix_rescore_scenes}\n" + (build_library + MIX_RESCORE).format(), gpu=False,
                      internet=True, kernel_sources=[f"{args.user}/{MIX_TRAIN_SLUGS[0]}"])
         write_kernel(args.out / "mix-smoke", MIX_SMOKE_SLUG, "AMO mix smoke", args.user,
                      header + common + f"MIX_SCENES = {args.mix_smoke_scenes}\n"

@@ -535,15 +535,25 @@ def load_model(path, device="cpu"):
     return model
 
 
-def predict(model, mix_features, frames, count=0):
-    """Slot predictions (numpy) for one scene; ``count`` 0 = auto, else exactly ``count`` slots."""
+def forward(model, mix_features, frames, count=0):
+    """Raw network outputs for one scene and one count token (0 = auto)."""
     import torch
     device = next(model.parameters()).device
     with torch.no_grad():
-        out = model(torch.from_numpy(mix_features[None].astype(np.float32)).to(device),
-                    torch.tensor([frames], device=device), torch.tensor([count], device=device))
+        return model(torch.from_numpy(mix_features[None].astype(np.float32)).to(device),
+                     torch.tensor([frames], device=device), torch.tensor([count], device=device))
+
+
+def count_probabilities(out):
+    """Auto-mode instrument count distribution: index k-1 holds P(K = k)."""
+    import torch
+    return torch.softmax(out["count"][0].float(), -1).cpu().numpy()
+
+
+def slot_units(out, frames, k):
+    """The ``k`` most likely slots (numpy, probabilities applied), most likely first; and the bus."""
+    import torch
     exists = torch.sigmoid(out["exists"][0]).cpu().numpy()
-    k = count if count else int(out["count"][0].argmax()) + 1
     order = list(np.argsort(-exists)[:k])
     units = []
     for s in order:
@@ -563,6 +573,13 @@ def predict(model, mix_features, frames, count=0):
     bus_present = torch.sigmoid(out["bus_present"][0].float()).cpu().numpy()
     bus_values = torch.sigmoid(out["bus_values"][0].float()).cpu().numpy()
     return units, bus_present, bus_values
+
+
+def predict(model, mix_features, frames, count=0):
+    """Slot predictions (numpy) for one scene; ``count`` 0 = auto, else exactly ``count`` slots."""
+    out = forward(model, mix_features, frames, count)
+    k = count if count else int(out["count"][0].argmax()) + 1
+    return slot_units(out, frames, k)
 
 
 def evaluate(args):

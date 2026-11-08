@@ -212,4 +212,20 @@ $$
 - **训练**：每个样本 30% 用自动 token + L0 目标，其余随机选一个层级，数量 token = 该层级的乐器数。Hungarian 匹配代价 = 结构族 CE + stem L1 + 2 × (1 − onset Dice)。损失权重见 `DEFAULT_WEIGHTS`，可用 `--loss-weights` 覆盖。
 - **评估**：`mixtrain evaluate` 对每个场景跑自动和三种指定数量，解码、原生渲染，报告重渲染距离中位数、自动数量准确率，以及 echo 场景里自动数量等于 L0 的比例（§6 的 echo 指标，λ 调参用）。
 - **Kaggle**：`make_kernels.py --mix` 写出 `mix-generate`（CPU，生成场景语料，`--mix-generate-args "--count-weights 1"` 可只生成单乐器）、`mix-train-a/-b`（T4，轮流续训：`kaggle_push.py mix-train build/kaggle`）和 `mix-smoke`（384 个场景的端到端检查：生成 → 训练 2 epoch → 续训 1 epoch → 重渲染评估）。冒烟测试 2026-11-06 在 T4 上通过。
-- 尚未实现：介于层级之间的手动数量标签（离线搜索）、推理时多候选重打分（§5 第 3–4 步）、λ 调参、导出 MIDI / preset 文件夹给 AMO Centre。
+- 尚未实现：介于层级之间的手动数量标签（离线搜索）、导出 MIDI / preset 文件夹给 AMO Centre。推理时多候选重打分和 λ 调参见 §11。
+
+## 11. 推理时重打分与 λ 调参（`mixinfer.py`）
+
+10 万场景的模型（2026-11-08）把重渲染距离从 2.71 降到 1.39，但带 FX 型 echo 的场景只有 34% 被解释成一件乐器：网络倾向于把每个 echo tap 当成独立乐器。按 §2，这一步不应该交给网络，而由目标函数 $\mathcal J$ 在候选里决定。
+
+**候选。** 自动模式：取数量头概率最高的 3 个 $K$，每个 $K$ 解码前 $K$ 个槽；手动模式 $K$：用数量 token $K, K+1, K+2$ 解码，再经合并或丢掉最弱的槽，回到恰好 $K$ 个乐器。
+
+**echo 合并。** 对两件乐器 $A$（先发声）和 $B$，在音符对上投票找平移 $(\Delta t, \Delta p)$，要求 $B$ 至少 60% 的音符满足 $t_b = t_a + \Delta t \pm 30\,\text{ms}$ 且 $p_b = p_a + \Delta p$，并且主层结构族相同（不同音色同节奏是真实的两件乐器，§2 的定义）。同一个 $A$ 的多个跟随者若满足 $\Delta t_j \approx j\,d$、$\Delta p_j = j\,\tau$（$j \le 3$），就合成 $A$ 的 note echo：taps $=\max j$，delay $d$，transpose $\tau$，decay $=\big(\prod_j g_j/g_A\big)^{1/\sum j}$ 的几何平均（夹到 $[0.35, 0.75]$）。每合并一组产生一个新候选，所以中间状态也参与打分。在真值 L2 分解上，合并后 97% 的场景恰好回到 L1 数量，渲染距离不变（$|\Delta D| < 10^{-3}$），音符数下降。
+
+**打分。** 每个候选用原生 DSP 渲染，
+$$
+\mathcal J(S) = D + \lambda_I K + \lambda_N N + \lambda_F (F + B),
+$$
+$N$ 是存下来的音符数（echo tap 不存音符，这正是合并更便宜的原因），$F$ 是插入效果数加 note echo 数，$B$ 是总线效果数。手动模式去掉 $\lambda_I K$ 项，只在恰好 $K$ 件乐器的候选里选。
+
+**调参。** 每个候选的 $(D, K, N, F, B)$ 只算一次并缓存，λ 在网格上离线搜索（验证集 200 场景）：先尽量达到 echo 场景自动数量 = L0 的比例 ≥ 90%，再最大化整体自动数量准确率，最后取更小的中位 $D$。在测试集 200 场景上报告，并单独报告“不同音色叠奏”场景的数量准确率和过度合并率，确保没有把真实的第二件乐器合并掉。Kaggle CPU 任务：`make_kernels.py --mix` 生成的 `amo-mix-rescore`。
