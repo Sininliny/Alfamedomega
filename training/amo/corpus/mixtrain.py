@@ -569,7 +569,8 @@ def slot_units(out, frames, k):
             "insert_values": sig("insert_values"), "echo_present": float(sig("echo_present")),
             "echo_taps": int(out["echo_taps"][0, s].argmax()),
             "echo_transpose": int(out["echo_transpose"][0, s].argmax()), "echo_values": sig("echo_values"),
-            "gain": float(sig("gain")), "roll": roll, "exists": float(exists[s])})
+            "gain": float(sig("gain")), "roll": roll, "exists": float(exists[s]),
+            "stem": out["stem"][0, s].float().cpu().numpy() if "stem" in out else None})
     bus_present = torch.sigmoid(out["bus_present"][0].float()).cpu().numpy()
     bus_values = torch.sigmoid(out["bus_values"][0].float()).cpu().numpy()
     return units, bus_present, bus_values

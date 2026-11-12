@@ -170,5 +170,25 @@ class EchoMergeRenderTests(unittest.TestCase):
                         mixinfer.cost_terms(decoded)["N"])
 
 
+class StageTwoTests(unittest.TestCase):
+    def test_soft_masks_split_the_mix_exactly(self):
+        from training.amo.corpus import mixstage2
+
+        rng = np.random.default_rng(0)
+        mix = rng.normal(size=(24000, 2)) * 0.1
+        stems = rng.normal(size=(3, mixscene.MAX_STEM_FRAMES, mixscene.STEM_BANDS)) - 3
+        tracks = mixstage2.separate(mix, stems)
+        self.assertEqual(len(tracks), 3)
+        np.testing.assert_allclose(np.sum(tracks, axis=0), mix, atol=1e-6)
+
+    def test_reference_notes_prefer_trained_range_and_long_gaps(self):
+        from training.amo.corpus import mixstage2
+
+        notes = [[0.0, 0.2, 60, 0.8], [0.3, 0.2, 62, 0.8], [1.5, 0.5, 80, 0.8], [2.0, 0.4, 50, 0.8]]
+        picked = [i for i, _ in mixstage2.reference_notes(notes, 4.0)]
+        self.assertEqual(picked[0], 3)  # in range, 2 s to the end of the clip
+        self.assertNotIn(2, picked)  # out of range only when nothing else is left
+
+
 if __name__ == "__main__":
     unittest.main()

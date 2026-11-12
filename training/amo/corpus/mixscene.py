@@ -510,7 +510,10 @@ def ladder(scene, atoms):
 
 def layer_document(inst, layer):
     spec = inst["layers"][layer]
-    doc, _, _, _ = prepare.make_document(spec["family"], np.asarray(spec["u"]))
+    if spec.get("document") is not None:  # a construction guessed by the corpus encoder (MIX-DESIGN.md §12)
+        doc = copy.deepcopy(spec["document"])
+    else:
+        doc, _, _, _ = prepare.make_document(spec["family"], np.asarray(spec["u"]))
     return insert_chain(transpose(doc, spec["transpose"]), inst["insert_fx"])
 
 

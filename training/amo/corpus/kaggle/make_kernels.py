@@ -48,6 +48,7 @@ MIX_TRAIN_SLUGS = ("amo-mix-train-a", "amo-mix-train-b")
 MIX_SMOKE_SLUG = "amo-mix-smoke"
 MIX_EVALUATE_SLUG = "amo-mix-evaluate"
 MIX_RESCORE_SLUG = "amo-mix-rescore"
+MIX_STAGE2_SLUG = "amo-mix-stage2"
 
 
 def bundle():
@@ -310,6 +311,27 @@ def main():
 main()
 '''
 
+MIX_STAGE2 = r'''
+def main():
+    # CPU: two-stage decomposition (MIX-DESIGN.md §12): mix model + corpus encoder (run 3).
+    unpack()
+    models = sorted(Path("/kaggle/input").rglob("run/model.pt"), key=lambda p: p.stat().st_mtime)
+    mix = [p for p in models if "mix" in str(p)]
+    encoder = [p for p in models if "corpus" in str(p)]
+    if not mix or not encoder:
+        raise SystemExit(f"need an amo-mix-train and an amo-corpus-train output, found {{models}}")
+    build_library()
+    corpus = Path("/tmp/mix/eval-corpus")
+    run([sys.executable, "-m", "training.amo.corpus.mixscene", "build", corpus, "--scenes", MIX_EVAL_SCENES,
+         "--per-shard", 100, "--workers", os.cpu_count() or 4], cwd=CODE)
+    run([sys.executable, "-m", "training.amo.corpus.mixstage2", "evaluate", corpus, mix[-1], encoder[-1],
+         "--split", "test", "--scenes", MIX_STAGE2_SCENES, "--workers", os.cpu_count() or 4,
+         "--out", Path("/kaggle/working") / "mix-stage2.json"], cwd=CODE)
+
+
+main()
+'''
+
 MIX_EVALUATE = r'''
 def main():
     # CPU: rebuilds the first scenes of the corpus (deterministic), scores the newest mounted model.
@@ -369,6 +391,7 @@ def main():
     parser.add_argument("--mix-eval-scenes", type=int, default=2000,
                         help="mix-evaluate: rebuild scenes 0..N-1 and score their validation split")
     parser.add_argument("--mix-eval-resynth", type=int, default=128)
+    parser.add_argument("--mix-stage2-scenes", type=int, default=96)
     parser.add_argument("--mix-rescore-scenes", type=int, default=200,
                         help="mix-rescore: validation scenes to tune the lambdas on, and as many test scenes")
     parser.add_argument("--mix-generate-args", default="",
@@ -423,6 +446,10 @@ def main():
                      header + common + f"MIX_EVAL_SCENES = {args.mix_eval_scenes}\nMIX_RESCORE_SCENES = "
                      f"{args.mix_rescore_scenes}\n" + (build_library + MIX_RESCORE).format(), gpu=False,
                      internet=True, kernel_sources=[f"{args.user}/{MIX_TRAIN_SLUGS[0]}"])
+        write_kernel(args.out / "mix-stage2", MIX_STAGE2_SLUG, "AMO mix stage2", args.user,
+                     header + common + f"MIX_EVAL_SCENES = {args.mix_eval_scenes}\nMIX_STAGE2_SCENES = "
+                     f"{args.mix_stage2_scenes}\n" + (build_library + MIX_STAGE2).format(), gpu=False,
+                     internet=True, kernel_sources=[f"{args.user}/{MIX_TRAIN_SLUGS[0]}", f"{args.user}/{TRAIN_SLUGS[0]}"])
         write_kernel(args.out / "mix-smoke", MIX_SMOKE_SLUG, "AMO mix smoke", args.user,
                      header + common + f"MIX_SCENES = {args.mix_smoke_scenes}\n"
                      + (build_library + MIX_SMOKE).format(), gpu=True, internet=True)
