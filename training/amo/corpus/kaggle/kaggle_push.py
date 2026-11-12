@@ -154,6 +154,7 @@ def main():
     commands.add_parser("push").add_argument("directory")
     commands.add_parser("train").add_argument("kernels", help="folder written by make_kernels.py")
     commands.add_parser("mix-train").add_argument("kernels", help="folder written by make_kernels.py --mix")
+    commands.add_parser("parts-train").add_argument("kernels", help="folder written by make_kernels.py --parts")
     commands.add_parser("evaluate").add_argument("kernels", help="folder written by make_kernels.py")
     commands.add_parser("status").add_argument("slug")
     out = commands.add_parser("output")
@@ -166,6 +167,8 @@ def main():
         train(args.kernels)
     elif args.command == "mix-train":
         train(args.kernels, "mix-train")
+    elif args.command == "parts-train":
+        train(args.kernels, "parts-train")
     elif args.command == "evaluate":
         evaluate(args.kernels)
     elif args.command == "status":

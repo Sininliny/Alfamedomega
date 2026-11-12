@@ -49,6 +49,9 @@ MIX_SMOKE_SLUG = "amo-mix-smoke"
 MIX_EVALUATE_SLUG = "amo-mix-evaluate"
 MIX_RESCORE_SLUG = "amo-mix-rescore"
 MIX_STAGE2_SLUG = "amo-mix-stage2"
+PARTS_GENERATE_SLUGS = ("amo-parts-generate-a", "amo-parts-generate-b")
+PARTS_TRAIN_SLUGS = ("amo-parts-train-a", "amo-parts-train-b")
+PARTS_EVALUATE_SLUG = "amo-parts-evaluate"
 
 
 def bundle():
@@ -353,6 +356,67 @@ def main():
 main()
 '''
 
+PARTS_GENERATE = r'''
+def main():
+    # CPU: part-encoder samples (MIX-DESIGN.md §13) of scenes PARTS_FIRST..PARTS_FIRST+PARTS_SCENES-1,
+    # written straight to the output (no tar) so the train kernel reads them from its read-only input.
+    began = time.time()
+    unpack()
+    build_library()
+    output = Path("/kaggle/working/parts")
+    run([sys.executable, "-m", "training.amo.corpus.mixparts", "build", output, "--first", PARTS_FIRST,
+         "--scenes", PARTS_SCENES, "--per-shard", 200, "--workers", os.cpu_count() or 4], cwd=CODE)
+    # Smoke-test the model code on a few parts (torch is in the Kaggle image); never fails the job.
+    smoke = subprocess.run(list(map(str, [sys.executable, "-m", "training.amo.corpus.mixparts", "train", "/tmp/parts-smoke",
+                            "--corpus", output, "--epochs", 1, "--batch-size", 8, "--max-parts", 64,
+                            "--workers", 0, "--log-every", 2, "--resume", "none"])), cwd=CODE).returncode
+    print(f"model smoke test exit code {{smoke}}", flush=True)
+    size = sum(f.stat().st_size for f in output.rglob("*") if f.is_file()) / 2**30
+    print(f"parts {{size:.2f}} GiB in {{(time.time() - began) / 60:.1f}} min", flush=True)
+
+
+main()
+'''
+
+PARTS_TRAIN = r'''
+def main():
+    unpack()
+    roots = sorted({{p.parents[2] for p in Path("/kaggle/input").rglob("parts/shards/*/complete.json")}})
+    if not roots:
+        raise SystemExit("no parts/shards under /kaggle/input: add the amo-parts-generate outputs")
+    run(["nvidia-smi"])
+    command = [sys.executable, "-m", "training.amo.corpus.mixparts", "train", "/kaggle/working/run",
+               "--corpus", *roots, "--resume", "auto", "--resume-search", "/kaggle/input",
+               "--workers", os.cpu_count() or 2, *PARTS_TRAIN_ARGS]
+    print("$", " ".join(map(str, command)), flush=True)
+    code = subprocess.run(list(map(str, command)), cwd=CODE).returncode
+    print({{0: "training finished; run/model.pt exported",
+           2: "stopped early with run/last.pt saved; push the other parts train kernel to continue"}}
+          .get(code, f"training failed with exit code {{code}}"), flush=True)
+    if code not in (0, 2):
+        raise SystemExit(code)
+
+
+main()
+'''
+
+PARTS_EVALUATE = r'''
+def main():
+    # CPU: family accuracy and part resynthesis distance on the test split (clean vs masked input).
+    unpack()
+    models = sorted(Path("/kaggle/input").rglob("run/model.pt"), key=lambda p: p.stat().st_mtime) \
+        or sorted(Path("/kaggle/input").rglob("run/best.pt"), key=lambda p: p.stat().st_mtime)
+    roots = sorted({{p.parents[2] for p in Path("/kaggle/input").rglob("parts/shards/*/complete.json")}})
+    if not models or not roots:
+        raise SystemExit(f"need an amo-parts-train output and the parts corpus, found {{models}} {{roots}}")
+    build_library()
+    run([sys.executable, "-m", "training.amo.corpus.mixparts", "evaluate", models[-1], "--corpus", *roots,
+         "--parts", PARTS_EVAL_PARTS, "--out", Path("/kaggle/working") / "parts-evaluation.json"], cwd=CODE)
+
+
+main()
+'''
+
 
 def write_kernel(directory, slug, title, user, source, *, gpu, internet, kernel_sources=()):
     directory.mkdir(parents=True, exist_ok=True)
@@ -396,6 +460,11 @@ def main():
                         help="mix-rescore: validation scenes to tune the lambdas on, and as many test scenes")
     parser.add_argument("--mix-generate-args", default="",
                         help="extra mixscene build arguments as one string, e.g. '--count-weights 1' (stage S1)")
+    parser.add_argument("--parts", action="store_true",
+                        help="also write the part-encoder kernels (MIX-DESIGN.md §13)")
+    parser.add_argument("--parts-first", type=int, default=200000)
+    parser.add_argument("--parts-scenes", type=int, default=20000, help="scenes per generate kernel")
+    parser.add_argument("--parts-eval-parts", type=int, default=600)
     parser.add_argument("train_args", nargs=argparse.REMAINDER,
                         help="extra arguments for training.amo.corpus.train after --, e.g. -- --epochs 150")
     args = parser.parse_args()
@@ -453,6 +522,22 @@ def main():
         write_kernel(args.out / "mix-smoke", MIX_SMOKE_SLUG, "AMO mix smoke", args.user,
                      header + common + f"MIX_SCENES = {args.mix_smoke_scenes}\n"
                      + (build_library + MIX_SMOKE).format(), gpu=True, internet=True)
+    if args.parts:
+        for i, slug in enumerate(PARTS_GENERATE_SLUGS):
+            write_kernel(args.out / f"parts-generate-{slug[-1]}", slug, "AMO parts generate " + slug[-1].upper(),
+                         args.user, header + common + f"PARTS_FIRST = {args.parts_first + i * args.parts_scenes}\n"
+                         f"PARTS_SCENES = {args.parts_scenes}\n" + (build_library + PARTS_GENERATE).format(),
+                         gpu=False, internet=True)
+        generated = [f"{args.user}/{slug}" for slug in PARTS_GENERATE_SLUGS]
+        parts_train_args = ["--time-budget-hours", str(args.time_budget_hours), *extra]
+        for slug in PARTS_TRAIN_SLUGS:
+            write_kernel(args.out / f"parts-train-{slug[-1]}", slug, "AMO parts train " + slug[-1].upper(),
+                         args.user, header + common + f"PARTS_TRAIN_ARGS = {parts_train_args!r}\n"
+                         + PARTS_TRAIN.format(), gpu=True, internet=False, kernel_sources=generated)
+        write_kernel(args.out / "parts-evaluate", PARTS_EVALUATE_SLUG, "AMO parts evaluate", args.user,
+                     header + common + f"PARTS_EVAL_PARTS = {args.parts_eval_parts}\n"
+                     + (build_library + PARTS_EVALUATE).format(), gpu=False, internet=True,
+                     kernel_sources=[*generated, f"{args.user}/{PARTS_TRAIN_SLUGS[0]}"])
     size = len(header) / 1024
     print(f"wrote {args.out} (embedded code {size:.0f} KiB, commit {commit()})")
 
