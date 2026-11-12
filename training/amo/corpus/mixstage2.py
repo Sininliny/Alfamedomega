@@ -97,28 +97,46 @@ def reference_notes(notes, seconds, count=REFERENCES):
     return [(i, gap) for _, _, i, gap in scored[:count]]
 
 
-def note_clip(track, note, gap):
-    """The encoder input for one reference note: clip audio and performance plan."""
+def note_clip(track, note, gap, mode="cut"):
+    """The encoder input for one reference note: clip audio and performance plan, or None.
+
+    ``cut`` stops the clip at the next note of the part (zero padded to 1.2 s); ``tail`` keeps
+    whatever follows, up to the clip length.
+    """
     from training.amo.corpus import resynth_wav
 
     onset, length, pitch, velocity = note
     start = max(0, int(round((onset - 0.005) * SR)))
-    stop = min(len(track), start + int(round(min(gap, CLIP_SECONDS[1]) * SR)))
+    if start >= len(track) - int(0.05 * SR):
+        return None
+    span = CLIP_SECONDS[1] if mode == "tail" else min(gap, CLIP_SECONDS[1])
+    stop = min(len(track), start + int(round(span * SR)))
     frames = int(np.clip(stop - start, CLIP_SECONDS[0] * SR, CLIP_SECONDS[1] * SR))
     audio = np.zeros((frames, 2))
-    audio[:stop - start] = track[start:stop][:frames]
+    audio[:stop - start] = track[start:stop]
     perf = resynth_wav.performance(int(pitch), 0.0, float(np.clip(velocity, 0.05, 1.0)),
                                    float(np.clip(length, *NOTE_OFF_RANGE)), frames)
     return audio, perf
 
 
-def encode_track(encoder, track, notes, seconds):
-    """Candidate constructions for one track: one guess per reference note, plus a second family."""
+def encode_track(encoder, track, notes, seconds, mode="cut", isolated=None):
+    """Candidate constructions for one track: one guess per reference note, plus a second family.
+
+    ``isolated`` (diagnostics only): a construction rendered alone on the encoder's own performance
+    plan replaces the clip, i.e. the encoder hears a clean training-style note of the true part.
+    """
     from training.amo.corpus import resynth_wav
 
     candidates = []
     for n, (i, gap) in enumerate(reference_notes(notes, seconds)):
-        audio, perf = note_clip(track, notes[i], gap)
+        clip = note_clip(track, notes[i], gap, mode)
+        if clip is None:
+            continue
+        audio, perf = clip
+        if isolated is not None:
+            audio = resynth.render(isolated, perf)
+            if audio is None:
+                continue
         rms = float(np.sqrt(np.mean(audio ** 2)))
         if rms < 1e-7:
             continue
@@ -160,8 +178,10 @@ def score_candidate(job):
 def assemble_scene(parts, bus_fx, seconds):
     """Scene spec from chosen parts: {document, notes, gain (linear), time_fx, note_echo}."""
     instruments = []
+    loudest = max([p["gain"] for p in parts if p is not None] or [0.0])
     for p in parts:
-        if p is None or not p["notes"] or p["gain"] <= 0:
+        # A part the masks left almost empty would render as a "silent atom" and void the scene.
+        if p is None or not p["notes"] or p["gain"] <= 1e-3 * loudest:
             continue
         instruments.append({"role": "decoded", "layers": [{"family": None, "u": None, "transpose": 0,
                                                            "document": p["document"]}],
@@ -180,11 +200,12 @@ def mix_distance(scene, target):
         return float("inf")
 
 
-def choose_parts(encoder, tracks, slots, pool):
+def choose_parts(encoder, tracks, slots, pool, mode="cut", isolated=None):
     """For each track (with its slot's notes / time FX), the best encoder construction and its gain."""
     jobs, owners, candidates = [], [], []
     for s, (track, slot) in enumerate(zip(tracks, slots)):
-        found = encode_track(encoder, track, slot["notes"], len(track) / SR) if slot["notes"] else []
+        found = (encode_track(encoder, track, slot["notes"], len(track) / SR, mode,
+                              None if isolated is None else isolated[s]) if slot["notes"] else [])
         candidates.append(found)
         for c in found:
             jobs.append((c["document"], slot["notes"], slot["time_fx"], track))
@@ -217,6 +238,21 @@ def oracle_slots(scene):
     return slots
 
 
+def oracle_documents(scene):
+    """Each atom's true construction with its static insert FX (what its stem sounds like, minus echo)."""
+    docs = []
+    for atom in mixscene.atoms_of(scene):
+        inst = scene["instruments"][atom["instrument"]]
+        layer = inst["layers"][atom["layer"]]
+        doc = mixscene.transpose(prepare.make_document(layer["family"], np.asarray(layer["u"]))[0], layer["transpose"])
+        docs.append(mixscene.insert_chain(doc, [f for f in inst["insert_fx"] if f["type"] not in TIME_FX]))
+    return docs
+
+
+def oracle_families(scene):
+    return [scene["instruments"][a["instrument"]]["layers"][a["layer"]]["family"] for a in mixscene.atoms_of(scene)]
+
+
 def evaluate_scene(encoder, model, corpus, index, pool):
     from training.amo.corpus import mixtargets as T, mixtrain
 
@@ -228,9 +264,13 @@ def evaluate_scene(encoder, model, corpus, index, pool):
     # Ceiling: true atom stems (pre-bus, on the mix scale) and true notes.
     slots = oracle_slots(scene)
     tracks = [s * scales["post_bus_scale"] for s in stems]
-    parts = choose_parts(encoder, tracks, slots, pool)
-    row["oracle_stems"] = {"D": mix_distance(assemble_scene(parts, scene["bus_fx"], scene["seconds"]), target),
-                           "track_D": [p["track_distance"] if p else None for p in parts]}
+    variants = {"oracle_stems": {}, "oracle_tail": {"mode": "tail"},
+                "oracle_isolated": {"isolated": oracle_documents(scene)}}
+    for name, extra in variants.items():
+        parts = choose_parts(encoder, tracks, slots, pool, **extra)
+        row[name] = {"D": mix_distance(assemble_scene(parts, scene["bus_fx"], scene["seconds"]), target),
+                     "track_D": [p["track_distance"] if p else None for p in parts],
+                     "family_ok": [p is not None and p["family"] == f for p, f in zip(parts, oracle_families(scene))]}
 
     # Real pipeline: auto count, mask separation with the predicted stems, predicted notes.
     features, frames = corpus["mix"][index].astype(np.float32), int(corpus["frames"][index])
@@ -265,13 +305,16 @@ def evaluate_scene(encoder, model, corpus, index, pool):
 
 def summarise(rows):
     out = {"scenes": len(rows)}
-    for key in ("oracle_stems", "network_only", "network_refit", "two_stage"):
+    for key in ("oracle_stems", "oracle_tail", "oracle_isolated", "network_only", "network_refit", "two_stage"):
         d = np.asarray([r[key]["D"] for r in rows], float)
         out[key] = {"median_D": float(np.median(d[np.isfinite(d)])) if np.isfinite(d).any() else None,
                     "failed": int((~np.isfinite(d)).sum())}
         tracks = [t for r in rows for t in r[key].get("track_D", []) if t is not None and np.isfinite(t)]
         if tracks:
             out[key]["median_track_D"] = float(np.median(tracks))
+        ok = [x for r in rows for x in r[key].get("family_ok", [])]
+        if ok:
+            out[key]["family_accuracy"] = float(np.mean(ok))
     return out
 
 
@@ -291,7 +334,8 @@ def evaluate(args):
                 print(f"scene {index}: {error!r}", flush=True)
                 continue
             r = rows[-1]
-            print(f"scene {index}: oracle {r['oracle_stems']['D']:.3f} two-stage {r['two_stage']['D']:.3f} "
+            print(f"scene {index}: oracle {r['oracle_stems']['D']:.3f} tail {r['oracle_tail']['D']:.3f} "
+                  f"isolated {r['oracle_isolated']['D']:.3f} two-stage {r['two_stage']['D']:.3f} "
                   f"network {r['network_only']['D']:.3f} refit {r['network_refit']['D']:.3f}", flush=True)
             if len(rows) % 16 == 0:
                 Path(args.out).write_text(json.dumps({"summary": summarise(rows), "rows": rows}, indent=1))
