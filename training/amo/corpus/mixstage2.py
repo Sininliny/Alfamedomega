@@ -80,6 +80,54 @@ def separate(mix, stems_log):
     return [np.stack([_istft(spec * masks[s], len(mix)) for spec in spectra], 1) for s in range(k)]
 
 
+def through_bus(audio, bus_fx):
+    """One part through the (predicted) bus chain, so its mask sees the bus colouring the mix has."""
+    if not bus_fx:
+        return audio
+    try:
+        out = mixscene.render_document(mixscene.bus_document(bus_fx), len(audio), audio=audio.astype(np.float32))
+        return out if np.isfinite(out).all() else audio
+    except Exception:  # noqa: BLE001
+        return audio
+
+
+def separate_rendered(mix, renders, floor=0.0):
+    """Re-separation from rendered parts (analysis by synthesis): full-resolution Wiener masks.
+
+    ``renders`` [K] stereo audio (a part's current guess at its fitted gain, through the bus).
+    ``floor`` (relative to the loudest bin of each frame) would keep a part the guess missed from
+    being masked to silence; it is 0 because the log-spectral distance punishes any leakage into
+    a part's silent bins far more (true renders: track D 0.5-2 with floor 0, 2-8 with 1e-3).
+    """
+    spectra = [_stft(c) for c in mix.T]
+    power = np.stack([sum(np.abs(_stft(c)) ** 2 for c in r.T) for r in renders])  # K, frames, bins
+    power = power + floor * power.max(0, keepdims=True).max(-1, keepdims=True) / len(renders)
+    masks = power / (power.sum(0, keepdims=True) + 1e-30)
+    return [np.stack([_istft(spec * masks[s], len(mix)) for spec in spectra], 1) for s in range(len(renders))]
+
+
+def refine_parts(mix, tracks, slots, parts, pool, parts_encoder, rounds=2, bus_fx=()):
+    """Alternate guess -> render -> re-separate (MIX-DESIGN.md §13). Returns the final parts and tracks."""
+    for _ in range(rounds):
+        renders, guessed = [], []
+        for track, part in zip(tracks, parts):
+            audio = None
+            if part is not None:
+                try:
+                    audio = render_part(part["document"], part["notes"], part["time_fx"], len(mix)) * part["gain"]
+                except Exception:  # noqa: BLE001
+                    audio = None
+            guessed.append(audio is not None)
+            renders.append(track if audio is None else audio)  # nothing guessed: keep the current separation
+        # The bus sees the dry sum at peak 0.5 (mixscene.render_scene); its tanh depends on that level.
+        dry = [r for r, g in zip(renders, guessed) if g]
+        scale = 0.5 / max(float(np.abs(np.sum(dry, axis=0)).max()), 1e-6) if dry else 1.0
+        renders = [through_bus(r * scale, bus_fx) if g else r * scale for r, g in zip(renders, guessed)]
+        tracks = separate_rendered(mix, renders)
+        parts = choose_parts(None, tracks, slots, pool, parts_encoder=parts_encoder)
+    return parts, tracks
+
+
 # ----------------------------------------------------------- reference notes
 
 
@@ -326,6 +374,14 @@ def evaluate_scene(encoder, model, corpus, index, pool, parts_encoder=None):
         scene_two = assemble_scene(parts, T.decode_bus(bus_present, bus_values), scene["seconds"])
         row[name] = {"K": len(scene_two["instruments"]), "D": mix_distance(scene_two, target),
                      "track_D": [p["track_distance"] if p else None for p in parts]}
+        if name == "two_stage_parts":
+            for rounds in (1, 2):
+                refined, _ = refine_parts(mix, tracks, slots, parts, pool, parts_encoder, rounds,
+                                          T.decode_bus(bus_present, bus_values))
+                scene_r = assemble_scene(refined, T.decode_bus(bus_present, bus_values), scene["seconds"])
+                row[f"two_stage_parts_refined{rounds}"] = {
+                    "K": len(scene_r["instruments"]), "D": mix_distance(scene_r, target),
+                    "track_D": [p["track_distance"] if p else None for p in refined]}
     # Control: the network's own constructions, gains refitted on the same separated tracks.
     own = []
     for inst, track in zip(instruments, tracks):
@@ -344,7 +400,7 @@ def evaluate_scene(encoder, model, corpus, index, pool, parts_encoder=None):
 def summarise(rows):
     out = {"scenes": len(rows)}
     for key in ("oracle_stems", "oracle_tail", "oracle_isolated", "oracle_parts", "network_only", "network_refit",
-                "two_stage", "two_stage_parts"):
+                "two_stage", "two_stage_parts", "two_stage_parts_refined1", "two_stage_parts_refined2"):
         if not rows or key not in rows[0]:
             continue
         d = np.asarray([r[key]["D"] for r in rows], float)
