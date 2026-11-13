@@ -329,7 +329,7 @@ def oracle_families(scene):
     return [scene["instruments"][a["instrument"]]["layers"][a["layer"]]["family"] for a in mixscene.atoms_of(scene)]
 
 
-def evaluate_scene(encoder, model, corpus, index, pool, parts_encoder=None):
+def evaluate_scene(encoder, model, corpus, index, pool, parts_encoder=None, separator=None):
     from training.amo.corpus import mixtargets as T, mixtrain
 
     scene = corpus["scenes"][index]
@@ -382,6 +382,22 @@ def evaluate_scene(encoder, model, corpus, index, pool, parts_encoder=None):
                 row[f"two_stage_parts_refined{rounds}"] = {
                     "K": len(scene_r["instruments"]), "D": mix_distance(scene_r, target),
                     "track_D": [p["track_distance"] if p else None for p in refined]}
+    if separator is not None and parts_encoder is not None:
+        # §14: the separation network's tracks and notes replace the band masks and the slot notes.
+        found = [x for x in separator.separate(mix) if x["notes"]]
+        sep_tracks = [x["track"] for x in found]
+        sep_slots = [{"notes": x["notes"], "time_fx": [], "note_echo": None} for x in found]
+        bus = T.decode_bus(bus_present, bus_values)
+        parts = choose_parts(None, sep_tracks, sep_slots, pool, parts_encoder=parts_encoder) if found else []
+        scene_s = assemble_scene(parts, bus, scene["seconds"])
+        row["two_stage_sep"] = {"K": len(scene_s["instruments"]), "D": mix_distance(scene_s, target),
+                                "track_D": [p["track_distance"] if p else None for p in parts]}
+        if found:
+            refined, _ = refine_parts(mix, sep_tracks, sep_slots, parts, pool, parts_encoder, 1, bus)
+            scene_r = assemble_scene(refined, bus, scene["seconds"])
+            row["two_stage_sep_refined1"] = {"K": len(scene_r["instruments"]), "D": mix_distance(scene_r, target)}
+        else:
+            row["two_stage_sep_refined1"] = {"K": 0, "D": float("inf")}
     # Control: the network's own constructions, gains refitted on the same separated tracks.
     own = []
     for inst, track in zip(instruments, tracks):
@@ -400,7 +416,8 @@ def evaluate_scene(encoder, model, corpus, index, pool, parts_encoder=None):
 def summarise(rows):
     out = {"scenes": len(rows)}
     for key in ("oracle_stems", "oracle_tail", "oracle_isolated", "oracle_parts", "network_only", "network_refit",
-                "two_stage", "two_stage_parts", "two_stage_parts_refined1", "two_stage_parts_refined2"):
+                "two_stage", "two_stage_parts", "two_stage_parts_refined1", "two_stage_parts_refined2",
+                "two_stage_sep", "two_stage_sep_refined1"):
         if not rows or key not in rows[0]:
             continue
         d = np.asarray([r[key]["D"] for r in rows], float)
@@ -423,6 +440,10 @@ def evaluate(args):
     if args.parts_encoder:
         from training.amo.corpus import mixparts
         parts_encoder = mixparts.PartEncoder(args.parts_encoder)
+    separator = None
+    if args.separator:
+        from training.amo.corpus import mixsep
+        separator = mixsep.Separator(args.separator)
     model = mixtrain.load_model(args.model)
     corpus = mixtrain.load_corpus(args.corpus)
     indices = mixtrain.split_indices(corpus, args.split)[:args.scenes]
@@ -430,7 +451,7 @@ def evaluate(args):
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
         for index in indices:
             try:
-                rows.append(evaluate_scene(encoder, model, corpus, index, pool, parts_encoder))
+                rows.append(evaluate_scene(encoder, model, corpus, index, pool, parts_encoder, separator))
             except Exception as error:  # noqa: BLE001 - one bad scene must not end the run
                 print(f"scene {index}: {error!r}", flush=True)
                 continue
@@ -453,6 +474,7 @@ def parse(argv=None):
     e.add_argument("model")
     e.add_argument("encoder", help="run-3 corpus encoder model, or 'none' to skip its variants")
     e.add_argument("--parts-encoder", help="part encoder model.pt (mixparts, MIX-DESIGN.md §13)")
+    e.add_argument("--separator", help="separation network model.pt (mixsep, MIX-DESIGN.md §14)")
     e.add_argument("--split", default="test")
     e.add_argument("--scenes", type=int, default=64)
     e.add_argument("--workers", type=int, default=4)

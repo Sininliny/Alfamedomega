@@ -53,6 +53,9 @@ PARTS_GENERATE_SLUGS = ("amo-parts-generate-a", "amo-parts-generate-b")
 PARTS_TRAIN_SLUGS = ("amo-parts-train-a", "amo-parts-train-b")
 PARTS_EVALUATE_SLUG = "amo-parts-evaluate"
 PARTS_STAGE2_SLUG = "amo-parts-stage2"
+SEP_GENERATE_SLUGS = ("amo-sep-generate-a", "amo-sep-generate-b")
+SEP_TRAIN_SLUGS = ("amo-sep-train-a", "amo-sep-train-b")
+SEP_EVALUATE_SLUG = "amo-sep-evaluate"
 
 
 def bundle():
@@ -440,6 +443,78 @@ def main():
 main()
 '''
 
+SEP_GENERATE = r'''
+def main():
+    # CPU: separation-network windows (MIX-DESIGN.md §14) of scenes SEP_FIRST..SEP_FIRST+SEP_SCENES-1.
+    began = time.time()
+    unpack()
+    build_library()
+    output = Path("/kaggle/working/sep")
+    run([sys.executable, "-m", "training.amo.corpus.mixsep", "build", output, "--first", SEP_FIRST,
+         "--scenes", SEP_SCENES, "--per-shard", 100, "--workers", os.cpu_count() or 4], cwd=CODE)
+    # Smoke-test the model code on a few windows (torch is in the Kaggle image); never fails the job.
+    smoke = subprocess.run(list(map(str, [sys.executable, "-m", "training.amo.corpus.mixsep", "train", "/tmp/sep-smoke",
+                                          "--corpus", output, "--epochs", 1, "--batch-size", 2, "--max-scenes", 8,
+                                          "--workers", 0, "--log-every", 1, "--resume", "none"])), cwd=CODE).returncode
+    print(f"model smoke test exit code {{smoke}}", flush=True)
+    size = sum(f.stat().st_size for f in output.rglob("*") if f.is_file()) / 2**30
+    print(f"sep {{size:.2f}} GiB in {{(time.time() - began) / 60:.1f}} min", flush=True)
+
+
+main()
+'''
+
+SEP_TRAIN = r'''
+def main():
+    unpack()
+    roots = sorted({{p.parents[2] for p in Path("/kaggle/input").rglob("sep/shards/*/complete.json")}})
+    if not roots:
+        raise SystemExit("no sep/shards under /kaggle/input: add the amo-sep-generate outputs")
+    run(["nvidia-smi"])
+    command = [sys.executable, "-m", "training.amo.corpus.mixsep", "train", "/kaggle/working/run",
+               "--corpus", *roots, "--resume", "auto", "--resume-search", "/kaggle/input",
+               "--workers", os.cpu_count() or 2, *SEP_TRAIN_ARGS]
+    print("$", " ".join(map(str, command)), flush=True)
+    code = subprocess.run(list(map(str, command)), cwd=CODE).returncode
+    print({{0: "training finished; run/model.pt exported",
+           2: "stopped early with run/last.pt saved; push the other sep train kernel to continue"}}
+          .get(code, f"training failed with exit code {{code}}"), flush=True)
+    if code not in (0, 2):
+        raise SystemExit(code)
+
+
+main()
+'''
+
+SEP_EVALUATE = r'''
+def main():
+    # CPU: separation network on the test windows, then the two-stage pipeline with it (MIX-DESIGN.md §14).
+    unpack()
+    found = lambda name: sorted((p for p in Path("/kaggle/input").rglob("run/*.pt") if name in str(p)
+                                 and p.name in ("model.pt", "best.pt")), key=lambda p: (p.name != "model.pt",
+                                                                                         -p.stat().st_mtime))
+    sep, mix, parts = found("sep-train"), found("mix-train"), found("parts-train")
+    roots = sorted({{p.parents[2] for p in Path("/kaggle/input").rglob("sep/shards/*/complete.json")}})
+    if not sep or not roots:
+        raise SystemExit(f"need an amo-sep-train output and the sep corpus, found {{sep}} {{roots}}")
+    output = Path("/kaggle/working")
+    run([sys.executable, "-m", "training.amo.corpus.mixsep", "evaluate", sep[0], "--corpus", *roots,
+         "--scenes", SEP_EVAL_SCENES, "--out", output / "separator-evaluation.json"], cwd=CODE)
+    if not mix or not parts:
+        print("no mix model or part encoder mounted: skipping the two-stage evaluation", flush=True)
+        return
+    build_library()
+    corpus = Path("/tmp/mix/eval-corpus")
+    run([sys.executable, "-m", "training.amo.corpus.mixscene", "build", corpus, "--scenes", MIX_EVAL_SCENES,
+         "--per-shard", 100, "--workers", os.cpu_count() or 4], cwd=CODE)
+    run([sys.executable, "-m", "training.amo.corpus.mixstage2", "evaluate", corpus, mix[0], "none",
+         "--parts-encoder", parts[0], "--separator", sep[0], "--split", "test", "--scenes", MIX_STAGE2_SCENES,
+         "--workers", os.cpu_count() or 4, "--out", output / "sep-stage2.json"], cwd=CODE)
+
+
+main()
+'''
+
 
 def write_kernel(directory, slug, title, user, source, *, gpu, internet, kernel_sources=()):
     directory.mkdir(parents=True, exist_ok=True)
@@ -488,6 +563,11 @@ def main():
     parser.add_argument("--parts-first", type=int, default=200000)
     parser.add_argument("--parts-scenes", type=int, default=20000, help="scenes per generate kernel")
     parser.add_argument("--parts-eval-parts", type=int, default=600)
+    parser.add_argument("--sep", action="store_true",
+                        help="also write the separation-network kernels (MIX-DESIGN.md §14)")
+    parser.add_argument("--sep-first", type=int, default=300000)
+    parser.add_argument("--sep-scenes", type=int, default=10000, help="scenes per generate kernel")
+    parser.add_argument("--sep-eval-scenes", type=int, default=300)
     parser.add_argument("train_args", nargs=argparse.REMAINDER,
                         help="extra arguments for training.amo.corpus.train after --, e.g. -- --epochs 150")
     args = parser.parse_args()
@@ -565,6 +645,24 @@ def main():
                      header + common + f"MIX_EVAL_SCENES = {args.mix_eval_scenes}\nMIX_STAGE2_SCENES = "
                      f"{args.mix_stage2_scenes}\n" + (build_library + PARTS_STAGE2).format(), gpu=False,
                      internet=True, kernel_sources=[f"{args.user}/{MIX_TRAIN_SLUGS[0]}", f"{args.user}/{PARTS_TRAIN_SLUGS[0]}"])
+    if args.sep:
+        for i, slug in enumerate(SEP_GENERATE_SLUGS):
+            write_kernel(args.out / f"sep-generate-{slug[-1]}", slug, "AMO sep generate " + slug[-1].upper(),
+                         args.user, header + common + f"SEP_FIRST = {args.sep_first + i * args.sep_scenes}\n"
+                         f"SEP_SCENES = {args.sep_scenes}\n" + (build_library + SEP_GENERATE).format(),
+                         gpu=False, internet=True)
+        sep_generated = [f"{args.user}/{slug}" for slug in SEP_GENERATE_SLUGS]
+        sep_train_args = ["--time-budget-hours", str(args.time_budget_hours), *extra]
+        for slug in SEP_TRAIN_SLUGS:
+            write_kernel(args.out / f"sep-train-{slug[-1]}", slug, "AMO sep train " + slug[-1].upper(),
+                         args.user, header + common + f"SEP_TRAIN_ARGS = {sep_train_args!r}\n"
+                         + SEP_TRAIN.format(), gpu=True, internet=False, kernel_sources=sep_generated)
+        write_kernel(args.out / "sep-evaluate", SEP_EVALUATE_SLUG, "AMO sep evaluate", args.user,
+                     header + common + f"SEP_EVAL_SCENES = {args.sep_eval_scenes}\nMIX_EVAL_SCENES = "
+                     f"{args.mix_eval_scenes}\nMIX_STAGE2_SCENES = {args.mix_stage2_scenes}\n"
+                     + (build_library + SEP_EVALUATE).format(), gpu=False, internet=True,
+                     kernel_sources=[*sep_generated, f"{args.user}/{SEP_TRAIN_SLUGS[0]}",
+                                     f"{args.user}/{MIX_TRAIN_SLUGS[0]}", f"{args.user}/{PARTS_TRAIN_SLUGS[0]}"])
     size = len(header) / 1024
     print(f"wrote {args.out} (embedded code {size:.0f} KiB, commit {commit()})")
 

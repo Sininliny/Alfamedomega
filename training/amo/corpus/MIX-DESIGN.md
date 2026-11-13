@@ -305,3 +305,5 @@ $$
 **评估。** (1) 每个分轨的 SI-SDR 和 §13 的分轨对数谱距离；(2) 接回 `mixstage2`：分离网络的分轨和音符 → 分轨编码器 → 合成，和混音模型单独的 1.51、上限 0.81 比；(3) 自动数量准确率（L2 层级），以及合并后在回声测试集上的 L0 准确率。
 
 **风险。** 单声道丢了立体声线索（声像不同的乐器更难分），先这样省一半存储，效果不够再加 Side。4 秒片段比完整场景短，推理时按 4 秒窗、2 秒重叠滑动，槽位跨窗口用分轨编码器的嵌入相似度对齐。
+
+**实现。** `training/amo/corpus/mixsep.py`：`build`（每个分片存 `mix.npy` [n, 96000] 和 `stems.npy` [原子数, 96000]，int16，加 `scenes.jsonl`：窗口起点、量化比例、每个原子的音符和结构族）、`train`（和 §13 一样可续训）、`evaluate`（SI-SDR、对数谱距离、L2 数量准确率、音符起音 F1）。推理时整段一次过网络（循环网络，长度不限），掩码在 Mid 上估计、同样乘到 L 和 R 上。`mixstage2 evaluate ... --separator SEP_MODEL --parts-encoder PARTS_MODEL` 报告 `two_stage_sep`（分离网络的分轨和音符 → 分轨编码器）和细化一轮的 `two_stage_sep_refined1`；总线效果暂时仍用混音模型的预测。Kaggle：`make_kernels.py --sep` 写出 `amo-sep-generate-a/b`（CPU，场景 300000–309999 和 310000–319999）、`amo-sep-train-a/b`（T4，`kaggle_push.py sep-train`）、`amo-sep-evaluate`（CPU，两项评估一起做）。
