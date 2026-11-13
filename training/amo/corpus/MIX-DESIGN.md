@@ -274,3 +274,5 @@ $$
 **实现。** `training/amo/corpus/mixparts.py`：`build`（每个分片存 `features.npy` [n, 189, 160] fp16 和 `parts.jsonl`：场景、原子、划分、来源、标签、音符）、`train`（和 `mixtrain` 一样可续训：`last.pt` / `best.pt` / `progress.json`，时间预算到了退出码 2，早停后导出 `model.pt`）、`evaluate`。训练时音符加抖动（±20 ms、力度 ±0.1、10% 删一个音、10% 加一个音），模拟混音模型的音符误差。Kaggle：`make_kernels.py --parts` 写出 `amo-parts-generate-a/b`（CPU，场景 200000–219999 和 220000–239999，结尾用 64 个样本跑一次模型冒烟测试）、`amo-parts-train-a/b`（T4，`kaggle_push.py parts-train` 轮流续训）和 `amo-parts-evaluate`（CPU）。
 
 **接回两段式。** `mixstage2 evaluate CORPUS MIX_MODEL none --parts-encoder PARTS_MODEL`：每个分出来的分轨连同它的整段音符直接交给分轨编码器，取前两个结构族；分轨编码器预测的时间效果（echo）和混音模型给的各试一次，按分轨距离选。报告 `oracle_parts`（真值分轨 + 真值音符，上限）和 `two_stage_parts`（真实流程）。Kaggle CPU 任务 `amo-parts-stage2`。
+
+**第一次结果（2026-11-13）。** 训练 75 分钟（T4，第 13 轮最好，早停在第 21 轮），验证集结构族准确率 0.79，插入效果存在准确率 0.93，$u$ 的 MAE 0.21（瞎猜约 0.25，仍然弱）。测试集 600 个原子：干净输入结构族准确率 0.88（前两名 0.98），分轨距离中位数 0.78；掩码输入 0.75（前两名 0.87），0.89。接回两段式（64 个测试场景）：真值分轨 + 真值音符的上限从 run 3 的 1.07 降到 0.81（分轨距离 1.09 → 0.74）；真实流程 1.53，和混音模型单独的 1.51 持平，因为混音模型给的频带能量和音符分出来的分轨离真值很远（分轨距离中位数 2.2）。瓶颈从“每件乐器猜成什么”移到了第一段的分离和音符。
