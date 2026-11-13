@@ -153,6 +153,21 @@ def encode_track(encoder, track, notes, seconds, mode="cut", isolated=None):
     return candidates
 
 
+def encode_track_parts(parts_encoder, track, notes):
+    """Candidates from the part encoder (MIX-DESIGN.md §13): the whole track and its notes, top two families.
+
+    The part encoder predicts the full insert chain; its time FX ride on the candidate (``time_fx``).
+    """
+    candidates = []
+    for g in parts_encoder.guess(track, notes):
+        static = [f for f in g["insert_fx"] if f["type"] not in TIME_FX]
+        doc, _, _, _ = prepare.make_document(g["family"], np.asarray(g["u"]))
+        candidates.append({"type_id": prepare.NAMES.index(g["family"]), "document": mixscene.insert_chain(doc, static),
+                           "time_fx": [f for f in g["insert_fx"] if f["type"] in TIME_FX], "note": None,
+                           "probability": g["probability"]})
+    return candidates
+
+
 # ------------------------------------------------------------------ choice
 
 
@@ -200,15 +215,28 @@ def mix_distance(scene, target):
         return float("inf")
 
 
-def choose_parts(encoder, tracks, slots, pool, mode="cut", isolated=None):
-    """For each track (with its slot's notes / time FX), the best encoder construction and its gain."""
+def choose_parts(encoder, tracks, slots, pool, mode="cut", isolated=None, parts_encoder=None):
+    """For each track (with its slot's notes / time FX), the best encoder construction and its gain.
+
+    With ``parts_encoder`` the part encoder (§13) guesses from the whole track instead of the
+    one-shot encoder from reference notes; its own time FX compete with the slot's.
+    """
     jobs, owners, candidates = [], [], []
     for s, (track, slot) in enumerate(zip(tracks, slots)):
-        found = (encode_track(encoder, track, slot["notes"], len(track) / SR, mode,
-                              None if isolated is None else isolated[s]) if slot["notes"] else [])
+        if not slot["notes"]:
+            found = []
+        elif parts_encoder is not None:
+            found = []
+            for c in encode_track_parts(parts_encoder, track, slot["notes"]):
+                found.append(c)
+                if c["time_fx"] != slot["time_fx"]:
+                    found.append({**c, "time_fx": slot["time_fx"]})
+        else:
+            found = encode_track(encoder, track, slot["notes"], len(track) / SR, mode,
+                                 None if isolated is None else isolated[s])
         candidates.append(found)
         for c in found:
-            jobs.append((c["document"], slot["notes"], slot["time_fx"], track))
+            jobs.append((c["document"], slot["notes"], c.get("time_fx", slot["time_fx"]), track))
             owners.append(s)
     scores = list(pool.map(score_candidate, jobs)) if jobs else []
     parts = [None] * len(tracks)
@@ -221,7 +249,7 @@ def choose_parts(encoder, tracks, slots, pool, mode="cut", isolated=None):
             if d < best[s]:
                 best[s] = d
                 parts[s] = {**slots[s], "document": c["document"], "gain": g, "family": prepare.NAMES[c["type_id"]],
-                            "track_distance": d}
+                            "track_distance": d, "time_fx": c.get("time_fx", slots[s]["time_fx"])}
     return parts
 
 
@@ -253,7 +281,7 @@ def oracle_families(scene):
     return [scene["instruments"][a["instrument"]]["layers"][a["layer"]]["family"] for a in mixscene.atoms_of(scene)]
 
 
-def evaluate_scene(encoder, model, corpus, index, pool):
+def evaluate_scene(encoder, model, corpus, index, pool, parts_encoder=None):
     from training.amo.corpus import mixtargets as T, mixtrain
 
     scene = corpus["scenes"][index]
@@ -264,8 +292,12 @@ def evaluate_scene(encoder, model, corpus, index, pool):
     # Ceiling: true atom stems (pre-bus, on the mix scale) and true notes.
     slots = oracle_slots(scene)
     tracks = [s * scales["post_bus_scale"] for s in stems]
-    variants = {"oracle_stems": {}, "oracle_tail": {"mode": "tail"},
-                "oracle_isolated": {"isolated": oracle_documents(scene)}}
+    variants = {}
+    if encoder is not None:
+        variants.update({"oracle_stems": {}, "oracle_tail": {"mode": "tail"},
+                         "oracle_isolated": {"isolated": oracle_documents(scene)}})
+    if parts_encoder is not None:
+        variants["oracle_parts"] = {"parts_encoder": parts_encoder}
     for name, extra in variants.items():
         parts = choose_parts(encoder, tracks, slots, pool, **extra)
         row[name] = {"D": mix_distance(assemble_scene(parts, scene["bus_fx"], scene["seconds"]), target),
@@ -284,10 +316,16 @@ def evaluate_scene(encoder, model, corpus, index, pool):
     tracks = separate(mix, stems_log)
     slots = [{"notes": i["notes"], "time_fx": [f for f in i["insert_fx"] if f["type"] in TIME_FX],
               "note_echo": i["note_echo"]} for i in instruments]
-    parts = choose_parts(encoder, tracks, slots, pool)
-    scene_two = assemble_scene(parts, T.decode_bus(bus_present, bus_values), scene["seconds"])
-    row["two_stage"] = {"K": len(scene_two["instruments"]), "D": mix_distance(scene_two, target),
-                        "track_D": [p["track_distance"] if p else None for p in parts]}
+    stage_two = {}
+    if encoder is not None:
+        stage_two["two_stage"] = {}
+    if parts_encoder is not None:
+        stage_two["two_stage_parts"] = {"parts_encoder": parts_encoder}
+    for name, extra in stage_two.items():
+        parts = choose_parts(encoder, tracks, slots, pool, **extra)
+        scene_two = assemble_scene(parts, T.decode_bus(bus_present, bus_values), scene["seconds"])
+        row[name] = {"K": len(scene_two["instruments"]), "D": mix_distance(scene_two, target),
+                     "track_D": [p["track_distance"] if p else None for p in parts]}
     # Control: the network's own constructions, gains refitted on the same separated tracks.
     own = []
     for inst, track in zip(instruments, tracks):
@@ -305,7 +343,10 @@ def evaluate_scene(encoder, model, corpus, index, pool):
 
 def summarise(rows):
     out = {"scenes": len(rows)}
-    for key in ("oracle_stems", "oracle_tail", "oracle_isolated", "network_only", "network_refit", "two_stage"):
+    for key in ("oracle_stems", "oracle_tail", "oracle_isolated", "oracle_parts", "network_only", "network_refit",
+                "two_stage", "two_stage_parts"):
+        if not rows or key not in rows[0]:
+            continue
         d = np.asarray([r[key]["D"] for r in rows], float)
         out[key] = {"median_D": float(np.median(d[np.isfinite(d)])) if np.isfinite(d).any() else None,
                     "failed": int((~np.isfinite(d)).sum())}
@@ -321,7 +362,11 @@ def summarise(rows):
 def evaluate(args):
     from training.amo.corpus import mixtrain, resynth_wav
 
-    encoder = resynth_wav.Encoder(args.encoder)
+    encoder = None if args.encoder == "none" else resynth_wav.Encoder(args.encoder)
+    parts_encoder = None
+    if args.parts_encoder:
+        from training.amo.corpus import mixparts
+        parts_encoder = mixparts.PartEncoder(args.parts_encoder)
     model = mixtrain.load_model(args.model)
     corpus = mixtrain.load_corpus(args.corpus)
     indices = mixtrain.split_indices(corpus, args.split)[:args.scenes]
@@ -329,14 +374,13 @@ def evaluate(args):
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
         for index in indices:
             try:
-                rows.append(evaluate_scene(encoder, model, corpus, index, pool))
+                rows.append(evaluate_scene(encoder, model, corpus, index, pool, parts_encoder))
             except Exception as error:  # noqa: BLE001 - one bad scene must not end the run
                 print(f"scene {index}: {error!r}", flush=True)
                 continue
             r = rows[-1]
-            print(f"scene {index}: oracle {r['oracle_stems']['D']:.3f} tail {r['oracle_tail']['D']:.3f} "
-                  f"isolated {r['oracle_isolated']['D']:.3f} two-stage {r['two_stage']['D']:.3f} "
-                  f"network {r['network_only']['D']:.3f} refit {r['network_refit']['D']:.3f}", flush=True)
+            print(f"scene {index}: " + " ".join(f"{k} {v['D']:.3f}" for k, v in r.items() if isinstance(v, dict)),
+                  flush=True)
             if len(rows) % 16 == 0:
                 Path(args.out).write_text(json.dumps({"summary": summarise(rows), "rows": rows}, indent=1))
     result = {"summary": summarise(rows), "rows": rows}
@@ -351,7 +395,8 @@ def parse(argv=None):
     e = sub.add_parser("evaluate")
     e.add_argument("corpus")
     e.add_argument("model")
-    e.add_argument("encoder")
+    e.add_argument("encoder", help="run-3 corpus encoder model, or 'none' to skip its variants")
+    e.add_argument("--parts-encoder", help="part encoder model.pt (mixparts, MIX-DESIGN.md §13)")
     e.add_argument("--split", default="test")
     e.add_argument("--scenes", type=int, default=64)
     e.add_argument("--workers", type=int, default=4)

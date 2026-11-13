@@ -272,3 +272,5 @@ $$
 **评估。** 在测试集原子上：结构族准确率；把预测（取前两个结构族）重建成构造，用真值音符渲染，和干净分轨比距离 $D$，分干净 / 掩码两种输入报告。最后接回 §12 的 `mixstage2`，替换 run 3 编码器，报告上限（真值分轨 + 真值音符）和真实流程的整体距离，和混音模型单独的 1.51 比。
 
 **实现。** `training/amo/corpus/mixparts.py`：`build`（每个分片存 `features.npy` [n, 189, 160] fp16 和 `parts.jsonl`：场景、原子、划分、来源、标签、音符）、`train`（和 `mixtrain` 一样可续训：`last.pt` / `best.pt` / `progress.json`，时间预算到了退出码 2，早停后导出 `model.pt`）、`evaluate`。训练时音符加抖动（±20 ms、力度 ±0.1、10% 删一个音、10% 加一个音），模拟混音模型的音符误差。Kaggle：`make_kernels.py --parts` 写出 `amo-parts-generate-a/b`（CPU，场景 200000–219999 和 220000–239999，结尾用 64 个样本跑一次模型冒烟测试）、`amo-parts-train-a/b`（T4，`kaggle_push.py parts-train` 轮流续训）和 `amo-parts-evaluate`（CPU）。
+
+**接回两段式。** `mixstage2 evaluate CORPUS MIX_MODEL none --parts-encoder PARTS_MODEL`：每个分出来的分轨连同它的整段音符直接交给分轨编码器，取前两个结构族；分轨编码器预测的时间效果（echo）和混音模型给的各试一次，按分轨距离选。报告 `oracle_parts`（真值分轨 + 真值音符，上限）和 `two_stage_parts`（真实流程）。Kaggle CPU 任务 `amo-parts-stage2`。

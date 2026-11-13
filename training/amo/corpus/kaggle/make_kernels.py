@@ -52,6 +52,7 @@ MIX_STAGE2_SLUG = "amo-mix-stage2"
 PARTS_GENERATE_SLUGS = ("amo-parts-generate-a", "amo-parts-generate-b")
 PARTS_TRAIN_SLUGS = ("amo-parts-train-a", "amo-parts-train-b")
 PARTS_EVALUATE_SLUG = "amo-parts-evaluate"
+PARTS_STAGE2_SLUG = "amo-parts-stage2"
 
 
 def bundle():
@@ -417,6 +418,28 @@ def main():
 main()
 '''
 
+PARTS_STAGE2 = r'''
+def main():
+    # CPU: two-stage decomposition with the part encoder (MIX-DESIGN.md §13) in place of run 3.
+    unpack()
+    found = lambda name: sorted((p for p in Path("/kaggle/input").rglob("run/*.pt") if name in str(p)
+                                 and p.name in ("model.pt", "best.pt")), key=lambda p: (p.name != "model.pt",
+                                                                                         -p.stat().st_mtime))
+    mix, parts = found("mix-train"), found("parts-train")
+    if not mix or not parts:
+        raise SystemExit(f"need an amo-mix-train and an amo-parts-train output, found {{mix}} {{parts}}")
+    build_library()
+    corpus = Path("/tmp/mix/eval-corpus")
+    run([sys.executable, "-m", "training.amo.corpus.mixscene", "build", corpus, "--scenes", MIX_EVAL_SCENES,
+         "--per-shard", 100, "--workers", os.cpu_count() or 4], cwd=CODE)
+    run([sys.executable, "-m", "training.amo.corpus.mixstage2", "evaluate", corpus, mix[0], "none",
+         "--parts-encoder", parts[0], "--split", "test", "--scenes", MIX_STAGE2_SCENES,
+         "--workers", os.cpu_count() or 4, "--out", Path("/kaggle/working") / "parts-stage2.json"], cwd=CODE)
+
+
+main()
+'''
+
 
 def write_kernel(directory, slug, title, user, source, *, gpu, internet, kernel_sources=()):
     directory.mkdir(parents=True, exist_ok=True)
@@ -538,6 +561,10 @@ def main():
                      header + common + f"PARTS_EVAL_PARTS = {args.parts_eval_parts}\n"
                      + (build_library + PARTS_EVALUATE).format(), gpu=False, internet=True,
                      kernel_sources=[*generated, f"{args.user}/{PARTS_TRAIN_SLUGS[0]}"])
+        write_kernel(args.out / "parts-stage2", PARTS_STAGE2_SLUG, "AMO parts stage2", args.user,
+                     header + common + f"MIX_EVAL_SCENES = {args.mix_eval_scenes}\nMIX_STAGE2_SCENES = "
+                     f"{args.mix_stage2_scenes}\n" + (build_library + PARTS_STAGE2).format(), gpu=False,
+                     internet=True, kernel_sources=[f"{args.user}/{MIX_TRAIN_SLUGS[0]}", f"{args.user}/{PARTS_TRAIN_SLUGS[0]}"])
     size = len(header) / 1024
     print(f"wrote {args.out} (embedded code {size:.0f} KiB, commit {commit()})")
 
