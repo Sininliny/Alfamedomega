@@ -197,8 +197,9 @@ def scene_audio(corpus, row):
 class Dataset:
     """Stored windows; with probability ``remix`` a new mixture of atoms from two windows of the split."""
 
-    def __init__(self, corpus, indices, seed, remix=0.5, epoch=0):
+    def __init__(self, corpus, indices, seed, remix=0.5, epoch=0, min_level_db=None):
         self.corpus, self.indices, self.seed, self.remix, self.epoch = corpus, indices, seed, remix, epoch
+        self.min_level_db = min_level_db  # atoms quieter than this (relative to the mix) go to the residual
 
     def __len__(self):
         return len(self.indices)
@@ -220,6 +221,11 @@ class Dataset:
             peak = float(np.abs(mix).max())
             if peak > 0.95:
                 mix, stems = mix * 0.95 / peak, stems * 0.95 / peak
+        if self.min_level_db is not None:
+            level = np.sqrt(np.mean(stems.astype(np.float64) ** 2, 1)) / max(float(np.sqrt(np.mean(mix ** 2))), 1e-9)
+            keep = level >= 10 ** (self.min_level_db / 20)
+            keep[int(np.argmax(level))] = True
+            stems, notes = stems[keep], [n for n, k in zip(notes, keep) if k]
         k = len(stems)
         order = rng.permutation(k)
         padded = np.zeros((SLOTS, WINDOW), np.float32)
@@ -438,8 +444,10 @@ def train(args):
     began = time.monotonic()
     corpus = load_corpus(args.corpus)
     limit = args.max_scenes or None
-    train_set = Dataset(corpus, split_indices(corpus, "train")[:limit], args.seed, remix=args.remix)
-    val_set = Dataset(corpus, split_indices(corpus, "validation")[:limit], args.seed + 1, remix=0.0)
+    train_set = Dataset(corpus, split_indices(corpus, "train")[:limit], args.seed, remix=args.remix,
+                        min_level_db=args.min_level_db)
+    val_set = Dataset(corpus, split_indices(corpus, "validation")[:limit], args.seed + 1, remix=0.0,
+                      min_level_db=args.min_level_db)
     log(f"windows {args.corpus}: {len(train_set)} train / {len(val_set)} validation", log_path)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     amp_dtype = torch.float16 if device.type == "cuda" and not args.no_amp else None
@@ -695,6 +703,7 @@ def parse(argv=None):
     t.add_argument("--width", type=int, default=128)
     t.add_argument("--blocks", type=int, default=6)
     t.add_argument("--remix", type=float, default=0.5)
+    t.add_argument("--min-level-db", type=float, help="atoms quieter than this relative to the mix are residual")
     t.add_argument("--loss-weights")
     t.add_argument("--workers", type=int, default=4)
     t.add_argument("--seed", type=int, default=20261113)
