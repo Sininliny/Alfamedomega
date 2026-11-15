@@ -300,7 +300,8 @@ def build_model(config):
                                 for i, head in enumerate(self.masks)], -1)  # B, T, S+1, F
             masks = logits.float().softmax(2)
             # slot features: band features pooled with each slot's mean mask in the band
-            weights = torch.stack([masks[..., lo:hi].mean(-1) for lo, hi in zip(edges[:-1], edges[1:])], -1)
+            # detached: the roll and presence heads must not bend the masks into attention weights
+            weights = torch.stack([masks.detach()[..., lo:hi].mean(-1) for lo, hi in zip(edges[:-1], edges[1:])], -1)
             weights = weights[:, :, 1:]  # B, T, S, K
             z = torch.einsum("btsk,btkw->bstw", weights.to(h.dtype), h) / weights.sum(-1).transpose(1, 2).clamp(min=1e-4)[..., None]
             z = self.slot_rnn(z.reshape(b * SLOTS, t, -1))[0]  # B*S, T, 2W
