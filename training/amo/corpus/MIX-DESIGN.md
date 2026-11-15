@@ -307,3 +307,9 @@ $$
 **风险。** 单声道丢了立体声线索（声像不同的乐器更难分），先这样省一半存储，效果不够再加 Side。4 秒片段比完整场景短，推理时按 4 秒窗、2 秒重叠滑动，槽位跨窗口用分轨编码器的嵌入相似度对齐。
 
 **实现。** `training/amo/corpus/mixsep.py`：`build`（每个分片存 `mix.npy` [n, 96000] 和 `stems.npy` [原子数, 96000]，int16，加 `scenes.jsonl`：窗口起点、量化比例、每个原子的音符和结构族）、`train`（和 §13 一样可续训）、`evaluate`（SI-SDR、对数谱距离、L2 数量准确率、音符起音 F1）。推理时整段一次过网络（循环网络，长度不限），掩码在 Mid 上估计、同样乘到 L 和 R 上。`mixstage2 evaluate ... --separator SEP_MODEL --parts-encoder PARTS_MODEL` 报告 `two_stage_sep`（分离网络的分轨和音符 → 分轨编码器）和细化一轮的 `two_stage_sep_refined1`；总线效果暂时仍用混音模型的预测。Kaggle：`make_kernels.py --sep` 写出 `amo-sep-generate-a/b`（CPU，场景 300000–309999 和 310000–319999）、`amo-sep-train-a/b`（T4，`kaggle_push.py sep-train`）、`amo-sep-evaluate`（CPU，两项评估一起做）。
+
+### 14.x Run 1 results (2026-11-15)
+
+amo-sep-train-a: 7.36 M parameters, early stop at epoch 36 (best validation loss 0.315 at epoch 28); the separation term only fell from 0.073 to 0.065 and count accuracy stayed near 0.3.
+
+amo-sep-evaluate v1 (300 test windows): median SI-SDR -14.6 dB per matched slot, median log D 2.39, count accuracy 0.31, note onset F1 0.02. Two-stage with the separator (64 scenes): two_stage_sep 3.53 (refined once 2.93), against network_only 1.51, two_stage_parts 1.53 and oracle_parts 0.81. Run 1 does not separate: -14.6 dB is worse than handing back the mix itself (about -5 dB for four sources). Before more training, evaluate v2 measures the mix-as-estimate baseline, the ideal-ratio-mask ceiling on the same STFT grid and the best of all 8 slots ignoring presence, to tell a pipeline bug from a model that has not learned.
