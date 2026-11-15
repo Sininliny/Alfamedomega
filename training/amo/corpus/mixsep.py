@@ -595,6 +595,16 @@ def note_f1(predicted, truth, tolerance=0.05):
     return 0.0 if hits == 0 else 2 * precision * recall / (precision + recall)
 
 
+def ideal_masks(mix, stems):
+    """Oracle ratio-mask estimates (|S_k| / sum |S|) on the network's STFT grid: the ceiling for masking."""
+    from scipy.signal import istft, stft
+    spec = lambda a: stft(a, nperseg=N_FFT, noverlap=N_FFT - HOP, window="hann")[2]  # noqa: E731
+    x = spec(mix)
+    mags = np.abs(np.stack([spec(s) for s in stems]))
+    masks = mags / np.maximum(mags.sum(0), 1e-8)
+    return [istft(m * x, nperseg=N_FFT, noverlap=N_FFT - HOP, window="hann")[1][:len(mix)] for m in masks]
+
+
 def evaluate(args):
     from scipy.optimize import linear_sum_assignment
     from training.amo.corpus import resynth
@@ -617,13 +627,25 @@ def evaluate(args):
                                                       resynth.log_spectra(np.stack([stems[j]] * 2, 1))))
                                for i, j in zip(r, c)]
             result["note_f1"] = [note_f1(slots[i]["notes"], row["atoms"][j]["notes"]) for i, j in zip(r, c)]
+        # diagnostics: the mix itself as every estimate, an ideal ratio mask, and all 8 slots ignoring presence
+        result["mix_si_sdr"] = [si_sdr(mix, s) for s in stems if si_sdr(mix, s) is not None]
+        result["irm_si_sdr"] = [v for v in (si_sdr(t, s) for t, s in zip(ideal_masks(mix, stems), stems))
+                                if v is not None]
+        every = [s["track"][:, 0] for s in separator.separate(np.stack([mix, mix], 1), threshold=-1.0)]
+        cost = np.array([[-(si_sdr(t, s) or -60.0) for s in stems] for t in every])
+        r, c = linear_sum_assignment(cost)
+        result["all_slots_si_sdr"] = [float(-cost[i, j]) for i, j in zip(r, c)]
         rows.append(result)
     flat = lambda key: [x for r in rows for x in r.get(key, [])]  # noqa: E731
     summary = {"scenes": len(rows), "count_acc": float(np.mean([r["count_ok"] for r in rows])),
                "mean_found_minus_atoms": float(np.mean([r["found"] - r["atoms"] for r in rows])),
                "median_si_sdr": float(np.median(flat("si_sdr"))) if flat("si_sdr") else None,
                "median_log_D": float(np.median(flat("log_D"))) if flat("log_D") else None,
-               "mean_note_f1": float(np.mean(flat("note_f1"))) if flat("note_f1") else None}
+               "mean_note_f1": float(np.mean(flat("note_f1"))) if flat("note_f1") else None,
+               "median_mix_si_sdr": float(np.median(flat("mix_si_sdr"))) if flat("mix_si_sdr") else None,
+               "median_irm_si_sdr": float(np.median(flat("irm_si_sdr"))) if flat("irm_si_sdr") else None,
+               "median_all_slots_si_sdr": float(np.median(flat("all_slots_si_sdr")))
+               if flat("all_slots_si_sdr") else None}
     prepare.dump(Path(args.out), {"schema": "amo.separator-evaluation/1", "summary": summary, "rows": rows})
     print(json.dumps(summary, indent=2))
     return 0

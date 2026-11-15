@@ -500,8 +500,8 @@ def main():
     output = Path("/kaggle/working")
     run([sys.executable, "-m", "training.amo.corpus.mixsep", "evaluate", sep[0], "--corpus", *roots,
          "--scenes", SEP_EVAL_SCENES, "--out", output / "separator-evaluation.json"], cwd=CODE)
-    if not mix or not parts:
-        print("no mix model or part encoder mounted: skipping the two-stage evaluation", flush=True)
+    if not SEP_EVAL_STAGE2 or not mix or not parts:
+        print("two-stage evaluation off or no mix model / part encoder mounted: skipping it", flush=True)
         return
     build_library()
     corpus = Path("/tmp/mix/eval-corpus")
@@ -568,6 +568,7 @@ def main():
     parser.add_argument("--sep-first", type=int, default=300000)
     parser.add_argument("--sep-scenes", type=int, default=10000, help="scenes per generate kernel")
     parser.add_argument("--sep-eval-scenes", type=int, default=300)
+    parser.add_argument("--sep-skip-stage2", action="store_true", help="separator metrics only")
     parser.add_argument("train_args", nargs=argparse.REMAINDER,
                         help="extra arguments for training.amo.corpus.train after --, e.g. -- --epochs 150")
     args = parser.parse_args()
@@ -658,7 +659,8 @@ def main():
                          args.user, header + common + f"SEP_TRAIN_ARGS = {sep_train_args!r}\n"
                          + SEP_TRAIN.format(), gpu=True, internet=False, kernel_sources=sep_generated)
         write_kernel(args.out / "sep-evaluate", SEP_EVALUATE_SLUG, "AMO sep evaluate", args.user,
-                     header + common + f"SEP_EVAL_SCENES = {args.sep_eval_scenes}\nMIX_EVAL_SCENES = "
+                     header + common + f"SEP_EVAL_SCENES = {args.sep_eval_scenes}\n"
+                     f"SEP_EVAL_STAGE2 = {not args.sep_skip_stage2}\nMIX_EVAL_SCENES = "
                      f"{args.mix_eval_scenes}\nMIX_STAGE2_SCENES = {args.mix_stage2_scenes}\n"
                      + (build_library + SEP_EVALUATE).format(), gpu=False, internet=True,
                      kernel_sources=[*sep_generated, f"{args.user}/{SEP_TRAIN_SLUGS[0]}",
