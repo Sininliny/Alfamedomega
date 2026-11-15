@@ -328,8 +328,14 @@ def compute_losses(model, out, batch, weights):
     x, masks = out["spectrum"], out["masks"]  # B,T,F ; B,T,S+1,F
     b = x.shape[0]
     targets = model.spectrum(batch["stems"].flatten(0, 1)).view(b, SLOTS, BINS, -1).transpose(2, 3)  # B,S,T,F
-    target_c = compress(targets.abs())
-    estimate_c = compress(masks[:, :, 1:].transpose(1, 2) * x.abs()[:, None])  # B,S,T,F
+    complex_loss = weights.get("kind", "compressed") == "complex"
+    norm = x.abs().mean((1, 2))[:, None, None, None].clamp(min=1e-6)
+    if complex_loss:  # L1 on the complex spectrum, relative to the mix level (no silent-bin blow-up)
+        target_c = targets / norm
+        estimate_c = masks[:, :, 1:].transpose(1, 2) * (x[:, None] / norm)
+    else:  # L1 on |S|^0.3
+        target_c = compress(targets.abs())
+        estimate_c = compress(masks[:, :, 1:].transpose(1, 2) * x.abs()[:, None])  # B,S,T,F
     with torch.no_grad():  # cost[i, slot, atom], one atom at a time to keep memory at B*S*T*F
         cost = torch.stack([(estimate_c - target_c[:, a:a + 1]).abs().mean((-1, -2)) for a in range(SLOTS)], -1)
     present = batch["present"]
@@ -343,8 +349,11 @@ def compute_losses(model, out, batch, weights):
     # reorder estimates into atom order; the free slots line up with the zero targets
     estimate = torch.gather(estimate_c, 1, order[:, :, None, None].expand_as(estimate_c))
     losses = {"separation": (estimate - target_c).abs().mean()}
-    residual = (x - targets.sum(1)).abs()
-    losses["residual"] = (compress(masks[:, :, 0] * x.abs()) - compress(residual)).abs().mean()
+    residual = x - targets.sum(1)
+    if complex_loss:
+        losses["residual"] = ((masks[:, :, 0] * x - residual) / norm[:, 0]).abs().mean()
+    else:
+        losses["residual"] = (compress(masks[:, :, 0] * x.abs()) - compress(residual.abs())).abs().mean()
     roll = torch.gather(out["roll"].float(), 1, order[:, :, None, None, None].expand_as(out["roll"]))
     target = batch["roll"].float()
     exists = present[:, :, None, None]
@@ -362,7 +371,19 @@ def compute_losses(model, out, batch, weights):
     total = sum(weights[k] * v for k, v in losses.items())
     with torch.no_grad():
         count_ok = ((out["presence"] > 0).sum(1) == present.sum(1)).float().mean()
-    return total, {k: float(v.detach()) for k, v in losses.items()}, {"count_acc": float(count_ok)}
+        # matched-slot SI-SDR of the masked mix against each present atom (comparable across loss kinds)
+        spec = torch.gather(masks[:, :, 1:].transpose(1, 2), 1, order[:, :, None, None].expand(
+            -1, -1, *masks.shape[1:2], masks.shape[-1])) * x[:, None]
+        wave = torch.istft(spec.flatten(0, 1).transpose(1, 2), N_FFT, HOP, window=model.window, center=True,
+                           length=batch["stems"].shape[-1]).view(b, SLOTS, -1)
+        ref = batch["stems"].float()
+        ref, wave = ref - ref.mean(-1, keepdim=True), wave - wave.mean(-1, keepdim=True)
+        scale = (wave * ref).sum(-1, keepdim=True) / (ref * ref).sum(-1, keepdim=True).clamp(min=1e-9)
+        signal, noise = (scale * ref).pow(2).sum(-1), (wave - scale * ref).pow(2).sum(-1)
+        sdr = 10 * torch.log10(signal.clamp(min=1e-12) / noise.clamp(min=1e-12))
+        si_sdr_mean = (sdr * present).sum() / present.sum().clamp(min=1)
+    return total, {k: float(v.detach()) for k, v in losses.items()}, {"count_acc": float(count_ok),
+                                                                        "si_sdr": float(si_sdr_mean)}
 
 
 # --------------------------------------------------------------------- train
@@ -511,7 +532,8 @@ def train(args):
         with open(output / "metrics.jsonl", "a", encoding="utf-8") as stream:
             stream.write(json.dumps(record) + "\n")
         log(f"epoch {epoch} validation loss {validation['loss']:.4f} sep {validation['separation']:.4f} "
-            f"roll {validation['roll']:.4f} count {validation['count_acc']:.3f}", log_path)
+            f"roll {validation['roll']:.4f} count {validation['count_acc']:.3f} "
+            f"si-sdr {validation['si_sdr']:.2f} dB", log_path)
         epoch += 1
         if validation["loss"] < best:
             best, stale = validation["loss"], 0
