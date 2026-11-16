@@ -76,16 +76,52 @@ def probe(corpus, indices, min_level_db, kind, device, steps):
                               "residual_share": float(m[:, :, 0].mean())}), flush=True)
 
 
+def loop_probe(corpus, windows, amp, batch_size, device, steps, shuffle=True):
+    """The training loop's own data path (Dataset, loader, per-epoch atom order) and AMP choice."""
+    import torch
+    torch.manual_seed(0)
+    model = M.build_model({"width": 128, "blocks": 6}).to(device)
+    data = M.Dataset(corpus, M.split_indices(corpus, "train")[:windows], 7, remix=0.0)
+    weights = {**M.DEFAULT_WEIGHTS, "roll": 0.0, "presence": 0.0, "kind": "complex"}
+    optimiser = torch.optim.AdamW(model.parameters(), lr=5e-4)
+    scaler = torch.amp.GradScaler(enabled=amp)
+    step = 0
+    while step < steps:
+        data.epoch = step
+        for batch in M.loader(data, batch_size, shuffle, 2, step):
+            batch = M.to_device(batch, device)
+            with torch.autocast(device.type, dtype=torch.float16, enabled=amp):
+                out = model(batch["mix"])
+            total, losses, metrics = M.compute_losses(model, out, batch, weights)
+            optimiser.zero_grad(set_to_none=True)
+            scaler.scale(total).backward()
+            scaler.unscale_(optimiser)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
+            scaler.step(optimiser)
+            scaler.update()
+            if step % max(1, steps // 10) == 0 or step == steps - 1:
+                print(json.dumps({"probe": "loop", "windows": windows, "amp": amp, "batch": batch_size,
+                                  "shuffle": shuffle, "step": step, **losses, **metrics}), flush=True)
+            step += 1
+            if step >= steps:
+                break
+
+
 def main(argv=None):
     import torch
     parser = argparse.ArgumentParser()
     parser.add_argument("--corpus", nargs="+", required=True)
     parser.add_argument("--steps", type=int, default=300)
     parser.add_argument("--batch", type=int, default=4)
+    parser.add_argument("--loop", action="store_true", help="training-loop probes (data path, AMP)")
     args = parser.parse_args(argv)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     corpus = M.load_corpus(args.corpus)
     indices = M.split_indices(corpus, "train")[:args.batch]
+    if args.loop:
+        for windows, amp, batch_size in ((4, False, 4), (4, True, 4), (64, False, 8), (64, True, 8)):
+            loop_probe(corpus, windows, amp, batch_size, device, args.steps)
+        return 0
     for min_level_db in (-12.0, None):
         for kind in ("compressed", "complex"):
             probe(corpus, indices, min_level_db, kind, device, args.steps)
