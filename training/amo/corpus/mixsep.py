@@ -549,7 +549,8 @@ def train(args):
     def export():
         best_package = torch.load(output / "best.pt", map_location="cpu", weights_only=False)
         save_checkpoint(output / "model.pt", {"schema": MODEL_SCHEMA, "config": config, "model": best_package["model"],
-                                              "epoch": best_package["epoch"], "best_validation": best})
+                                              "epoch": best_package["epoch"], "best_validation": best,
+                                              "weights": weights})
         log(f"exported model.pt (best validation {best:.4f})", log_path)
 
     budget = args.time_budget_hours * 3600 if args.time_budget_hours else math.inf
@@ -637,8 +638,46 @@ class Separator:
         self.model.load_state_dict(package["model"])
         self.model.eval()
         self.device = device
+        self.kind = package.get("weights", {}).get("kind", "compressed")
 
-    def separate(self, mix, threshold=0.5):
+    def separate(self, mix, threshold=0.5, count=None, quiet_db=-24.0):
+        """Separated tracks of a stereo clip. One-and-rest models (kind "orpit") extract recursively:
+        auto mode stops when the stop head says nothing remains or the rest is ``quiet_db`` under the mix;
+        ``count`` = K runs exactly K-1 extractions and keeps the rest as the K-th track."""
+        if self.kind == "orpit":
+            return self.extract(mix, threshold, count, quiet_db)
+        return self.separate_slots(mix, threshold)
+
+    def extract(self, mix, threshold, count, quiet_db):
+        torch = self.torch
+        tracks = []
+        with torch.no_grad():
+            current = torch.from_numpy(np.asarray(mix, np.float32)).to(self.device)
+            level = float(current.pow(2).mean().sqrt())
+            limit = (count - 1) if count else SLOTS - 1
+            for step in range(limit):
+                out = self.model(current.mean(1)[None])
+                stereo = torch.stft(current.T, N_FFT, HOP, window=self.model.window, center=True,
+                                    return_complex=True)  # 2, F, T
+                masks = out["masks"][0].permute(1, 2, 0)  # S+1, F, T
+                one, rest = (torch.istft(stereo * masks[c][None], N_FFT, HOP, window=self.model.window,
+                                         center=True, length=len(mix)).T for c in (1, 0))
+                remains = float(torch.sigmoid(out["presence"][0, 0]))
+                rolls = torch.sigmoid(out["roll"][0, 0].float()).cpu().numpy()
+                tracks.append({"slot": step, "track": one.cpu().numpy().astype(np.float64),
+                               "notes": T.roll_notes(rolls), "presence": 1.0, "remains": remains})
+                current = rest
+                quiet = float(rest.pow(2).mean().sqrt()) < level * 10 ** (quiet_db / 20)
+                if not count and (remains < threshold or quiet):
+                    return tracks
+            if count or float(current.pow(2).mean().sqrt()) >= level * 10 ** (quiet_db / 20):
+                out = self.model(current.mean(1)[None])  # notes of the last track: one more look
+                rolls = torch.sigmoid(out["roll"][0, 0].float()).cpu().numpy()
+                tracks.append({"slot": len(tracks), "track": current.cpu().numpy().astype(np.float64),
+                               "notes": T.roll_notes(rolls), "presence": 1.0, "rest": True})
+        return tracks
+
+    def separate_slots(self, mix, threshold=0.5):
         """Whole clip at once (the network is recurrent, so any length works). Returns slots
         [{track (stereo), notes, presence}] for slots whose presence passes ``threshold``."""
         torch = self.torch
