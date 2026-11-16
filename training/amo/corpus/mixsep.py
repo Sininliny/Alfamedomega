@@ -361,8 +361,13 @@ def one_and_rest_losses(model, out, batch, weights, targets):
     norm = x.abs().mean((1, 2))[:, None, None].clamp(min=1e-6)
     xn, tn = x / norm, targets / norm[:, None]
     one, rest = masks[:, :, 1] * xn, masks[:, :, 0] * xn
-    per = (one[:, None] - tn).abs().mean((-1, -2)) + (rest[:, None] - (xn[:, None] - tn)).abs().mean((-1, -2))
-    per = per.masked_fill(present == 0, float("inf"))
+    # each candidate's error relative to its own level (else extracting nothing and calling it the
+    # quietest atom is the cheapest answer); candidates are the atoms within 3 dB of the loudest
+    level = tn.abs().mean((-1, -2))  # B, S
+    own = (one[:, None] - tn).abs().mean((-1, -2)) / level.clamp(min=1e-3)
+    per = own + (rest[:, None] - (xn[:, None] - tn)).abs().mean((-1, -2))
+    loud = level >= level.max(1, keepdim=True).values * 10 ** (-3 / 20)
+    per = per.masked_fill((present == 0) | ~loud, float("inf"))
     best, chosen = per.min(1)
     rows = torch.arange(b, device=x.device)
     remains = (present.sum(1) >= 2).float()
