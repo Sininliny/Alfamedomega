@@ -300,10 +300,11 @@ def build_model(config):
                                 for i, head in enumerate(self.masks)], -1)  # B, T, S+1, F
             masks = logits.float().softmax(2)
             # slot features: band features pooled with each slot's mean mask in the band
-            # detached: the roll and presence heads must not bend the masks into attention weights
+            # detached (masks and band features): the roll and presence losses must not reshape the
+            # separation trunk; they train only the slot GRU and their heads
             weights = torch.stack([masks.detach()[..., lo:hi].mean(-1) for lo, hi in zip(edges[:-1], edges[1:])], -1)
             weights = weights[:, :, 1:]  # B, T, S, K
-            z = torch.einsum("btsk,btkw->bstw", weights.to(h.dtype), h) / weights.sum(-1).transpose(1, 2).clamp(min=1e-4)[..., None]
+            z = torch.einsum("btsk,btkw->bstw", weights.to(h.dtype), h.detach()) / weights.sum(-1).transpose(1, 2).clamp(min=1e-4)[..., None]
             z = self.slot_rnn(z.reshape(b * SLOTS, t, -1))[0]  # B*S, T, 2W
             roll = self.roll(z).view(b, SLOTS, t, T.PITCHES, ROLL)
             presence = self.presence(z.mean(1)).view(b, SLOTS)
