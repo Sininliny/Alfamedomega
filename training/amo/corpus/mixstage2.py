@@ -444,6 +444,8 @@ def evaluate(args):
     if args.separator:
         from training.amo.corpus import mixsep
         separator = mixsep.Separator(args.separator)
+        if args.transcriber:
+            separator.transcriber = mixsep.Transcriber(args.transcriber)
     model = mixtrain.load_model(args.model)
     corpus = mixtrain.load_corpus(args.corpus)
     indices = mixtrain.split_indices(corpus, args.split)[:args.scenes]
@@ -475,6 +477,7 @@ def parse(argv=None):
     e.add_argument("encoder", help="run-3 corpus encoder model, or 'none' to skip its variants")
     e.add_argument("--parts-encoder", help="part encoder model.pt (mixparts, MIX-DESIGN.md §13)")
     e.add_argument("--separator", help="separation network model.pt (mixsep, MIX-DESIGN.md §14)")
+    e.add_argument("--transcriber", help="note transcriber model.pt (mixsep train --transcriber)")
     e.add_argument("--split", default="test")
     e.add_argument("--scenes", type=int, default=64)
     e.add_argument("--workers", type=int, default=4)

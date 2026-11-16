@@ -197,7 +197,8 @@ def scene_audio(corpus, row):
 class Dataset:
     """Stored windows; with probability ``remix`` a new mixture of atoms from two windows of the split."""
 
-    def __init__(self, corpus, indices, seed, remix=0.5, epoch=0, min_level_db=None, subset=0.0):
+    def __init__(self, corpus, indices, seed, remix=0.5, epoch=0, min_level_db=None, subset=0.0, single=False):
+        self.single = single  # one atom alone (among those within 12 dB of the loudest): transcriber data
         self.subset = subset  # probability of training on a random sub-mix of the window's atoms
         self.corpus, self.indices, self.seed, self.remix, self.epoch = corpus, indices, seed, remix, epoch
         self.min_level_db = min_level_db  # atoms quieter than this (relative to the mix) go to the residual
@@ -222,7 +223,12 @@ class Dataset:
             peak = float(np.abs(mix).max())
             if peak > 0.95:
                 mix, stems = mix * 0.95 / peak, stems * 0.95 / peak
-        if self.subset and rng.random() < self.subset and len(stems) > 1:  # a sub-mix: what recursion sees
+        if self.single:
+            level = np.sqrt(np.mean(stems.astype(np.float64) ** 2, 1))
+            pick = rng.choice(np.flatnonzero(level >= level.max() * 10 ** (-12 / 20)))
+            stems, notes = stems[pick:pick + 1], [notes[pick]]
+            mix = stems[0].copy()
+        elif self.subset and rng.random() < self.subset and len(stems) > 1:  # a sub-mix: what recursion sees
             keep = rng.random(len(stems)) < 0.5
             keep[int(rng.integers(len(stems)))] = True
             stems, notes = stems[keep], [n for n, k in zip(notes, keep) if k]
@@ -256,6 +262,7 @@ def build_model(config):
     from torch import nn
 
     width = config["width"]
+    detach = config.get("detach_slots", True)  # False for a transcriber, whose trunk serves the roll head
     edges = np.cumsum([0] + BAND_WIDTHS)
 
     class Block(nn.Module):
@@ -308,9 +315,10 @@ def build_model(config):
             # slot features: band features pooled with each slot's mean mask in the band
             # detached (masks and band features): the roll and presence losses must not reshape the
             # separation trunk; they train only the slot GRU and their heads
-            weights = torch.stack([masks.detach()[..., lo:hi].mean(-1) for lo, hi in zip(edges[:-1], edges[1:])], -1)
+            pooled = masks.detach() if detach else masks
+            weights = torch.stack([pooled[..., lo:hi].mean(-1) for lo, hi in zip(edges[:-1], edges[1:])], -1)
             weights = weights[:, :, 1:]  # B, T, S, K
-            z = torch.einsum("btsk,btkw->bstw", weights.to(h.dtype), h.detach()) / weights.sum(-1).transpose(1, 2).clamp(min=1e-4)[..., None]
+            z = torch.einsum("btsk,btkw->bstw", weights.to(h.dtype), h.detach() if detach else h) / weights.sum(-1).transpose(1, 2).clamp(min=1e-4)[..., None]
             z = self.slot_rnn(z.reshape(b * SLOTS, t, -1))[0]  # B*S, T, 2W
             roll = self.roll(z).view(b, SLOTS, t, T.PITCHES, ROLL)
             presence = self.presence(z.mean(1)).view(b, SLOTS)
@@ -509,13 +517,15 @@ def train(args):
     corpus = load_corpus(args.corpus)
     limit = args.max_scenes or None
     train_set = Dataset(corpus, split_indices(corpus, "train")[:limit], args.seed, remix=args.remix,
-                        min_level_db=args.min_level_db, subset=args.subset)
+                        min_level_db=args.min_level_db, subset=args.subset, single=args.transcriber)
     val_set = Dataset(corpus, split_indices(corpus, "validation")[:limit], args.seed + 1, remix=0.0,
-                      min_level_db=args.min_level_db)
+                      min_level_db=args.min_level_db, single=args.transcriber)
     log(f"windows {args.corpus}: {len(train_set)} train / {len(val_set)} validation", log_path)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     amp_dtype = torch.float16 if device.type == "cuda" and not args.no_amp else None
     config = {"width": args.width, "blocks": args.blocks}
+    if args.transcriber:
+        config["detach_slots"] = False
     weights = {**DEFAULT_WEIGHTS, **json.loads(args.loss_weights or "{}")}
     model = build_model(config).to(device)
     log(f"model {sum(p.numel() for p in model.parameters()) / 1e6:.2f} M parameters on {device}", log_path)
@@ -639,14 +649,18 @@ class Separator:
         self.model.eval()
         self.device = device
         self.kind = package.get("weights", {}).get("kind", "compressed")
+        self.transcriber = None  # set to a Transcriber to take notes from each separated track
 
     def separate(self, mix, threshold=0.5, count=None, quiet_db=-24.0):
         """Separated tracks of a stereo clip. One-and-rest models (kind "orpit") extract recursively:
         auto mode stops when the stop head says nothing remains or the rest is ``quiet_db`` under the mix;
         ``count`` = K runs exactly K-1 extractions and keeps the rest as the K-th track."""
-        if self.kind == "orpit":
-            return self.extract(mix, threshold, count, quiet_db)
-        return self.separate_slots(mix, threshold)
+        tracks = (self.extract(mix, threshold, count, quiet_db) if self.kind == "orpit"
+                  else self.separate_slots(mix, threshold))
+        if self.transcriber is not None:
+            for t in tracks:
+                t["notes"] = self.transcriber.notes(t["track"])
+        return tracks
 
     def extract(self, mix, threshold, count, quiet_db):
         torch = self.torch
@@ -698,6 +712,27 @@ class Separator:
                 slots.append({"slot": s, "track": track.T.cpu().numpy().astype(np.float64),
                               "notes": T.roll_notes(rolls[s]), "presence": float(presence[s])})
         return slots
+
+
+class Transcriber:
+    """Notes of one separated track (a mixsep model trained with --transcriber)."""
+
+    def __init__(self, path, device="cpu"):
+        import torch
+        self.torch = torch
+        package = torch.load(path, map_location="cpu", weights_only=False)
+        self.model = build_model(package["config"]).to(device)
+        self.model.load_state_dict(package["model"])
+        self.model.eval()
+        self.device = device
+
+    def notes(self, track):
+        torch = self.torch
+        with torch.no_grad():
+            audio = torch.from_numpy(np.asarray(track, np.float32)).to(self.device)
+            mono = audio.mean(1) if audio.ndim == 2 else audio
+            out = self.model(mono[None])
+            return T.roll_notes(torch.sigmoid(out["roll"][0, 0].float()).cpu().numpy())
 
 
 def si_sdr(estimate, reference):
@@ -805,6 +840,8 @@ def parse(argv=None):
     t.add_argument("--clip", type=float, default=5.0)
     t.add_argument("--width", type=int, default=128)
     t.add_argument("--blocks", type=int, default=6)
+    t.add_argument("--transcriber", action="store_true",
+                   help="train a note transcriber on single atoms (use with kind orpit, separation 0)")
     t.add_argument("--remix", type=float, default=0.5)
     t.add_argument("--subset", type=float, default=0.0, help="probability of a random sub-mix (one-and-rest)")
     t.add_argument("--min-level-db", type=float, help="atoms quieter than this relative to the mix are residual")
