@@ -197,7 +197,8 @@ def scene_audio(corpus, row):
 class Dataset:
     """Stored windows; with probability ``remix`` a new mixture of atoms from two windows of the split."""
 
-    def __init__(self, corpus, indices, seed, remix=0.5, epoch=0, min_level_db=None):
+    def __init__(self, corpus, indices, seed, remix=0.5, epoch=0, min_level_db=None, subset=0.0):
+        self.subset = subset  # probability of training on a random sub-mix of the window's atoms
         self.corpus, self.indices, self.seed, self.remix, self.epoch = corpus, indices, seed, remix, epoch
         self.min_level_db = min_level_db  # atoms quieter than this (relative to the mix) go to the residual
 
@@ -221,6 +222,11 @@ class Dataset:
             peak = float(np.abs(mix).max())
             if peak > 0.95:
                 mix, stems = mix * 0.95 / peak, stems * 0.95 / peak
+        if self.subset and rng.random() < self.subset and len(stems) > 1:  # a sub-mix: what recursion sees
+            keep = rng.random(len(stems)) < 0.5
+            keep[int(rng.integers(len(stems)))] = True
+            stems, notes = stems[keep], [n for n, k in zip(notes, keep) if k]
+            mix = stems.sum(0)
         if self.min_level_db is not None:
             level = np.sqrt(np.mean(stems.astype(np.float64) ** 2, 1)) / max(float(np.sqrt(np.mean(mix ** 2))), 1e-9)
             keep = level >= 10 ** (self.min_level_db / 20)
@@ -329,6 +335,55 @@ def match(cost, present):
     return slots
 
 
+def roll_loss(logits, target, weights):
+    """Piano-roll loss of matched slots: logits/target [B, S', T, P, ROLL], all slots present."""
+    import torch
+    import torch.nn.functional as F
+    onset = F.binary_cross_entropy_with_logits(logits[..., 0], target[..., 0], reduction="none",
+                                               pos_weight=torch.tensor(weights["onset_pos"], device=logits.device))
+    sustain = F.binary_cross_entropy_with_logits(logits[..., 1], target[..., 1], reduction="none")
+    on, held = target[..., 0], target[..., 1]
+    velocity = ((torch.sigmoid(logits[..., 2]) - target[..., 2]).abs() * held).sum() / held.sum().clamp(min=1)
+    timing = (((torch.sigmoid(logits[..., 3]) - target[..., 3]).abs() + (torch.sigmoid(logits[..., 4])
+               - target[..., 4]).abs()) * on).sum() / on.sum().clamp(min=1)
+    return (onset + sustain).mean() + velocity + timing
+
+
+def one_and_rest_losses(model, out, batch, weights, targets):
+    """One-and-rest PIT (MIX-DESIGN.md §14): channel 1 extracts one atom (whichever fits best), channel 0
+    holds the rest, the other channels stay silent. Presence of slot 0 = "something remains" (stop signal).
+    Applied recursively to the rest at inference."""
+    import torch
+    import torch.nn.functional as F
+    x, masks = out["spectrum"], out["masks"]
+    b = x.shape[0]
+    present = batch["present"]
+    norm = x.abs().mean((1, 2))[:, None, None].clamp(min=1e-6)
+    xn, tn = x / norm, targets / norm[:, None]
+    one, rest = masks[:, :, 1] * xn, masks[:, :, 0] * xn
+    per = (one[:, None] - tn).abs().mean((-1, -2)) + (rest[:, None] - (xn[:, None] - tn)).abs().mean((-1, -2))
+    per = per.masked_fill(present == 0, float("inf"))
+    best, chosen = per.min(1)
+    rows = torch.arange(b, device=x.device)
+    remains = (present.sum(1) >= 2).float()
+    losses = {"separation": best.mean(),
+              "residual": (masks[:, :, 2:] * xn.abs()[:, :, None]).mean() * SLOTS,
+              "roll": roll_loss(out["roll"][:, :1].float(), batch["roll"][rows, chosen][:, None].float(), weights),
+              "presence": F.binary_cross_entropy_with_logits(out["presence"][:, 0].float(), remains)}
+    total = sum(weights[k] * v for k, v in losses.items())
+    with torch.no_grad():
+        wave = torch.istft((masks[:, :, 1] * x).transpose(1, 2), N_FFT, HOP, window=model.window, center=True,
+                           length=batch["stems"].shape[-1])
+        ref = batch["stems"][rows, chosen].float()
+        ref, wave = ref - ref.mean(-1, keepdim=True), wave - wave.mean(-1, keepdim=True)
+        scale = (wave * ref).sum(-1, keepdim=True) / (ref * ref).sum(-1, keepdim=True).clamp(min=1e-9)
+        sdr = 10 * torch.log10((scale * ref).pow(2).sum(-1).clamp(min=1e-12)
+                               / (wave - scale * ref).pow(2).sum(-1).clamp(min=1e-12))
+        stop_ok = ((out["presence"][:, 0] > 0).float() == remains).float().mean()
+    return total, {k: float(v.detach()) for k, v in losses.items()}, {"count_acc": float(stop_ok),
+                                                                        "si_sdr": float(sdr.mean())}
+
+
 def compute_losses(model, out, batch, weights):
     import torch
     import torch.nn.functional as F
@@ -336,6 +391,8 @@ def compute_losses(model, out, batch, weights):
     x, masks = out["spectrum"], out["masks"]  # B,T,F ; B,T,S+1,F
     b = x.shape[0]
     targets = model.spectrum(batch["stems"].flatten(0, 1)).view(b, SLOTS, BINS, -1).transpose(2, 3)  # B,S,T,F
+    if weights.get("kind") == "orpit":
+        return one_and_rest_losses(model, out, batch, weights, targets)
     complex_loss = weights.get("kind", "compressed") == "complex"
     norm = x.abs().mean((1, 2))[:, None, None, None].clamp(min=1e-6)
     if complex_loss:  # L1 on the complex spectrum, relative to the mix level (no silent-bin blow-up)
@@ -447,7 +504,7 @@ def train(args):
     corpus = load_corpus(args.corpus)
     limit = args.max_scenes or None
     train_set = Dataset(corpus, split_indices(corpus, "train")[:limit], args.seed, remix=args.remix,
-                        min_level_db=args.min_level_db)
+                        min_level_db=args.min_level_db, subset=args.subset)
     val_set = Dataset(corpus, split_indices(corpus, "validation")[:limit], args.seed + 1, remix=0.0,
                       min_level_db=args.min_level_db)
     log(f"windows {args.corpus}: {len(train_set)} train / {len(val_set)} validation", log_path)
@@ -705,6 +762,7 @@ def parse(argv=None):
     t.add_argument("--width", type=int, default=128)
     t.add_argument("--blocks", type=int, default=6)
     t.add_argument("--remix", type=float, default=0.5)
+    t.add_argument("--subset", type=float, default=0.0, help="probability of a random sub-mix (one-and-rest)")
     t.add_argument("--min-level-db", type=float, help="atoms quieter than this relative to the mix are residual")
     t.add_argument("--loss-weights")
     t.add_argument("--workers", type=int, default=4)
