@@ -56,6 +56,9 @@ PARTS_STAGE2_SLUG = "amo-parts-stage2"
 SEP_GENERATE_SLUGS = ("amo-sep-generate-a", "amo-sep-generate-b")
 SEP_TRAIN_SLUGS = ("amo-sep-train-a", "amo-sep-train-b")
 SEP_EVALUATE_SLUG = "amo-sep-evaluate"
+SEP_TRANSCRIBE_SLUG = "amo-sep-transcribe"
+SEP_TRANSCRIBE_ARGS = ["--transcriber", "--remix", "0", "--epochs", "30", "--loss-weights",
+                       '{"kind": "orpit", "separation": 0, "residual": 0, "presence": 0}']
 
 
 def bundle():
@@ -494,12 +497,14 @@ def main():
                                  and p.name in ("model.pt", "best.pt")), key=lambda p: (p.name != "model.pt",
                                                                                          -p.stat().st_mtime))
     sep, mix, parts = found("sep-train"), found("mix-train"), found("parts-train")
+    trans = found("sep-transcribe")
+    with_notes = ["--transcriber", trans[0]] if trans else []
     roots = sorted({{p.parents[2] for p in Path("/kaggle/input").rglob("sep/shards/*/complete.json")}})
     if not sep or not roots:
         raise SystemExit(f"need an amo-sep-train output and the sep corpus, found {{sep}} {{roots}}")
     output = Path("/kaggle/working")
     run([sys.executable, "-m", "training.amo.corpus.mixsep", "evaluate", sep[0], "--corpus", *roots,
-         "--scenes", SEP_EVAL_SCENES, "--out", output / "separator-evaluation.json"], cwd=CODE)
+         "--scenes", SEP_EVAL_SCENES, "--out", output / "separator-evaluation.json", *with_notes], cwd=CODE)
     if not SEP_EVAL_STAGE2 or not mix or not parts:
         print("two-stage evaluation off or no mix model / part encoder mounted: skipping it", flush=True)
         return
@@ -509,7 +514,7 @@ def main():
          "--per-shard", 100, "--workers", os.cpu_count() or 4], cwd=CODE)
     run([sys.executable, "-m", "training.amo.corpus.mixstage2", "evaluate", corpus, mix[0], "none",
          "--parts-encoder", parts[0], "--separator", sep[0], "--split", "test", "--scenes", MIX_STAGE2_SCENES,
-         "--workers", os.cpu_count() or 4, "--out", output / "sep-stage2.json"], cwd=CODE)
+         "--workers", os.cpu_count() or 4, "--out", output / "sep-stage2.json", *with_notes], cwd=CODE)
 
 
 main()
@@ -569,6 +574,8 @@ def main():
     parser.add_argument("--sep-scenes", type=int, default=10000, help="scenes per generate kernel")
     parser.add_argument("--sep-eval-scenes", type=int, default=300)
     parser.add_argument("--sep-skip-stage2", action="store_true", help="separator metrics only")
+    parser.add_argument("--sep-eval-slot", type=int, default=0, help="sep train slot the evaluation mounts (0=a, 1=b)")
+    parser.add_argument("--sep-transcriber", action="store_true", help="the evaluation also mounts amo-sep-transcribe")
     parser.add_argument("train_args", nargs=argparse.REMAINDER,
                         help="extra arguments for training.amo.corpus.train after --, e.g. -- --epochs 150")
     args = parser.parse_args()
@@ -658,13 +665,18 @@ def main():
             write_kernel(args.out / f"sep-train-{slug[-1]}", slug, "AMO sep train " + slug[-1].upper(),
                          args.user, header + common + f"SEP_TRAIN_ARGS = {sep_train_args!r}\n"
                          + SEP_TRAIN.format(), gpu=True, internet=False, kernel_sources=sep_generated)
+        transcribe_args = ["--time-budget-hours", str(args.time_budget_hours), *SEP_TRANSCRIBE_ARGS]
+        write_kernel(args.out / "sep-transcribe", SEP_TRANSCRIBE_SLUG, "AMO sep transcribe", args.user,
+                     header + common + f"SEP_TRAIN_ARGS = {transcribe_args!r}\n" + SEP_TRAIN.format(),
+                     gpu=True, internet=False, kernel_sources=sep_generated)
         write_kernel(args.out / "sep-evaluate", SEP_EVALUATE_SLUG, "AMO sep evaluate", args.user,
                      header + common + f"SEP_EVAL_SCENES = {args.sep_eval_scenes}\n"
                      f"SEP_EVAL_STAGE2 = {not args.sep_skip_stage2}\nMIX_EVAL_SCENES = "
                      f"{args.mix_eval_scenes}\nMIX_STAGE2_SCENES = {args.mix_stage2_scenes}\n"
                      + (build_library + SEP_EVALUATE).format(), gpu=False, internet=True,
-                     kernel_sources=[*sep_generated, f"{args.user}/{SEP_TRAIN_SLUGS[0]}",
-                                     f"{args.user}/{MIX_TRAIN_SLUGS[0]}", f"{args.user}/{PARTS_TRAIN_SLUGS[0]}"])
+                     kernel_sources=[*sep_generated, f"{args.user}/{SEP_TRAIN_SLUGS[args.sep_eval_slot]}",
+                                     f"{args.user}/{MIX_TRAIN_SLUGS[0]}", f"{args.user}/{PARTS_TRAIN_SLUGS[0]}",
+                                     *([f"{args.user}/{SEP_TRANSCRIBE_SLUG}"] if args.sep_transcriber else [])])
     size = len(header) / 1024
     print(f"wrote {args.out} (embedded code {size:.0f} KiB, commit {commit()})")
 

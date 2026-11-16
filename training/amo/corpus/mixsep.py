@@ -778,6 +778,8 @@ def evaluate(args):
     from training.amo.corpus import resynth
 
     separator = Separator(args.model)
+    if args.transcriber:
+        separator.transcriber = Transcriber(args.transcriber)
     corpus = load_corpus(args.corpus)
     rows = []
     for index in split_indices(corpus, "test")[:args.scenes]:
@@ -862,6 +864,7 @@ def parse(argv=None):
     e.add_argument("--corpus", nargs="+", required=True)
     e.add_argument("--scenes", type=int, default=300)
     e.add_argument("--out", default="separator-evaluation.json")
+    e.add_argument("--transcriber", help="take each track's notes from this transcriber model.pt")
     return parser.parse_args(argv)
 
 
