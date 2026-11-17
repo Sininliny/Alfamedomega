@@ -210,13 +210,15 @@ def write_preview(scene, out, target=None):
 
 
 def windows(frames, rate=mixscene.SAMPLE_RATE, length=WINDOW):
-    """[start, end) sample ranges of ≤ ``length`` s; a tail under MIN_WINDOW joins the previous one."""
+    """[start, end) sample ranges of ≤ ``length`` s; a tail under MIN_WINDOW is evened out with the previous one."""
     size = int(length * rate)
     starts = list(range(0, frames, size))
     spans = [[s, min(s + size, frames)] for s in starts]
     if len(spans) > 1 and spans[-1][1] - spans[-1][0] < MIN_WINDOW * rate:
-        tail = spans.pop()
-        spans[-1][1] = tail[1]
+        end = spans.pop()[1]  # split the last two windows evenly (each stays ≤ length)
+        middle = (spans[-1][0] + end) // 2
+        spans[-1][1] = middle
+        spans.append([middle, end])
     return [tuple(s) for s in spans]
 
 
@@ -281,8 +283,10 @@ def decompose_window(model, audio, fixed=None, lam=None):
     """One window (≤ 8 s, 24 kHz stereo) -> decoded scene and provenance. Needs torch."""
     from training.amo.corpus import mixinfer, mixtargets as T, mixtrain, resynth
 
-    features, _ = mixscene.mix_features(audio)
-    frames = len(features)
+    raw, _ = mixscene.mix_features(audio)
+    frames = min(len(raw), mixscene.MAX_FRAMES)
+    features = np.full((mixscene.MAX_FRAMES, raw.shape[1]), np.log10(mixscene.LOG_FLOOR), np.float32)
+    features[:frames] = raw[:frames]  # padded like the corpus (mixscene.generate_shard)
     seconds = len(audio) / mixscene.SAMPLE_RATE
     if lam is None:
         units, bus_present, bus_values = mixtrain.predict(model, features, frames, fixed or 0)

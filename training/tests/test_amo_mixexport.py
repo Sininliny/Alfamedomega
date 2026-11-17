@@ -71,7 +71,8 @@ class WindowTests(unittest.TestCase):
     def test_windows_cover_and_fold_short_tail(self):
         sr = mixscene.SAMPLE_RATE
         self.assertEqual([(0, 100)], mixexport.windows(100))
-        self.assertEqual([(0, 8 * sr), (8 * sr, 16 * sr + sr // 2)], mixexport.windows(16 * sr + sr // 2))
+        self.assertEqual([(0, 8 * sr), (8 * sr, 12 * sr + sr // 4), (12 * sr + sr // 4, 16 * sr + sr // 2)],
+                         mixexport.windows(16 * sr + sr // 2))
         self.assertEqual([(0, 8 * sr), (8 * sr, 16 * sr), (16 * sr, 18 * sr)], mixexport.windows(18 * sr))
 
     def test_link_keeps_instruments_across_windows(self):

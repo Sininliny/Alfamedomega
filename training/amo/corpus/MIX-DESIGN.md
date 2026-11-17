@@ -362,7 +362,7 @@ Transcriber v1 (amo-sep-transcribe, 30 epochs on single atoms): the roll loss sa
 
 **音高回声。** 一个带 note echo 的乐器始终是一个乐器、一个预设。运行时还没有 note-echo 原语（§8），所以默认把回声 tap 作为额外音符写进 `.mid`（力度乘 decay^tap），`report.json` 和预设的 `authoring.note_echo` 记录参数；`--echo-metadata-only` 则只写原始音符。将来有了原语，预设里直接带回声，MIDI 只留原始音符。
 
-**长曲目。** 切成 ≤ 8 s 的窗（训练场景的最长长度），末尾不足 1 s 的部分并入前一窗。每窗独立分解；相邻窗之间按预设距离做匈牙利匹配：
+**长曲目。** 切成 ≤ 8 s 的窗（训练场景的最长长度），末尾不足 1 s 时把最后两窗平分（每窗仍 ≤ 8 s，网络输入按语料方式补齐到 376 帧）。每窗独立分解；相邻窗之间按预设距离做匈牙利匹配：
 
 $$c(a,b) = [\text{family}_a \ne \text{family}_b] + \overline{|u_a - u_b|} + 0.3\,[\text{层数不同}] + 0.02\,|g_a - g_b|_{\text{dB}}$$
 
