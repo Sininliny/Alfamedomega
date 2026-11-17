@@ -263,6 +263,8 @@ def build_model(config):
 
     width = config["width"]
     detach = config.get("detach_slots", True)  # False for a transcriber, whose trunk serves the roll head
+    band_pool = config.get("band_pool", False)  # keep which band carries the energy (pitch) in slot features
+    bands = len(BAND_WIDTHS)
     edges = np.cumsum([0] + BAND_WIDTHS)
 
     class Block(nn.Module):
@@ -293,6 +295,9 @@ def build_model(config):
             self.blocks = nn.ModuleList([Block() for _ in range(config["blocks"])])
             self.masks = nn.ModuleList([nn.Sequential(nn.LayerNorm(width), nn.Linear(width, 2 * width), nn.Tanh(),
                                                       nn.Linear(2 * width, (SLOTS + 1) * n)) for n in BAND_WIDTHS])
+            if band_pool:  # per-band features, squeezed, kept apart per band: the roll head sees pitch
+                self.band_down = nn.Linear(width, 16)
+                self.slot_in = nn.Sequential(nn.LayerNorm(bands * 16), nn.Linear(bands * 16, width), nn.GELU())
             self.slot_rnn = nn.GRU(width, width, batch_first=True, bidirectional=True)
             self.roll = nn.Linear(2 * width, T.PITCHES * ROLL)
             self.presence = nn.Sequential(nn.Linear(2 * width, width), nn.GELU(), nn.Linear(width, 1))
@@ -318,7 +323,14 @@ def build_model(config):
             pooled = masks.detach() if detach else masks
             weights = torch.stack([pooled[..., lo:hi].mean(-1) for lo, hi in zip(edges[:-1], edges[1:])], -1)
             weights = weights[:, :, 1:]  # B, T, S, K
-            z = torch.einsum("btsk,btkw->bstw", weights.to(h.dtype), h.detach() if detach else h) / weights.sum(-1).transpose(1, 2).clamp(min=1e-4)[..., None]
+            source = h.detach() if detach else h
+            if band_pool:
+                small = self.band_down(source)  # B, T, K, 16
+                z = self.slot_in((weights.to(small.dtype)[..., None] * small[:, :, None]).flatten(-2)
+                                 .transpose(1, 2))  # B, S, T, W
+            else:
+                z = torch.einsum("btsk,btkw->bstw", weights.to(h.dtype), source) / weights.sum(-1).transpose(
+                    1, 2).clamp(min=1e-4)[..., None]
             z = self.slot_rnn(z.reshape(b * SLOTS, t, -1))[0]  # B*S, T, 2W
             roll = self.roll(z).view(b, SLOTS, t, T.PITCHES, ROLL)
             presence = self.presence(z.mean(1)).view(b, SLOTS)
@@ -523,7 +535,7 @@ def train(args):
     log(f"windows {args.corpus}: {len(train_set)} train / {len(val_set)} validation", log_path)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     amp_dtype = torch.float16 if device.type == "cuda" and not args.no_amp else None
-    config = {"width": args.width, "blocks": args.blocks}
+    config = {"width": args.width, "blocks": args.blocks, "band_pool": True}
     if args.transcriber:
         config["detach_slots"] = False
     weights = {**DEFAULT_WEIGHTS, **json.loads(args.loss_weights or "{}")}
