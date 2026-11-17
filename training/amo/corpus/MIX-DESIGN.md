@@ -345,3 +345,32 @@ Run 2 evaluation (amo-sep-evaluate v3, run 2 at epoch 52). On 300 test windows t
 Notes from a dedicated transcriber. The same architecture is trained on single atoms (`--transcriber`: one atom within 12 dB of the loudest, roll loss only, trunk not detached). It reads each separated track; see `Transcriber` and `separate(..)`, which take notes from it, and `mixstage2 --transcriber`. Kernel amo-sep-transcribe v1 (30 epochs). Then amo-sep-evaluate runs from kernels dir kaggle-sep-run3, mounting sep-train-b (run 2 at epoch 60) and the transcriber.
 
 Transcriber v1 (amo-sep-transcribe, 30 epochs on single atoms): the roll loss sat at the prior (0.54-0.555) from epoch 1. Cause: slot features averaged the band features over frequency, so the roll head never learned which band holds the energy, that is, the pitch. This also explains the near-zero note F1 of both separator runs. Fix (commit b79e8b0, `band_pool`): each band keeps a 16-dim summary, the summaries are weighted by the slot mask and concatenated across bands, then projected. Models without `band_pool` in their config, such as the run 2 separator, load as before. The Kaggle weekly GPU quota (30 h) is used up, so the retrain waits. A CPU check runs meanwhile: amo-sep-transcribe-check (200 windows, 40 epochs).
+
+## 15. 导出（AMO Centre “Mix to Presets”，`mixexport.py`）
+
+把 §5 第 5 步落地。输入一个混音 WAV（任意长度、任意采样率，转成 24 kHz 立体声、峰值归一），输出一个文件夹：
+
+| 文件 | 内容 |
+|---|---|
+| `01 <结构族>.amo.json` … | 每个乐器一个复音 instrument 预设（voice_indexed，8 复音），包含全部 layer、insert FX，乐器增益写进 outputMix |
+| `01 <结构族>.mid` … | 该乐器的音符，SMF format 1，120 BPM（1 s = 960 tick），通道 1 |
+| `bus.amo.json` | 总线 FX 链作为 FX 预设（`preferred_mode` 1，`performance.mode` = fx，`tail_seconds` 由混响 T60 / 回声反馈估计）；无总线 FX 时不写 |
+| `report.json` | 每个乐器的结构族、移调、insert FX、note echo、增益、音符数、警告；每个窗口的来源（网络 / 重打分、候选数、选中的 K/N/F/B/D） |
+| `preview.wav`、`01.preview.wav` …（`--preview`） | 解码场景的整体渲染和每个乐器单独的渲染，`report.json` 里给出与输入的对数谱距离 $D$ |
+
+**数量。** `--count auto`：网络的数量头；`--rescore` 时按 §11 的 $\mathcal J$ 在候选里选（λ 用 run 2 调好的值）。`--count N`：恰好 N 个乐器（§2 的约束目标）。
+
+**音高回声。** 一个带 note echo 的乐器始终是一个乐器、一个预设。运行时还没有 note-echo 原语（§8），所以默认把回声 tap 作为额外音符写进 `.mid`（力度乘 decay^tap），`report.json` 和预设的 `authoring.note_echo` 记录参数；`--echo-metadata-only` 则只写原始音符。将来有了原语，预设里直接带回声，MIDI 只留原始音符。
+
+**长曲目。** 切成 ≤ 8 s 的窗（训练场景的最长长度），末尾不足 1 s 的部分并入前一窗。每窗独立分解；相邻窗之间按预设距离做匈牙利匹配：
+
+$$c(a,b) = [\text{family}_a \ne \text{family}_b] + \overline{|u_a - u_b|} + 0.3\,[\text{层数不同}] + 0.02\,|g_a - g_b|_{\text{dB}}$$
+
+$c \le 1.5$ 视为同一乐器（固定 K 时总是连接），否则新开一个乐器，超过 8 个时并入最近的。音符按窗口偏移拼接，预设取该乐器最响（增益 + 音符数）那一窗的构造。总线链取各窗中最常见的那种。v1 不做跨窗边界上的音符缝合（跨边界的长音会被截成两段）。
+
+**已知限制。**
+- 乐器构造来自混音模型的 24 族解码（network-only，测试集中位距离 1.51）；两段式（分离 + 单乐器编码器）就绪后换成它，导出格式不变。
+- 预设在 48 kHz 编译校验；`playable()` 不通过（空闲 voice 或低音不发声）时只写警告，不换族。
+- 采样数表示的延迟（合唱、梳状、回声、混响）按 24 kHz 拟合，宿主采样率不同时时长会按比例变化；需要运行时把这些参数改成秒或按采样率换算（另开任务）。
+
+**验证。** `training/tests/test_amo_mixexport.py`（MIDI 往返、回声 tap、分窗、跨窗连接、文件夹内容）；Kaggle CPU 内核 `amo-mix-export` 在测试集场景上端到端跑 auto / 重打分 / 固定 K，外加一个 16 s 场景检查跨窗连接。
