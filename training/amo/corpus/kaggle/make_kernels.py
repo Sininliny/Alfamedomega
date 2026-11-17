@@ -49,6 +49,7 @@ MIX_SMOKE_SLUG = "amo-mix-smoke"
 MIX_EVALUATE_SLUG = "amo-mix-evaluate"
 MIX_RESCORE_SLUG = "amo-mix-rescore"
 MIX_STAGE2_SLUG = "amo-mix-stage2"
+MIX_EXPORT_SLUG = "amo-mix-export"
 PARTS_GENERATE_SLUGS = ("amo-parts-generate-a", "amo-parts-generate-b")
 PARTS_TRAIN_SLUGS = ("amo-parts-train-a", "amo-parts-train-b")
 PARTS_EVALUATE_SLUG = "amo-parts-evaluate"
@@ -321,6 +322,76 @@ def main():
 main()
 '''
 
+MIX_EXPORT = r'''
+def main():
+    # CPU: end-to-end export check (MIX-DESIGN.md §15) on held-out scenes, one of them 16 s long.
+    unpack()
+    models = sorted(Path("/kaggle/input").rglob("run/model.pt"), key=lambda p: p.stat().st_mtime)
+    models = [p for p in models if "mix" in str(p)] or models
+    if not models:
+        raise SystemExit("run/model.pt not found under /kaggle/input: add an amo-mix-train output")
+    print("model", models[-1], flush=True)
+    build_library()
+    sys.path.insert(0, str(CODE))
+    import copy, json
+    from training.amo.corpus import mixscene, prepare
+    inputs = Path("/tmp/export-inputs")
+    inputs.mkdir(parents=True, exist_ok=True)
+    picked, index = [], 0
+    while len(picked) < MIX_EXPORT_SCENES:
+        index += 1
+        if mixscene.split_of(index) != "test":
+            continue
+        scene = mixscene.build_scene(mixscene.SEED, index)
+        scene = scene[0] if isinstance(scene, tuple) else scene
+        if scene is None:
+            continue
+        echo = any(i["note_echo"] for i in scene["instruments"])
+        if len(picked) == 1 and not echo:  # the second scene has a pitched note echo
+            continue
+        picked.append((index, scene))
+    long = copy.deepcopy(picked[0][1])  # 2 x the first scene: same instruments over 16 s (window linking)
+    shift = long["seconds"]
+    long["seconds"] = 2 * shift
+    for inst in long["instruments"]:
+        inst["notes"] = inst["notes"] + [[n[0] + shift, *n[1:]] for n in inst["notes"]]
+    picked.append((f"{{picked[0][0]}}x2", long))
+    rescore = Path("/tmp/export-inputs/rescore.json")
+    rescore.write_text(json.dumps({{"lambda": MIX_EXPORT_LAMBDA}}))
+    summary = []
+    for index, scene in picked:
+        name = f"scene-{{index}}"
+        _, mix, _ = mixscene.render_scene(scene)
+        wav = inputs / f"{{name}}.wav"
+        prepare.write_wav(wav, mix, mixscene.SAMPLE_RATE)
+        truth = {{"instruments": len(scene["instruments"]), "seconds": scene["seconds"],
+                 "echo": [i["note_echo"] is not None for i in scene["instruments"]],
+                 "families": [[l["family"] for l in i["layers"]] for i in scene["instruments"]],
+                 "notes": [len(i["notes"]) for i in scene["instruments"]], "bus": [f["type"] for f in scene["bus_fx"]]}}
+        out = Path("/kaggle/working/export") / name
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "truth.json").write_text(json.dumps(truth, indent=1))
+        for label, extra in (("auto", []), ("auto-rescored", ["--rescore", rescore]),
+                             ("fixed", ["--count", truth["instruments"]])):
+            target = out / label
+            try:
+                run([sys.executable, "-m", "training.amo.corpus.mixexport", models[-1], wav, "--out", target,
+                     "--preview", *extra], cwd=CODE)
+            except subprocess.CalledProcessError as error:
+                print("export failed:", error, flush=True)
+            report = json.loads((target / "report.json").read_text()) if (target / "report.json").exists() else {{}}
+            summary.append({{"scene": name, "mode": label, "true_K": truth["instruments"],
+                            "K": len(report.get("instruments", [])),
+                            "distance": report.get("preview", {{}}).get("distance"),
+                            "echo": [bool(e["note_echo"]) for e in report.get("instruments", [])],
+                            "errors": [e.get("error") for e in report.get("instruments", []) if e.get("error")]}})
+            print("SUMMARY", json.dumps(summary[-1]), flush=True)
+    Path("/kaggle/working/export-summary.json").write_text(json.dumps(summary, indent=1))
+
+
+main()
+'''
+
 MIX_STAGE2 = r'''
 def main():
     # CPU: two-stage decomposition (MIX-DESIGN.md §12): mix model + corpus encoder (run 3).
@@ -559,6 +630,10 @@ def main():
                         help="mix-evaluate: rebuild scenes 0..N-1 and score their validation split")
     parser.add_argument("--mix-eval-resynth", type=int, default=128)
     parser.add_argument("--mix-stage2-scenes", type=int, default=96)
+    parser.add_argument("--mix-export-scenes", type=int, default=4,
+                        help="mix-export: held-out scenes exported end to end (plus one 16 s scene)")
+    parser.add_argument("--mix-export-lambda", default='{"instrument": 0.01, "note": 0.0005, "fx": 0.0}',
+                        help="mix-export: rescoring λ (mixinfer tune output of run 2)")
     parser.add_argument("--mix-rescore-scenes", type=int, default=200,
                         help="mix-rescore: validation scenes to tune the lambdas on, and as many test scenes")
     parser.add_argument("--mix-generate-args", default="",
@@ -630,6 +705,10 @@ def main():
                      header + common + f"MIX_EVAL_SCENES = {args.mix_eval_scenes}\nMIX_STAGE2_SCENES = "
                      f"{args.mix_stage2_scenes}\n" + (build_library + MIX_STAGE2).format(), gpu=False,
                      internet=True, kernel_sources=[f"{args.user}/{MIX_TRAIN_SLUGS[0]}", f"{args.user}/{TRAIN_SLUGS[0]}"])
+        write_kernel(args.out / "mix-export", MIX_EXPORT_SLUG, "AMO mix export", args.user,
+                     header + common + f"MIX_EXPORT_SCENES = {args.mix_export_scenes}\nMIX_EXPORT_LAMBDA = "
+                     f"{json.loads(args.mix_export_lambda)!r}\n" + (build_library + MIX_EXPORT).format(),
+                     gpu=False, internet=True, kernel_sources=[f"{args.user}/{MIX_TRAIN_SLUGS[0]}"])
         write_kernel(args.out / "mix-smoke", MIX_SMOKE_SLUG, "AMO mix smoke", args.user,
                      header + common + f"MIX_SCENES = {args.mix_smoke_scenes}\n"
                      + (build_library + MIX_SMOKE).format(), gpu=True, internet=True)
