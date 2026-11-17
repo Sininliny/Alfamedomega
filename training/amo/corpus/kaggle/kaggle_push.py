@@ -105,7 +105,8 @@ def output(slug, destination):
     for item in result.get("files", []):
         target = destination / item["fileName"]
         target.parent.mkdir(parents=True, exist_ok=True)
-        with urllib.request.urlopen(item["url"], timeout=600) as response, target.open("wb") as stream:
+        url = urllib.parse.quote(item["url"], safe=":/?&=%#~+,;@!$'()*")  # file names may contain spaces
+        with urllib.request.urlopen(url, timeout=600) as response, target.open("wb") as stream:
             while block := response.read(1 << 20):
                 stream.write(block)
         print("downloaded", target)
